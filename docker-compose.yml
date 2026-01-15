@@ -1,0 +1,71 @@
+services:
+  # GitAutoDev API Service - Main backend service
+  gitautodev-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gitautodev-api
+    ports:
+      - "${SERVER_PORT:-3000}:3000"
+    environment:
+      # Database configuration - supports both SQLite and PostgreSQL
+      - DATABASE_URL=postgresql://gitautodev:gitautodev_password@postgres:5432/gitautodev
+      - DATABASE_MAX_CONNECTIONS=${DATABASE_MAX_CONNECTIONS:-10}
+      
+      # Server configuration
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
+      - SERVER_PORT=3000
+      
+      # Loggin
+      - RUST_LOG=${RUST_LOG:-info}
+      - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
+    volumes:
+      # Docker socket mount - enables Rust to control host Docker (Requirement 10.2)
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      
+      # Data persistence mount - for repositories and database (Requirement 10.3)
+      - gitautodev_data:/data/gitautodev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - gitautodev
+    # Enable Docker-in-Docker functionality (Requirement 10.5)
+    privileged: true
+
+  # PostgreSQL Database Service
+  postgres:
+    image: postgres:latest
+    container_name: gitautodev-postgres
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-gitautodev}
+      - POSTGRES_USER=${POSTGRES_USER:-gitautodev}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-gitautodev_password}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - gitautodev
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gitautodev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  # Persistent storage for repositories, database, and worktrees (Requirement 10.3)
+  gitautodev_data:
+    driver: local
+  
+  # PostgreSQL data persistence
+  postgres_data:
+    driver: local
+
+networks:
+  gitautodev:
+    driver: bridge
+    name: gitautodev-network

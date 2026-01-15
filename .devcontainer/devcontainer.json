@@ -1,0 +1,37 @@
+{
+    "name": "Rust Development",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    
+    // 配置容器内的 VS Code 设置
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "tamasfe.even-better-toml",
+                "vadimcn.vscode-lldb",
+                "serayuzgur.crates",
+                "mutantdino.resourcemonitor"
+            ],
+            "settings": {
+                "rust-analyzer.checkOnSave.command": "clippy",
+                "editor.formatOnSave": true
+            }
+        }
+    },
+
+    // 使用 'forwardPorts' 将容器内的端口映射到本地
+    // "forwardPorts": [8080],
+
+    // 容器启动后运行的命令，例如更新 Cargo
+    "postCreateCommand": "cargo --version",
+
+    // 以 'vscode' 用户身份运行（Dockerfile 中已定义）
+    "remoteUser": "vscode",
+
+    // 挂载 Cargo 缓存（可选，可以大幅提升后续启动速度）
+    "mounts": [
+        "source=cargo-cache,target=/usr/local/cargo/registry,type=volume"
+    ]
+}

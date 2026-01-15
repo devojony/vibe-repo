@@ -1,0 +1,6 @@
+[build]
+# 开发时默认启用 test-utils feature，让 IDE 能识别测试辅助方法
+rustflags = []
+
+[alias]
+t = "test --features test-utils"
