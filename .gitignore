@@ -30,4 +30,7 @@ ui/node_modules/
 ui/dist/
 ui/.env
 
+# Git worktrees
+.worktrees/
+
 tmp/
