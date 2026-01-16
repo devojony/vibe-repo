@@ -1,8 +1,6 @@
 use crate::entities::repo_provider;
 
-use super::{
-    error::GitProviderError, gitea::GiteaClient, GitClient, GitHubClient, GitLabClient,
-};
+use super::{error::GitProviderError, gitea::GiteaClient, GitClient, GitHubClient, GitLabClient};
 
 /// Factory for creating GitClient instances based on provider type
 ///

@@ -114,8 +114,8 @@ mod tests {
 
         // Assert - they should be different connections
         // We can't directly compare connections, but we can verify both work
-        use sea_orm::EntityTrait;
         use crate::entities::prelude::RepoProvider;
+        use sea_orm::EntityTrait;
 
         let count1 = RepoProvider::find().all(&db1).await.unwrap().len();
         let count2 = RepoProvider::find().all(&db2).await.unwrap().len();
@@ -153,8 +153,8 @@ mod tests {
         let db2 = TestDatabase::new_in_memory().await.unwrap();
 
         // Assert - they should be isolated
-        use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
         use crate::entities::repo_provider;
+        use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 
         // Insert into db1
         let provider = repo_provider::ActiveModel {
@@ -171,11 +171,19 @@ mod tests {
 
         // Verify db1 has the provider
         use crate::entities::prelude::RepoProvider;
-        let count1 = RepoProvider::find().all(&db1.connection).await.unwrap().len();
+        let count1 = RepoProvider::find()
+            .all(&db1.connection)
+            .await
+            .unwrap()
+            .len();
         assert_eq!(count1, 1);
 
         // Verify db2 is empty (isolated)
-        let count2 = RepoProvider::find().all(&db2.connection).await.unwrap().len();
+        let count2 = RepoProvider::find()
+            .all(&db2.connection)
+            .await
+            .unwrap()
+            .len();
         assert_eq!(count2, 0);
     }
 }

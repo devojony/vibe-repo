@@ -16,11 +16,7 @@ use proptest::prelude::*;
 
 /// Generate arbitrary supported provider types
 fn arb_supported_provider_type() -> impl Strategy<Value = &'static str> {
-    prop_oneof![
-        Just("gitea"),
-        Just("github"),
-        Just("gitlab"),
-    ]
+    prop_oneof![Just("gitea"), Just("github"), Just("gitlab"),]
 }
 
 /// Generate arbitrary unsupported provider types

@@ -85,7 +85,11 @@ impl RepositoryService {
     /// - `Forbidden` - Insufficient permissions to create branch or labels
     /// - `ServiceUnavailable` - Git provider unreachable
     /// - `Validation` - Default branch not found
-    pub async fn initialize_repository(&self, repo_id: i32, branch_name: &str) -> Result<repository::Model> {
+    pub async fn initialize_repository(
+        &self,
+        repo_id: i32,
+        branch_name: &str,
+    ) -> Result<repository::Model> {
         tracing::info!("Initializing repository {}", repo_id);
 
         // 1. Fetch repository from database
@@ -110,7 +114,13 @@ impl RepositoryService {
 
         // 5. Try to create work branch
         let create_result = self
-            .create_work_branch(&git_client, owner, repo_name, &repo.default_branch, branch_name)
+            .create_work_branch(
+                &git_client,
+                owner,
+                repo_name,
+                &repo.default_branch,
+                branch_name,
+            )
             .await;
 
         // 6. Handle branch creation result
@@ -120,7 +130,11 @@ impl RepositoryService {
             }
             Err(GitAutoDevError::Conflict(_)) => {
                 // Branch already exists - this is fine (idempotent operation)
-                tracing::info!("{} branch already exists for repository {}", branch_name, repo_id);
+                tracing::info!(
+                    "{} branch already exists for repository {}",
+                    branch_name,
+                    repo_id
+                );
             }
             Err(e) => {
                 // Store error message and return
@@ -131,8 +145,15 @@ impl RepositoryService {
         }
 
         // 7. Try to create required labels
-        if let Err(e) = self.create_required_labels(&git_client, owner, repo_name).await {
-            tracing::warn!("Failed to create some labels for repository {}: {}", repo_id, e);
+        if let Err(e) = self
+            .create_required_labels(&git_client, owner, repo_name)
+            .await
+        {
+            tracing::warn!(
+                "Failed to create some labels for repository {}: {}",
+                repo_id,
+                e
+            );
             // Continue - label creation failure should not block initialization
         }
 
@@ -287,7 +308,7 @@ impl RepositoryService {
             .filter(
                 sea_orm::Condition::any()
                     .add(repository::Column::HasRequiredBranches.eq(false))
-                    .add(repository::Column::HasRequiredLabels.eq(false))
+                    .add(repository::Column::HasRequiredLabels.eq(false)),
             )
             .all(&self.db)
             .await?;
@@ -391,9 +412,7 @@ impl RepositoryService {
             let repo_id = self.store_repository(provider_id, &repo).await?;
 
             // Validate repository
-            let validation = self
-                .validate_repository(&git_client, &repo.full_name)
-                .await;
+            let validation = self.validate_repository(&git_client, &repo.full_name).await;
 
             // Update validation status
             match validation {
@@ -513,7 +532,9 @@ impl RepositoryService {
         let (owner, repo) = (parts[0], parts[1]);
 
         // Check branches (using default vibe-dev branch)
-        let branch_info = self.check_branches(git_client, owner, repo, "vibe-dev").await?;
+        let branch_info = self
+            .check_branches(git_client, owner, repo, "vibe-dev")
+            .await?;
 
         // Check labels
         let has_labels = self.check_labels(git_client, owner, repo).await?;
@@ -690,6 +711,212 @@ impl RepositoryService {
 
         Ok(())
     }
+
+    /// Archive a repository
+    ///
+    /// Sets the repository status to Archived. Archived repositories:
+    /// - Are skipped during provider sync
+    /// - Cannot be modified
+    /// - Cannot have workspaces
+    ///
+    /// # Arguments
+    /// * `repo_id` - The ID of the repository to archive
+    ///
+    /// # Returns
+    /// The updated repository model
+    ///
+    /// # Errors
+    /// - `NotFound` - Repository not found
+    /// - `Conflict` - Repository has a workspace or is already archived
+    pub async fn archive_repository(&self, repo_id: i32) -> Result<repository::Model> {
+        let repo = Repository::find_by_id(repo_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+
+        // Check if repository has workspace
+        if repo.has_workspace {
+            return Err(GitAutoDevError::Conflict(
+                "Cannot archive repository with workspace. Delete workspace first.".to_string(),
+            ));
+        }
+
+        // Check if already archived
+        if repo.status == repository::RepositoryStatus::Archived {
+            return Err(GitAutoDevError::Conflict(
+                "Repository is already archived".to_string(),
+            ));
+        }
+
+        // Update status to archived
+        let mut active: repository::ActiveModel = repo.into();
+        active.status = ActiveValue::Set(repository::RepositoryStatus::Archived);
+        let updated = active.update(&self.db).await?;
+
+        tracing::info!("Archived repository {}", repo_id);
+        Ok(updated)
+    }
+
+    /// Unarchive a repository
+    ///
+    /// Restores an archived repository to Idle or Unavailable status based on validation.
+    ///
+    /// # Arguments
+    /// * `repo_id` - The ID of the repository to unarchive
+    ///
+    /// # Returns
+    /// The updated repository model
+    ///
+    /// # Errors
+    /// - `NotFound` - Repository not found
+    /// - `Conflict` - Repository is not archived
+    pub async fn unarchive_repository(&self, repo_id: i32) -> Result<repository::Model> {
+        let repo = Repository::find_by_id(repo_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+
+        // Check if repository is archived
+        if repo.status != repository::RepositoryStatus::Archived {
+            return Err(GitAutoDevError::Conflict(
+                "Repository is not archived".to_string(),
+            ));
+        }
+
+        // Determine new status based on validation
+        let new_status = if repo.validation_status == repository::ValidationStatus::Valid {
+            repository::RepositoryStatus::Idle
+        } else {
+            repository::RepositoryStatus::Unavailable
+        };
+
+        // Update status
+        let mut active: repository::ActiveModel = repo.into();
+        active.status = ActiveValue::Set(new_status.clone());
+        let updated = active.update(&self.db).await?;
+
+        tracing::info!(
+            "Unarchived repository {} to status {:?}",
+            repo_id,
+            new_status
+        );
+        Ok(updated)
+    }
+
+    /// Soft delete a repository
+    ///
+    /// Marks a repository as deleted by setting deleted_at timestamp.
+    /// Soft-deleted repositories will be automatically restored if they appear
+    /// in the next provider sync.
+    ///
+    /// # Arguments
+    /// * `repo_id` - The ID of the repository to delete
+    ///
+    /// # Returns
+    /// Ok(()) on success
+    ///
+    /// # Errors
+    /// - `NotFound` - Repository not found
+    /// - `Conflict` - Repository has a workspace
+    pub async fn soft_delete_repository(&self, repo_id: i32) -> Result<()> {
+        let repo = Repository::find_by_id(repo_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+
+        // Check if repository has workspace
+        if repo.has_workspace {
+            return Err(GitAutoDevError::Conflict(
+                "Cannot delete repository with workspace. Delete workspace first.".to_string(),
+            ));
+        }
+
+        // Set deleted_at timestamp
+        let mut active: repository::ActiveModel = repo.into();
+        active.deleted_at = ActiveValue::Set(Some(chrono::Utc::now()));
+        active.update(&self.db).await?;
+
+        tracing::info!("Soft deleted repository {}", repo_id);
+        Ok(())
+    }
+
+    /// Restore a soft-deleted repository
+    ///
+    /// Clears the deleted_at timestamp and resets status to Uninitialized.
+    ///
+    /// # Arguments
+    /// * `repo_id` - The ID of the repository to restore
+    ///
+    /// # Returns
+    /// The updated repository model
+    ///
+    /// # Errors
+    /// - `NotFound` - Repository not found
+    /// - `Conflict` - Repository is not deleted
+    pub async fn restore_repository(&self, repo_id: i32) -> Result<repository::Model> {
+        // Find repository including deleted ones
+        let repo = Repository::find_by_id(repo_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+
+        // Check if repository is deleted
+        if repo.deleted_at.is_none() {
+            return Err(GitAutoDevError::Conflict(
+                "Repository is not deleted".to_string(),
+            ));
+        }
+
+        // Clear deleted_at and reset status
+        let mut active: repository::ActiveModel = repo.into();
+        active.deleted_at = ActiveValue::Set(None);
+        active.status = ActiveValue::Set(repository::RepositoryStatus::Uninitialized);
+        let updated = active.update(&self.db).await?;
+
+        tracing::info!("Restored repository {}", repo_id);
+        Ok(updated)
+    }
+
+    /// Update repository metadata
+    ///
+    /// Updates the repository name. This is a simple metadata update
+    /// that doesn't affect the repository's status or validation.
+    ///
+    /// # Arguments
+    /// * `repo_id` - The ID of the repository to update
+    /// * `name` - The new repository name
+    ///
+    /// # Returns
+    /// The updated repository model
+    ///
+    /// # Errors
+    /// - `NotFound` - Repository not found
+    /// - `Conflict` - Repository is archived (read-only)
+    pub async fn update_repository_metadata(
+        &self,
+        repo_id: i32,
+        name: &str,
+    ) -> Result<repository::Model> {
+        let repo = Repository::find_by_id(repo_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+
+        // Check if repository is archived
+        if repo.status == repository::RepositoryStatus::Archived {
+            return Err(GitAutoDevError::Conflict(
+                "Cannot modify archived repository. Unarchive it first.".to_string(),
+            ));
+        }
+
+        // Update name
+        let mut active: repository::ActiveModel = repo.into();
+        active.name = ActiveValue::Set(name.to_string());
+        let updated = active.update(&self.db).await?;
+
+        tracing::info!("Updated repository {} metadata", repo_id);
+        Ok(updated)
+    }
 }
 
 #[async_trait]
@@ -761,7 +988,11 @@ pub struct BranchInfo {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::api::repositories::models::REQUIRED_LABELS;
+    use crate::entities::repo_provider;
+    use crate::test_utils::db::create_test_database;
+    use sea_orm::Set;
 
     #[test]
     fn test_required_labels_constant_has_vibe_prefix() {
@@ -792,5 +1023,338 @@ mod tests {
         assert!(!REQUIRED_LABELS.contains(&"VIBE/pending-ack"));
         assert!(!REQUIRED_LABELS.contains(&"Vibe/todo-ai"));
         assert!(!REQUIRED_LABELS.contains(&"vibe/PENDING-ACK"));
+    }
+
+    // Helper function to create test repository
+    async fn create_test_repo(
+        db: &DatabaseConnection,
+        provider_id: i32,
+        name: &str,
+        status: repository::RepositoryStatus,
+        has_workspace: bool,
+    ) -> repository::Model {
+        let repo = repository::ActiveModel {
+            provider_id: Set(provider_id),
+            name: Set(name.to_string()),
+            full_name: Set(format!("owner/{}", name)),
+            clone_url: Set(format!("https://gitea.example.com/owner/{}.git", name)),
+            default_branch: Set("main".to_string()),
+            branches: Set(serde_json::json!(["main"])),
+            validation_status: Set(repository::ValidationStatus::Valid),
+            status: Set(status),
+            has_workspace: Set(has_workspace),
+            has_required_branches: Set(true),
+            has_required_labels: Set(true),
+            can_manage_prs: Set(true),
+            can_manage_issues: Set(true),
+            validation_message: Set(None),
+            deleted_at: Set(None),
+            ..Default::default()
+        };
+        repo.insert(db).await.unwrap()
+    }
+
+    // Test archive_repository
+    #[tokio::test]
+    async fn test_archive_repository_success() {
+        let db = create_test_database().await.unwrap();
+        let service = RepositoryService::new(db.clone());
+
+        // Create provider
+        let provider = repo_provider::ActiveModel {
+            name: Set("Test Provider".to_string()),
+            provider_type: Set(repo_provider::ProviderType::Gitea),
+            base_url: Set("https://gitea.example.com".to_string()),
+            access_token: Set("test_token".to_string()),
+            locked: Set(false),
+            ..Default::default()
+        };
+        let provider = provider.insert(&db).await.unwrap();
+
+        // Create idle repository without workspace
+        let repo = create_test_repo(
+            &db,
+            provider.id,
+            "test-repo",
+            repository::RepositoryStatus::Idle,
+            false,
+        )
+        .await;
+
+        // Archive the repository
+        let result = service.archive_repository(repo.id).await;
+        assert!(result.is_ok());
+        let archived = result.unwrap();
+        assert_eq!(archived.status, repository::RepositoryStatus::Archived);
+    }
+
+    #[tokio::test]
+    async fn test_archive_repository_with_workspace_fails() {
+        let db = create_test_database().await.unwrap();
+        let service = RepositoryService::new(db.clone());
+
+        // Create provider
+        let provider = repo_provider::ActiveModel {
+            name: Set("Test Provider".to_string()),
+            provider_type: Set(repo_provider::ProviderType::Gitea),
+            base_url: Set("https://gitea.example.com".to_string()),
+            access_token: Set("test_token".to_string()),
+            locked: Set(false),
+            ..Default::default()
+        };
+        let provider = provider.insert(&db).await.unwrap();
+
+        // Create active repository with workspace
+        let repo = create_test_repo(
+            &db,
+            provider.id,
+            "test-repo",
+            repository::RepositoryStatus::Active,
+            true,
+        )
+        .await;
+
+        // Try to archive - should fail
+        let result = service.archive_repository(repo.id).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), GitAutoDevError::Conflict(_)));
+    }
+
+    #[tokio::test]
+    async fn test_archive_already_archived_fails() {
+        let db = create_test_database().await.unwrap();
+        let service = RepositoryService::new(db.clone());
+
+        // Create provider
+        let provider = repo_provider::ActiveModel {
+            name: Set("Test Provider".to_string()),
+            provider_type: Set(repo_provider::ProviderType::Gitea),
+            base_url: Set("https://gitea.example.com".to_string()),
+            access_token: Set("test_token".to_string()),
+            locked: Set(false),
+            ..Default::default()
+        };
+        let provider = provider.insert(&db).await.unwrap();
+
+        // Create archived repository
+        let repo = create_test_repo(
+            &db,
+            provider.id,
+            "test-repo",
+            repository::RepositoryStatus::Archived,
+            false,
+        )
+        .await;
+
+        // Try to archive again - should fail
+        let result = service.archive_repository(repo.id).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), GitAutoDevError::Conflict(_)));
+    }
+
+    // Test unarchive_repository
+    #[tokio::test]
+    async fn test_unarchive_repository_to_idle() {
+        let db = create_test_database().await.unwrap();
+        let service = RepositoryService::new(db.clone());
+
+        // Create provider
+        let provider = repo_provider::ActiveModel {
+            name: Set("Test Provider".to_string()),
+            provider_type: Set(repo_provider::ProviderType::Gitea),
+            base_url: Set("https://gitea.example.com".to_string()),
+            access_token: Set("test_token".to_string()),
+            locked: Set(false),
+            ..Default::default()
+        };
+        let provider = provider.insert(&db).await.unwrap();
+
+        // Create archived repository with valid status
+        let repo = create_test_repo(
+            &db,
+            provider.id,
+            "test-repo",
+            repository::RepositoryStatus::Archived,
+            false,
+        )
+        .await;
+
+        // Unarchive the repository
+        let result = service.unarchive_repository(repo.id).await;
+        assert!(result.is_ok());
+        let unarchived = result.unwrap();
+        assert_eq!(unarchived.status, repository::RepositoryStatus::Idle);
+    }
+
+    #[tokio::test]
+    async fn test_unarchive_non_archived_fails() {
+        let db = create_test_database().await.unwrap();
+        let service = RepositoryService::new(db.clone());
+
+        // Create provider
+        let provider = repo_provider::ActiveModel {
+            name: Set("Test Provider".to_string()),
+            provider_type: Set(repo_provider::ProviderType::Gitea),
+            base_url: Set("https://gitea.example.com".to_string()),
+            access_token: Set("test_token".to_string()),
+            locked: Set(false),
+            ..Default::default()
+        };
+        let provider = provider.insert(&db).await.unwrap();
+
+        // Create idle repository
+        let repo = create_test_repo(
+            &db,
+            provider.id,
+            "test-repo",
+            repository::RepositoryStatus::Idle,
+            false,
+        )
+        .await;
+
+        // Try to unarchive - should fail
+        let result = service.unarchive_repository(repo.id).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), GitAutoDevError::Conflict(_)));
+    }
+
+    // Test soft_delete_repository
+    #[tokio::test]
+    async fn test_soft_delete_repository_success() {
+        let db = create_test_database().await.unwrap();
+        let service = RepositoryService::new(db.clone());
+
+        // Create provider
+        let provider = repo_provider::ActiveModel {
+            name: Set("Test Provider".to_string()),
+            provider_type: Set(repo_provider::ProviderType::Gitea),
+            base_url: Set("https://gitea.example.com".to_string()),
+            access_token: Set("test_token".to_string()),
+            locked: Set(false),
+            ..Default::default()
+        };
+        let provider = provider.insert(&db).await.unwrap();
+
+        // Create idle repository without workspace
+        let repo = create_test_repo(
+            &db,
+            provider.id,
+            "test-repo",
+            repository::RepositoryStatus::Idle,
+            false,
+        )
+        .await;
+
+        // Soft delete the repository
+        let result = service.soft_delete_repository(repo.id).await;
+        assert!(result.is_ok());
+
+        // Verify deleted_at is set
+        let deleted = Repository::find_by_id(repo.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(deleted.deleted_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_soft_delete_with_workspace_fails() {
+        let db = create_test_database().await.unwrap();
+        let service = RepositoryService::new(db.clone());
+
+        // Create provider
+        let provider = repo_provider::ActiveModel {
+            name: Set("Test Provider".to_string()),
+            provider_type: Set(repo_provider::ProviderType::Gitea),
+            base_url: Set("https://gitea.example.com".to_string()),
+            access_token: Set("test_token".to_string()),
+            locked: Set(false),
+            ..Default::default()
+        };
+        let provider = provider.insert(&db).await.unwrap();
+
+        // Create active repository with workspace
+        let repo = create_test_repo(
+            &db,
+            provider.id,
+            "test-repo",
+            repository::RepositoryStatus::Active,
+            true,
+        )
+        .await;
+
+        // Try to delete - should fail
+        let result = service.soft_delete_repository(repo.id).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), GitAutoDevError::Conflict(_)));
+    }
+
+    // Test restore_repository
+    #[tokio::test]
+    async fn test_restore_repository_success() {
+        let db = create_test_database().await.unwrap();
+        let service = RepositoryService::new(db.clone());
+
+        // Create provider
+        let provider = repo_provider::ActiveModel {
+            name: Set("Test Provider".to_string()),
+            provider_type: Set(repo_provider::ProviderType::Gitea),
+            base_url: Set("https://gitea.example.com".to_string()),
+            access_token: Set("test_token".to_string()),
+            locked: Set(false),
+            ..Default::default()
+        };
+        let provider = provider.insert(&db).await.unwrap();
+
+        // Create and soft delete a repository
+        let repo = create_test_repo(
+            &db,
+            provider.id,
+            "test-repo",
+            repository::RepositoryStatus::Idle,
+            false,
+        )
+        .await;
+        service.soft_delete_repository(repo.id).await.unwrap();
+
+        // Restore the repository
+        let result = service.restore_repository(repo.id).await;
+        assert!(result.is_ok());
+        let restored = result.unwrap();
+        assert!(restored.deleted_at.is_none());
+        assert_eq!(restored.status, repository::RepositoryStatus::Uninitialized);
+    }
+
+    #[tokio::test]
+    async fn test_restore_non_deleted_fails() {
+        let db = create_test_database().await.unwrap();
+        let service = RepositoryService::new(db.clone());
+
+        // Create provider
+        let provider = repo_provider::ActiveModel {
+            name: Set("Test Provider".to_string()),
+            provider_type: Set(repo_provider::ProviderType::Gitea),
+            base_url: Set("https://gitea.example.com".to_string()),
+            access_token: Set("test_token".to_string()),
+            locked: Set(false),
+            ..Default::default()
+        };
+        let provider = provider.insert(&db).await.unwrap();
+
+        // Create active repository (not deleted)
+        let repo = create_test_repo(
+            &db,
+            provider.id,
+            "test-repo",
+            repository::RepositoryStatus::Idle,
+            false,
+        )
+        .await;
+
+        // Try to restore - should fail
+        let result = service.restore_repository(repo.id).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), GitAutoDevError::Conflict(_)));
     }
 }

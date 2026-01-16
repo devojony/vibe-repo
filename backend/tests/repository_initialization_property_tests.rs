@@ -812,22 +812,26 @@ mod validation_status_tests {
     use super::*;
 
     /// Feature: repository-initialization, Property 4: Validation Status Calculation
-    /// 
+    ///
     /// For any repository, validation_status SHALL be Valid if and only if ALL four
     /// conditions are true.
-    /// 
+    ///
     /// **Validates: Requirements 2.4, 2.5**
     #[tokio::test]
     async fn test_validation_status_all_true_is_valid() {
-        let db = create_test_database().await.expect("Failed to create test database");
+        let db = create_test_database()
+            .await
+            .expect("Failed to create test database");
         let provider = create_test_provider(&db, "TestProvider", "https://gitea.example.com").await;
-        
+
         // Create repository with all conditions true
         let repo = repository::ActiveModel {
             provider_id: ActiveValue::Set(provider.id),
             name: ActiveValue::Set("test-repo".to_string()),
             full_name: ActiveValue::Set("owner/test-repo".to_string()),
-            clone_url: ActiveValue::Set("https://gitea.example.com/owner/test-repo.git".to_string()),
+            clone_url: ActiveValue::Set(
+                "https://gitea.example.com/owner/test-repo.git".to_string(),
+            ),
             default_branch: ActiveValue::Set("main".to_string()),
             branches: ActiveValue::Set(serde_json::json!(vec!["main", "vibe-dev"])),
             validation_status: ActiveValue::Set(repository::ValidationStatus::Pending),
@@ -841,35 +845,48 @@ mod validation_status_tests {
             ..Default::default()
         };
         let repo = repo.insert(&db).await.expect("Failed to insert repository");
-        
+
         // Calculate validation status
-        let is_valid = repo.has_required_branches && repo.has_required_labels && repo.can_manage_prs && repo.can_manage_issues;
+        let is_valid = repo.has_required_branches
+            && repo.has_required_labels
+            && repo.can_manage_prs
+            && repo.can_manage_issues;
         assert!(is_valid, "All conditions are true, should be valid");
-        
+
         // Update with Valid status
         let mut active: repository::ActiveModel = repo.into();
         active.validation_status = ActiveValue::Set(repository::ValidationStatus::Valid);
-        let updated = active.update(&db).await.expect("Failed to update repository");
-        
-        assert_eq!(updated.validation_status, repository::ValidationStatus::Valid);
+        let updated = active
+            .update(&db)
+            .await
+            .expect("Failed to update repository");
+
+        assert_eq!(
+            updated.validation_status,
+            repository::ValidationStatus::Valid
+        );
     }
 
     /// Feature: repository-initialization, Property 4: Validation Status Calculation
-    /// 
+    ///
     /// For any repository where ANY condition is false, validation_status SHALL be Invalid.
-    /// 
+    ///
     /// **Validates: Requirements 2.5**
     #[tokio::test]
     async fn test_validation_status_missing_branches_is_invalid() {
-        let db = create_test_database().await.expect("Failed to create test database");
+        let db = create_test_database()
+            .await
+            .expect("Failed to create test database");
         let provider = create_test_provider(&db, "TestProvider", "https://gitea.example.com").await;
-        
+
         // Create repository with has_required_branches = false
         let repo = repository::ActiveModel {
             provider_id: ActiveValue::Set(provider.id),
             name: ActiveValue::Set("test-repo".to_string()),
             full_name: ActiveValue::Set("owner/test-repo".to_string()),
-            clone_url: ActiveValue::Set("https://gitea.example.com/owner/test-repo.git".to_string()),
+            clone_url: ActiveValue::Set(
+                "https://gitea.example.com/owner/test-repo.git".to_string(),
+            ),
             default_branch: ActiveValue::Set("main".to_string()),
             branches: ActiveValue::Set(serde_json::json!(vec!["main"])),
             validation_status: ActiveValue::Set(repository::ValidationStatus::Pending),
@@ -883,29 +900,42 @@ mod validation_status_tests {
             ..Default::default()
         };
         let repo = repo.insert(&db).await.expect("Failed to insert repository");
-        
+
         // Calculate validation status
-        let is_valid = repo.has_required_branches && repo.has_required_labels && repo.can_manage_prs && repo.can_manage_issues;
+        let is_valid = repo.has_required_branches
+            && repo.has_required_labels
+            && repo.can_manage_prs
+            && repo.can_manage_issues;
         assert!(!is_valid, "Missing branches, should be invalid");
-        
+
         // Update with Invalid status
         let mut active: repository::ActiveModel = repo.into();
         active.validation_status = ActiveValue::Set(repository::ValidationStatus::Invalid);
-        let updated = active.update(&db).await.expect("Failed to update repository");
-        
-        assert_eq!(updated.validation_status, repository::ValidationStatus::Invalid);
+        let updated = active
+            .update(&db)
+            .await
+            .expect("Failed to update repository");
+
+        assert_eq!(
+            updated.validation_status,
+            repository::ValidationStatus::Invalid
+        );
     }
 
     #[tokio::test]
     async fn test_validation_status_missing_labels_is_invalid() {
-        let db = create_test_database().await.expect("Failed to create test database");
+        let db = create_test_database()
+            .await
+            .expect("Failed to create test database");
         let provider = create_test_provider(&db, "TestProvider", "https://gitea.example.com").await;
-        
+
         let repo = repository::ActiveModel {
             provider_id: ActiveValue::Set(provider.id),
             name: ActiveValue::Set("test-repo".to_string()),
             full_name: ActiveValue::Set("owner/test-repo".to_string()),
-            clone_url: ActiveValue::Set("https://gitea.example.com/owner/test-repo.git".to_string()),
+            clone_url: ActiveValue::Set(
+                "https://gitea.example.com/owner/test-repo.git".to_string(),
+            ),
             default_branch: ActiveValue::Set("main".to_string()),
             branches: ActiveValue::Set(serde_json::json!(vec!["main", "vibe-dev"])),
             validation_status: ActiveValue::Set(repository::ValidationStatus::Pending),
@@ -919,27 +949,40 @@ mod validation_status_tests {
             ..Default::default()
         };
         let repo = repo.insert(&db).await.expect("Failed to insert repository");
-        
-        let is_valid = repo.has_required_branches && repo.has_required_labels && repo.can_manage_prs && repo.can_manage_issues;
+
+        let is_valid = repo.has_required_branches
+            && repo.has_required_labels
+            && repo.can_manage_prs
+            && repo.can_manage_issues;
         assert!(!is_valid);
-        
+
         let mut active: repository::ActiveModel = repo.into();
         active.validation_status = ActiveValue::Set(repository::ValidationStatus::Invalid);
-        let updated = active.update(&db).await.expect("Failed to update repository");
-        
-        assert_eq!(updated.validation_status, repository::ValidationStatus::Invalid);
+        let updated = active
+            .update(&db)
+            .await
+            .expect("Failed to update repository");
+
+        assert_eq!(
+            updated.validation_status,
+            repository::ValidationStatus::Invalid
+        );
     }
 
     #[tokio::test]
     async fn test_validation_status_cannot_manage_prs_is_invalid() {
-        let db = create_test_database().await.expect("Failed to create test database");
+        let db = create_test_database()
+            .await
+            .expect("Failed to create test database");
         let provider = create_test_provider(&db, "TestProvider", "https://gitea.example.com").await;
-        
+
         let repo = repository::ActiveModel {
             provider_id: ActiveValue::Set(provider.id),
             name: ActiveValue::Set("test-repo".to_string()),
             full_name: ActiveValue::Set("owner/test-repo".to_string()),
-            clone_url: ActiveValue::Set("https://gitea.example.com/owner/test-repo.git".to_string()),
+            clone_url: ActiveValue::Set(
+                "https://gitea.example.com/owner/test-repo.git".to_string(),
+            ),
             default_branch: ActiveValue::Set("main".to_string()),
             branches: ActiveValue::Set(serde_json::json!(vec!["main", "vibe-dev"])),
             validation_status: ActiveValue::Set(repository::ValidationStatus::Pending),
@@ -953,27 +996,40 @@ mod validation_status_tests {
             ..Default::default()
         };
         let repo = repo.insert(&db).await.expect("Failed to insert repository");
-        
-        let is_valid = repo.has_required_branches && repo.has_required_labels && repo.can_manage_prs && repo.can_manage_issues;
+
+        let is_valid = repo.has_required_branches
+            && repo.has_required_labels
+            && repo.can_manage_prs
+            && repo.can_manage_issues;
         assert!(!is_valid);
-        
+
         let mut active: repository::ActiveModel = repo.into();
         active.validation_status = ActiveValue::Set(repository::ValidationStatus::Invalid);
-        let updated = active.update(&db).await.expect("Failed to update repository");
-        
-        assert_eq!(updated.validation_status, repository::ValidationStatus::Invalid);
+        let updated = active
+            .update(&db)
+            .await
+            .expect("Failed to update repository");
+
+        assert_eq!(
+            updated.validation_status,
+            repository::ValidationStatus::Invalid
+        );
     }
 
     #[tokio::test]
     async fn test_validation_status_cannot_manage_issues_is_invalid() {
-        let db = create_test_database().await.expect("Failed to create test database");
+        let db = create_test_database()
+            .await
+            .expect("Failed to create test database");
         let provider = create_test_provider(&db, "TestProvider", "https://gitea.example.com").await;
-        
+
         let repo = repository::ActiveModel {
             provider_id: ActiveValue::Set(provider.id),
             name: ActiveValue::Set("test-repo".to_string()),
             full_name: ActiveValue::Set("owner/test-repo".to_string()),
-            clone_url: ActiveValue::Set("https://gitea.example.com/owner/test-repo.git".to_string()),
+            clone_url: ActiveValue::Set(
+                "https://gitea.example.com/owner/test-repo.git".to_string(),
+            ),
             default_branch: ActiveValue::Set("main".to_string()),
             branches: ActiveValue::Set(serde_json::json!(vec!["main", "vibe-dev"])),
             validation_status: ActiveValue::Set(repository::ValidationStatus::Pending),
@@ -987,20 +1043,26 @@ mod validation_status_tests {
             ..Default::default()
         };
         let repo = repo.insert(&db).await.expect("Failed to insert repository");
-        
-        let is_valid = repo.has_required_branches && repo.has_required_labels && repo.can_manage_prs && repo.can_manage_issues;
+
+        let is_valid = repo.has_required_branches
+            && repo.has_required_labels
+            && repo.can_manage_prs
+            && repo.can_manage_issues;
         assert!(!is_valid);
-        
+
         let mut active: repository::ActiveModel = repo.into();
         active.validation_status = ActiveValue::Set(repository::ValidationStatus::Invalid);
-        let updated = active.update(&db).await.expect("Failed to update repository");
-        
-        assert_eq!(updated.validation_status, repository::ValidationStatus::Invalid);
+        let updated = active
+            .update(&db)
+            .await
+            .expect("Failed to update repository");
+
+        assert_eq!(
+            updated.validation_status,
+            repository::ValidationStatus::Invalid
+        );
     }
 }
-
-
-
 
 // ============================================
 // Property 6: Error Messages Are Stored
@@ -1011,10 +1073,10 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
     /// Feature: repository-initialization, Property 6: Error Messages Are Stored
-    /// 
+    ///
     /// For any failed initialization, the validation_message field SHALL contain
     /// a non-empty error message describing the failure.
-    /// 
+    ///
     /// **Validates: Requirements 1.10, 4.4**
     #[test]
     fn prop_error_messages_are_stored_on_failure(
@@ -1026,10 +1088,10 @@ proptest! {
         rt.block_on(async {
             // Create test database
             let db = create_test_database().await.expect("Failed to create test database");
-            
+
             // Create a provider with unreachable URL (will cause initialization to fail)
             let provider = create_test_provider(&db, "TestProvider", "https://unreachable.example.com").await;
-            
+
             // Create a repository
             let full_name = format!("{}/{}", owner, repo_name);
             let repo = create_test_repository(
@@ -1040,44 +1102,44 @@ proptest! {
                 false,
                 vec!["main".to_string()],
             ).await;
-            
+
             // Create repository service
             let service = RepositoryService::new(db.clone());
-            
+
             // Try to initialize with vibe-dev - should fail because provider is unreachable
             let result = service.initialize_repository(repo.id, "vibe-dev").await;
-            
+
             // Should return an error
             prop_assert!(result.is_err(), "Should return error for unreachable provider");
-            
+
             // Check that validation_message was updated
             let updated_repo = Repository::find_by_id(repo.id)
                 .one(&db)
                 .await
                 .expect("Failed to fetch repository")
                 .expect("Repository should exist");
-            
+
             // The validation_message should contain an error message
             prop_assert!(
                 updated_repo.validation_message.is_some(),
                 "validation_message should be set on failure"
             );
-            
+
             let error_message = updated_repo.validation_message.unwrap();
             prop_assert!(
                 !error_message.is_empty(),
                 "validation_message should not be empty"
             );
-            
+
             Ok(())
         }).unwrap();
     }
 
     /// Feature: repository-initialization, Property 6: Error Messages Are Stored
-    /// 
+    ///
     /// For any repository with invalid full_name format, initialization should
     /// store an error message.
-    /// 
+    ///
     /// **Validates: Requirements 1.10, 4.4**
     #[test]
     fn prop_error_messages_stored_for_invalid_full_name(
@@ -1088,10 +1150,10 @@ proptest! {
         rt.block_on(async {
             // Create test database
             let db = create_test_database().await.expect("Failed to create test database");
-            
+
             // Create a provider
             let provider = create_test_provider(&db, "TestProvider", "https://gitea.example.com").await;
-            
+
             // Create a repository with invalid full_name (no slash)
             let repo = repository::ActiveModel {
                 provider_id: ActiveValue::Set(provider.id),
@@ -1111,25 +1173,25 @@ proptest! {
                 ..Default::default()
             };
             let repo = repo.insert(&db).await.expect("Failed to insert repository");
-            
+
             // Create repository service
             let service = RepositoryService::new(db.clone());
-            
+
             // Try to initialize with vibe-dev - should fail because full_name is invalid
             let result = service.initialize_repository(repo.id, "vibe-dev").await;
-            
+
             // Should return an error
             prop_assert!(result.is_err(), "Should return error for invalid full_name");
-            
+
             let err = result.unwrap_err();
             let err_str = err.to_string();
-            
+
             // Error should indicate invalid full_name
             prop_assert!(
                 err_str.contains("Invalid repository full_name"),
                 "Error should indicate invalid full_name: {}", err_str
             );
-            
+
             Ok(())
         }).unwrap();
     }
@@ -1165,10 +1227,10 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
     /// Feature: repository-initialization, Property 7: Label Validation Logic
-    /// 
+    ///
     /// For any repository, has_required_labels SHALL be true if and only if ALL
     /// labels in REQUIRED_LABELS exist in the repository.
-    /// 
+    ///
     /// **Validates: Requirements 3.1, 3.2, 3.3**
     #[test]
     fn prop_label_validation_requires_all_vibe_labels(
@@ -1181,13 +1243,13 @@ proptest! {
         rt.block_on(async {
             // Create test database
             let db = create_test_database().await.expect("Failed to create test database");
-            
+
             // Create a provider
             let provider = create_test_provider(&db, "TestProvider", "https://gitea.example.com").await;
-            
+
             // Create a repository with some but not all required labels
             let full_name = format!("{}/{}", owner, repo_name);
-            
+
             // All required labels
             let all_labels = vec![
                 "vibe/pending-ack",
@@ -1196,14 +1258,14 @@ proptest! {
                 "vibe/review-required",
                 "vibe/failed",
             ];
-            
+
             // Remove some labels to simulate missing labels
             let missing_count = missing_count.min(all_labels.len());
             let _incomplete_labels: Vec<String> = all_labels.iter()
                 .take(all_labels.len() - missing_count)
                 .map(|s| s.to_string())
                 .collect();
-            
+
             let repo = repository::ActiveModel {
                 provider_id: ActiveValue::Set(provider.id),
                 name: ActiveValue::Set(repo_name.clone()),
@@ -1222,23 +1284,23 @@ proptest! {
                 ..Default::default()
             };
             let repo = repo.insert(&db).await.expect("Failed to insert repository");
-            
+
             // Verify that has_required_labels is false when not all labels are present
             prop_assert_eq!(
                 repo.has_required_labels, false,
                 "has_required_labels should be false when {} labels are missing",
                 missing_count
             );
-            
+
             Ok(())
         }).unwrap();
     }
 
     /// Feature: repository-initialization, Property 7: Label Validation Logic
-    /// 
+    ///
     /// For any repository with all required vibe/ labels, has_required_labels
     /// SHALL be true.
-    /// 
+    ///
     /// **Validates: Requirements 3.1, 3.2**
     #[test]
     fn prop_label_validation_true_when_all_labels_present(
@@ -1250,13 +1312,13 @@ proptest! {
         rt.block_on(async {
             // Create test database
             let db = create_test_database().await.expect("Failed to create test database");
-            
+
             // Create a provider
             let provider = create_test_provider(&db, "TestProvider", "https://gitea.example.com").await;
-            
+
             // Create a repository with all required labels
             let full_name = format!("{}/{}", owner, repo_name);
-            
+
             let repo = repository::ActiveModel {
                 provider_id: ActiveValue::Set(provider.id),
                 name: ActiveValue::Set(repo_name.clone()),
@@ -1275,22 +1337,22 @@ proptest! {
                 ..Default::default()
             };
             let repo = repo.insert(&db).await.expect("Failed to insert repository");
-            
+
             // Verify that has_required_labels is true when all labels are present
             prop_assert_eq!(
                 repo.has_required_labels, true,
                 "has_required_labels should be true when all required labels are present"
             );
-            
+
             Ok(())
         }).unwrap();
     }
 
     /// Feature: repository-initialization, Property 7: Label Validation Logic
-    /// 
+    ///
     /// For any repository, labels without vibe/ prefix SHALL be ignored during
     /// validation.
-    /// 
+    ///
     /// **Validates: Requirements 3.3**
     #[test]
     fn prop_label_validation_ignores_non_vibe_labels(
@@ -1303,13 +1365,13 @@ proptest! {
         rt.block_on(async {
             // Create test database
             let db = create_test_database().await.expect("Failed to create test database");
-            
+
             // Create a provider
             let provider = create_test_provider(&db, "TestProvider", "https://gitea.example.com").await;
-            
+
             // Create a repository with non-vibe labels but missing required vibe/ labels
             let full_name = format!("{}/{}", owner, repo_name);
-            
+
             let repo = repository::ActiveModel {
                 provider_id: ActiveValue::Set(provider.id),
                 name: ActiveValue::Set(repo_name.clone()),
@@ -1328,13 +1390,13 @@ proptest! {
                 ..Default::default()
             };
             let repo = repo.insert(&db).await.expect("Failed to insert repository");
-            
+
             // Verify that has_required_labels is false even if non-vibe labels exist
             prop_assert_eq!(
                 repo.has_required_labels, false,
                 "has_required_labels should be false when vibe/ labels are missing, regardless of non-vibe labels"
             );
-            
+
             Ok(())
         }).unwrap();
     }
@@ -1349,11 +1411,11 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
 
     /// Feature: repository-initialization, Property 8: Label Creation Idempotency
-    /// 
+    ///
     /// For any repository, calling create_required_labels multiple times SHALL
     /// result in all required labels existing, regardless of which labels existed
     /// initially.
-    /// 
+    ///
     /// **Validates: Requirements 1.7, 5.5**
     #[test]
     fn prop_label_creation_is_idempotent(
@@ -1366,10 +1428,10 @@ proptest! {
         rt.block_on(async {
             // Create test database
             let db = create_test_database().await.expect("Failed to create test database");
-            
+
             // Create a provider with unreachable URL (label creation will fail)
             let provider = create_test_provider(&db, "TestProvider", "https://unreachable.example.com").await;
-            
+
             // Create a repository
             let full_name = format!("{}/{}", owner, repo_name);
             let repo = create_test_repository(
@@ -1380,17 +1442,17 @@ proptest! {
                 false,
                 vec!["main".to_string()],
             ).await;
-            
+
             // Create repository service
             let service = RepositoryService::new(db.clone());
-            
+
             // Call initialize multiple times (which includes label creation)
             let mut results = Vec::new();
             for _ in 0..call_count {
                 let result = service.initialize_repository(repo.id, "vibe-dev").await;
                 results.push(result.is_err());
             }
-            
+
             // All calls should produce the same result (all errors in this case due to unreachable provider)
             let first_result = results[0];
             for (i, result) in results.iter().enumerate() {
@@ -1399,16 +1461,16 @@ proptest! {
                     "Call {} should produce same result as first call", i
                 );
             }
-            
+
             Ok(())
         }).unwrap();
     }
 
     /// Feature: repository-initialization, Property 8: Label Creation Idempotency
-    /// 
+    ///
     /// For any repository, label creation should handle LabelAlreadyExists error
     /// gracefully (idempotent operation).
-    /// 
+    ///
     /// **Validates: Requirements 1.7**
     #[test]
     fn prop_label_creation_handles_existing_labels(
@@ -1420,10 +1482,10 @@ proptest! {
         rt.block_on(async {
             // Create test database
             let db = create_test_database().await.expect("Failed to create test database");
-            
+
             // Create a provider
             let provider = create_test_provider(&db, "TestProvider", "https://unreachable.example.com").await;
-            
+
             // Create a repository with some labels already present
             let full_name = format!("{}/{}", owner, repo_name);
             let repo = repository::ActiveModel {
@@ -1444,16 +1506,16 @@ proptest! {
                 ..Default::default()
             };
             let repo = repo.insert(&db).await.expect("Failed to insert repository");
-            
+
             // Create repository service
             let service = RepositoryService::new(db.clone());
-            
+
             // Try to initialize (will fail due to unreachable provider, but tests the logic)
             let result = service.initialize_repository(repo.id, "vibe-dev").await;
-            
+
             // Should return an error (provider unreachable)
             prop_assert!(result.is_err(), "Should return error for unreachable provider");
-            
+
             Ok(())
         }).unwrap();
     }

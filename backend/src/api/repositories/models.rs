@@ -2,6 +2,8 @@
 //!
 //! Request and response DTOs for the Repository API.
 
+#[cfg(test)]
+use crate::entities::repository::RepositoryStatus;
 use crate::entities::repository::{Model as RepositoryModel, ValidationStatus};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -109,6 +111,46 @@ pub struct BatchInitializeResponse {
     pub message: String,
 }
 
+/// Request body for batch operations
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct BatchOperationRequest {
+    /// List of repository IDs to operate on
+    pub repository_ids: Vec<i32>,
+}
+
+/// Response for batch operations
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchOperationResponse {
+    /// Total number of repositories processed
+    pub total: usize,
+    /// Number of successful operations
+    pub succeeded: usize,
+    /// Number of failed operations
+    pub failed: usize,
+    /// Detailed results for each repository
+    pub results: Vec<BatchOperationResult>,
+}
+
+/// Result for a single repository in a batch operation
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchOperationResult {
+    /// Repository ID
+    pub repository_id: i32,
+    /// Repository name
+    pub repository_name: String,
+    /// Whether the operation succeeded
+    pub success: bool,
+    /// Error message if operation failed
+    pub error: Option<String>,
+}
+
+/// Request body for updating repository metadata
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateRepositoryRequest {
+    /// New repository name (optional)
+    pub name: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,11 +171,14 @@ mod tests {
             default_branch: "main".to_string(),
             branches: branches_json.clone(),
             validation_status: ValidationStatus::Valid,
+            status: RepositoryStatus::Idle,
+            has_workspace: false,
             has_required_branches: true,
             has_required_labels: true,
             can_manage_prs: true,
             can_manage_issues: true,
             validation_message: None,
+            deleted_at: None,
             created_at: now.into(),
             updated_at: now.into(),
         };
@@ -176,11 +221,14 @@ mod tests {
             default_branch: "main".to_string(),
             branches: serde_json::json!([]),
             validation_status: ValidationStatus::Invalid,
+            status: RepositoryStatus::Unavailable,
+            has_workspace: false,
             has_required_branches: false,
             has_required_labels: false,
             can_manage_prs: false,
             can_manage_issues: false,
             validation_message: Some("Missing required branches".to_string()),
+            deleted_at: None,
             created_at: now.into(),
             updated_at: now.into(),
         };
@@ -214,11 +262,14 @@ mod tests {
             default_branch: "main".to_string(),
             branches: serde_json::json!([]),
             validation_status: ValidationStatus::Pending,
+            status: RepositoryStatus::Uninitialized,
+            has_workspace: false,
             has_required_branches: false,
             has_required_labels: false,
             can_manage_prs: false,
             can_manage_issues: false,
             validation_message: None,
+            deleted_at: None,
             created_at: now.into(),
             updated_at: now.into(),
         };
@@ -247,11 +298,14 @@ mod tests {
             default_branch: "main".to_string(),
             branches: serde_json::json!([]),
             validation_status: ValidationStatus::Pending,
+            status: RepositoryStatus::Uninitialized,
+            has_workspace: false,
             has_required_branches: false,
             has_required_labels: false,
             can_manage_prs: false,
             can_manage_issues: false,
             validation_message: None,
+            deleted_at: None,
             created_at: now.into(),
             updated_at: now.into(),
         };

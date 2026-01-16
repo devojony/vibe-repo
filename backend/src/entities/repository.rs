@@ -1,6 +1,6 @@
 //! Repository entity
 //!
-//! Represents a Git repository with validation status.
+//! Represents a Git repository with validation status and lifecycle management.
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -18,11 +18,14 @@ pub struct Model {
     pub default_branch: String,
     pub branches: Json,
     pub validation_status: ValidationStatus,
+    pub status: RepositoryStatus,
+    pub has_workspace: bool,
     pub has_required_branches: bool,
     pub has_required_labels: bool,
     pub can_manage_prs: bool,
     pub can_manage_issues: bool,
     pub validation_message: Option<String>,
+    pub deleted_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }
@@ -38,6 +41,23 @@ pub enum ValidationStatus {
     Invalid,
     #[sea_orm(string_value = "pending")]
     Pending,
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize, ToSchema,
+)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]
+pub enum RepositoryStatus {
+    #[sea_orm(string_value = "uninitialized")]
+    Uninitialized,
+    #[sea_orm(string_value = "idle")]
+    Idle,
+    #[sea_orm(string_value = "active")]
+    Active,
+    #[sea_orm(string_value = "unavailable")]
+    Unavailable,
+    #[sea_orm(string_value = "archived")]
+    Archived,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -59,3 +79,29 @@ impl Related<super::repo_provider::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl Model {
+    /// Check if the repository is soft-deleted
+    pub fn is_deleted(&self) -> bool {
+        self.deleted_at.is_some()
+    }
+
+    /// Check if the repository can be deleted
+    /// A repository can only be deleted if it doesn't have a workspace
+    pub fn can_delete(&self) -> bool {
+        !self.has_workspace
+    }
+
+    /// Check if the repository can be archived
+    /// A repository can only be archived if it doesn't have a workspace
+    pub fn can_archive(&self) -> bool {
+        !self.has_workspace && self.status != RepositoryStatus::Archived
+    }
+
+    /// Check if the repository can create a workspace
+    pub fn can_create_workspace(&self) -> bool {
+        self.status == RepositoryStatus::Idle
+            && self.validation_status == ValidationStatus::Valid
+            && !self.has_workspace
+    }
+}

@@ -88,7 +88,7 @@ pub async fn wait_for_repositories(
             .oneshot(
                 Request::builder()
                     .method("GET")
-                    .uri(&format!("/api/repositories?provider_id={}", provider_id))
+                    .uri(format!("/api/repositories?provider_id={}", provider_id))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -123,7 +123,10 @@ macro_rules! skip_if_gitea_unavailable {
         )
         .await
         {
-            eprintln!("Skipping test: Gitea instance not available at {}", $config.base_url);
+            eprintln!(
+                "Skipping test: Gitea instance not available at {}",
+                $config.base_url
+            );
             return;
         }
     };

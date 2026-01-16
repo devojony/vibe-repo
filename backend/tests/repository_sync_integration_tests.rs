@@ -19,9 +19,7 @@ use axum::http::{Request, StatusCode};
 use gitautodev::api::repositories::models::RepositoryResponse;
 use gitautodev::api::settings::providers::models::ProviderResponse;
 use gitautodev::entities::repository::ValidationStatus;
-use gitautodev::test_utils::{
-    is_gitea_available, wait_for_repositories, GiteaTestConfig,
-};
+use gitautodev::test_utils::{is_gitea_available, wait_for_repositories, GiteaTestConfig};
 use http_body_util::BodyExt;
 use serde_json::json;
 use std::time::Duration;
@@ -150,7 +148,10 @@ async fn test_sync_after_provider_creation() {
 
     // Check if Gitea is available
     if !is_gitea_available(&config, Duration::from_secs(5)).await {
-        eprintln!("Skipping test: Gitea instance not available at {}", config.base_url);
+        eprintln!(
+            "Skipping test: Gitea instance not available at {}",
+            config.base_url
+        );
         return;
     }
 
@@ -227,7 +228,10 @@ async fn test_resync_after_token_update() {
     };
 
     if !is_gitea_available(&config, Duration::from_secs(5)).await {
-        eprintln!("Skipping test: Gitea instance not available at {}", config.base_url);
+        eprintln!(
+            "Skipping test: Gitea instance not available at {}",
+            config.base_url
+        );
         return;
     }
 
@@ -295,7 +299,10 @@ async fn test_resync_after_base_url_update() {
     };
 
     if !is_gitea_available(&config, Duration::from_secs(5)).await {
-        eprintln!("Skipping test: Gitea instance not available at {}", config.base_url);
+        eprintln!(
+            "Skipping test: Gitea instance not available at {}",
+            config.base_url
+        );
         return;
     }
 
@@ -356,7 +363,10 @@ async fn test_manual_sync_trigger() {
     };
 
     if !is_gitea_available(&config, Duration::from_secs(5)).await {
-        eprintln!("Skipping test: Gitea instance not available at {}", config.base_url);
+        eprintln!(
+            "Skipping test: Gitea instance not available at {}",
+            config.base_url
+        );
         return;
     }
 
@@ -413,7 +423,10 @@ async fn test_sync_with_invalid_token() {
     let config = GiteaTestConfig::from_env().expect("Failed to load config");
 
     if !is_gitea_available(&config, Duration::from_secs(5)).await {
-        eprintln!("Skipping test: Gitea instance not available at {}", config.base_url);
+        eprintln!(
+            "Skipping test: Gitea instance not available at {}",
+            config.base_url
+        );
         return;
     }
 
@@ -463,7 +476,10 @@ async fn test_sync_stores_all_repositories() {
     };
 
     if !is_gitea_available(&config, Duration::from_secs(5)).await {
-        eprintln!("Skipping test: Gitea instance not available at {}", config.base_url);
+        eprintln!(
+            "Skipping test: Gitea instance not available at {}",
+            config.base_url
+        );
         return;
     }
 

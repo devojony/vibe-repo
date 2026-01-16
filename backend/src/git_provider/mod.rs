@@ -315,79 +315,176 @@ impl GitProvider for GitHubClient {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn get_repository(&self, _owner: &str, _repo: &str) -> Result<GitRepository, GitProviderError> {
+    async fn get_repository(
+        &self,
+        _owner: &str,
+        _repo: &str,
+    ) -> Result<GitRepository, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn list_branches(&self, _owner: &str, _repo: &str) -> Result<Vec<GitBranch>, GitProviderError> {
+    async fn list_branches(
+        &self,
+        _owner: &str,
+        _repo: &str,
+    ) -> Result<Vec<GitBranch>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn get_branch(&self, _owner: &str, _repo: &str, _branch: &str) -> Result<GitBranch, GitProviderError> {
+    async fn get_branch(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _branch: &str,
+    ) -> Result<GitBranch, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn create_branch(&self, _owner: &str, _repo: &str, _req: CreateBranchRequest) -> Result<GitBranch, GitProviderError> {
+    async fn create_branch(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreateBranchRequest,
+    ) -> Result<GitBranch, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn delete_branch(&self, _owner: &str, _repo: &str, _branch: &str) -> Result<(), GitProviderError> {
+    async fn delete_branch(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _branch: &str,
+    ) -> Result<(), GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn list_issues(&self, _owner: &str, _repo: &str, _filter: Option<IssueFilter>) -> Result<Vec<GitIssue>, GitProviderError> {
+    async fn list_issues(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _filter: Option<IssueFilter>,
+    ) -> Result<Vec<GitIssue>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn get_issue(&self, _owner: &str, _repo: &str, _number: i64) -> Result<GitIssue, GitProviderError> {
+    async fn get_issue(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+    ) -> Result<GitIssue, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn create_issue(&self, _owner: &str, _repo: &str, _req: CreateIssueRequest) -> Result<GitIssue, GitProviderError> {
+    async fn create_issue(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreateIssueRequest,
+    ) -> Result<GitIssue, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn update_issue(&self, _owner: &str, _repo: &str, _number: i64, _req: UpdateIssueRequest) -> Result<GitIssue, GitProviderError> {
+    async fn update_issue(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+        _req: UpdateIssueRequest,
+    ) -> Result<GitIssue, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn add_issue_labels(&self, _owner: &str, _repo: &str, _number: i64, _labels: Vec<String>) -> Result<Vec<GitLabel>, GitProviderError> {
+    async fn add_issue_labels(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+        _labels: Vec<String>,
+    ) -> Result<Vec<GitLabel>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn remove_issue_label(&self, _owner: &str, _repo: &str, _number: i64, _label: &str) -> Result<(), GitProviderError> {
+    async fn remove_issue_label(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+        _label: &str,
+    ) -> Result<(), GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn list_pull_requests(&self, _owner: &str, _repo: &str, _filter: Option<PullRequestFilter>) -> Result<Vec<GitPullRequest>, GitProviderError> {
+    async fn list_pull_requests(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _filter: Option<PullRequestFilter>,
+    ) -> Result<Vec<GitPullRequest>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn get_pull_request(&self, _owner: &str, _repo: &str, _number: i64) -> Result<GitPullRequest, GitProviderError> {
+    async fn get_pull_request(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+    ) -> Result<GitPullRequest, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn create_pull_request(&self, _owner: &str, _repo: &str, _req: CreatePullRequestRequest) -> Result<GitPullRequest, GitProviderError> {
+    async fn create_pull_request(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreatePullRequestRequest,
+    ) -> Result<GitPullRequest, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn update_pull_request(&self, _owner: &str, _repo: &str, _number: i64, _req: UpdatePullRequestRequest) -> Result<GitPullRequest, GitProviderError> {
+    async fn update_pull_request(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+        _req: UpdatePullRequestRequest,
+    ) -> Result<GitPullRequest, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn merge_pull_request(&self, _owner: &str, _repo: &str, _number: i64, _opts: MergeOptions) -> Result<(), GitProviderError> {
+    async fn merge_pull_request(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+        _opts: MergeOptions,
+    ) -> Result<(), GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn list_labels(&self, _owner: &str, _repo: &str) -> Result<Vec<GitLabel>, GitProviderError> {
+    async fn list_labels(
+        &self,
+        _owner: &str,
+        _repo: &str,
+    ) -> Result<Vec<GitLabel>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn create_label(&self, _owner: &str, _repo: &str, _req: CreateLabelRequest) -> Result<GitLabel, GitProviderError> {
+    async fn create_label(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreateLabelRequest,
+    ) -> Result<GitLabel, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
-    async fn delete_label(&self, _owner: &str, _repo: &str, _name: &str) -> Result<(), GitProviderError> {
+    async fn delete_label(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _name: &str,
+    ) -> Result<(), GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
@@ -399,7 +496,6 @@ impl GitProvider for GitHubClient {
         &self.base_url
     }
 }
-
 
 #[async_trait]
 impl GitProvider for GitLabClient {
@@ -415,79 +511,176 @@ impl GitProvider for GitLabClient {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn get_repository(&self, _owner: &str, _repo: &str) -> Result<GitRepository, GitProviderError> {
+    async fn get_repository(
+        &self,
+        _owner: &str,
+        _repo: &str,
+    ) -> Result<GitRepository, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn list_branches(&self, _owner: &str, _repo: &str) -> Result<Vec<GitBranch>, GitProviderError> {
+    async fn list_branches(
+        &self,
+        _owner: &str,
+        _repo: &str,
+    ) -> Result<Vec<GitBranch>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn get_branch(&self, _owner: &str, _repo: &str, _branch: &str) -> Result<GitBranch, GitProviderError> {
+    async fn get_branch(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _branch: &str,
+    ) -> Result<GitBranch, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn create_branch(&self, _owner: &str, _repo: &str, _req: CreateBranchRequest) -> Result<GitBranch, GitProviderError> {
+    async fn create_branch(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreateBranchRequest,
+    ) -> Result<GitBranch, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn delete_branch(&self, _owner: &str, _repo: &str, _branch: &str) -> Result<(), GitProviderError> {
+    async fn delete_branch(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _branch: &str,
+    ) -> Result<(), GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn list_issues(&self, _owner: &str, _repo: &str, _filter: Option<IssueFilter>) -> Result<Vec<GitIssue>, GitProviderError> {
+    async fn list_issues(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _filter: Option<IssueFilter>,
+    ) -> Result<Vec<GitIssue>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn get_issue(&self, _owner: &str, _repo: &str, _number: i64) -> Result<GitIssue, GitProviderError> {
+    async fn get_issue(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+    ) -> Result<GitIssue, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn create_issue(&self, _owner: &str, _repo: &str, _req: CreateIssueRequest) -> Result<GitIssue, GitProviderError> {
+    async fn create_issue(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreateIssueRequest,
+    ) -> Result<GitIssue, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn update_issue(&self, _owner: &str, _repo: &str, _number: i64, _req: UpdateIssueRequest) -> Result<GitIssue, GitProviderError> {
+    async fn update_issue(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+        _req: UpdateIssueRequest,
+    ) -> Result<GitIssue, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn add_issue_labels(&self, _owner: &str, _repo: &str, _number: i64, _labels: Vec<String>) -> Result<Vec<GitLabel>, GitProviderError> {
+    async fn add_issue_labels(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+        _labels: Vec<String>,
+    ) -> Result<Vec<GitLabel>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn remove_issue_label(&self, _owner: &str, _repo: &str, _number: i64, _label: &str) -> Result<(), GitProviderError> {
+    async fn remove_issue_label(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+        _label: &str,
+    ) -> Result<(), GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn list_pull_requests(&self, _owner: &str, _repo: &str, _filter: Option<PullRequestFilter>) -> Result<Vec<GitPullRequest>, GitProviderError> {
+    async fn list_pull_requests(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _filter: Option<PullRequestFilter>,
+    ) -> Result<Vec<GitPullRequest>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn get_pull_request(&self, _owner: &str, _repo: &str, _number: i64) -> Result<GitPullRequest, GitProviderError> {
+    async fn get_pull_request(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+    ) -> Result<GitPullRequest, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn create_pull_request(&self, _owner: &str, _repo: &str, _req: CreatePullRequestRequest) -> Result<GitPullRequest, GitProviderError> {
+    async fn create_pull_request(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreatePullRequestRequest,
+    ) -> Result<GitPullRequest, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn update_pull_request(&self, _owner: &str, _repo: &str, _number: i64, _req: UpdatePullRequestRequest) -> Result<GitPullRequest, GitProviderError> {
+    async fn update_pull_request(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+        _req: UpdatePullRequestRequest,
+    ) -> Result<GitPullRequest, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn merge_pull_request(&self, _owner: &str, _repo: &str, _number: i64, _opts: MergeOptions) -> Result<(), GitProviderError> {
+    async fn merge_pull_request(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _number: i64,
+        _opts: MergeOptions,
+    ) -> Result<(), GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn list_labels(&self, _owner: &str, _repo: &str) -> Result<Vec<GitLabel>, GitProviderError> {
+    async fn list_labels(
+        &self,
+        _owner: &str,
+        _repo: &str,
+    ) -> Result<Vec<GitLabel>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn create_label(&self, _owner: &str, _repo: &str, _req: CreateLabelRequest) -> Result<GitLabel, GitProviderError> {
+    async fn create_label(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreateLabelRequest,
+    ) -> Result<GitLabel, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
-    async fn delete_label(&self, _owner: &str, _repo: &str, _name: &str) -> Result<(), GitProviderError> {
+    async fn delete_label(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _name: &str,
+    ) -> Result<(), GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
@@ -499,7 +692,6 @@ impl GitProvider for GitLabClient {
         &self.base_url
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -19,12 +19,7 @@ use tower::ServiceExt;
 // ============================================
 
 /// Helper function to create a test provider and return its ID
-async fn create_test_provider(
-    app: axum::Router,
-    name: &str,
-    base_url: &str,
-    token: &str,
-) -> i32 {
+async fn create_test_provider(app: axum::Router, name: &str, base_url: &str, token: &str) -> i32 {
     let request_body = json!({
         "name": name,
         "provider_type": "gitea",
@@ -118,16 +113,18 @@ async fn create_test_repository_full(
 // ============================================
 
 /// Test successful initialization returns 200
-/// 
+///
 /// This test verifies that when a repository is initialized with a valid provider,
 /// the API returns 200 status code. Since we can't mock the GitProvider in integration
 /// tests, we expect the initialization to fail with a network error (503), which is
 /// the expected behavior for an unreachable provider.
-/// 
+///
 /// Requirements: 1.11
 #[tokio::test]
 async fn test_initialize_repository_returns_503_for_unreachable_provider() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider with unreachable URL
@@ -168,14 +165,16 @@ async fn test_initialize_repository_returns_503_for_unreachable_provider() {
 }
 
 /// Test idempotent operation returns consistent results
-/// 
+///
 /// This test verifies that calling initialize multiple times on the same repository
 /// produces consistent results (idempotency).
-/// 
+///
 /// Requirements: 1.5
 #[tokio::test]
 async fn test_initialize_repository_idempotent() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider with unreachable URL
@@ -200,7 +199,7 @@ async fn test_initialize_repository_idempotent() {
 
     // Initialize the repository multiple times
     let mut status_codes = Vec::new();
-    
+
     for _ in 0..3 {
         let app_clone = gitautodev::api::create_router(state.clone());
         let response = app_clone
@@ -213,26 +212,31 @@ async fn test_initialize_repository_idempotent() {
             )
             .await
             .unwrap();
-        
+
         status_codes.push(response.status());
     }
 
     // All calls should return the same status code
     let first_status = status_codes[0];
     for status in &status_codes {
-        assert_eq!(*status, first_status, "All initialization calls should return the same status");
+        assert_eq!(
+            *status, first_status,
+            "All initialization calls should return the same status"
+        );
     }
 }
 
 /// Test repository not found returns 404
-/// 
+///
 /// This test verifies that attempting to initialize a non-existent repository
 /// returns 404 Not Found.
-/// 
+///
 /// Requirements: 1.6
 #[tokio::test]
 async fn test_initialize_nonexistent_repository_returns_404() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Try to initialize a non-existent repository
@@ -253,14 +257,16 @@ async fn test_initialize_nonexistent_repository_returns_404() {
 }
 
 /// Test initialization with invalid full_name format
-/// 
+///
 /// This test verifies that repositories with invalid full_name format
 /// are handled correctly.
-/// 
+///
 /// Requirements: 1.11
 #[tokio::test]
 async fn test_initialize_repository_with_invalid_full_name() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider
@@ -314,14 +320,16 @@ async fn test_initialize_repository_with_invalid_full_name() {
 }
 
 /// Test initialization stores error message on failure
-/// 
+///
 /// This test verifies that when initialization fails, the error message
 /// is stored in the validation_message field.
-/// 
+///
 /// Requirements: 1.11
 #[tokio::test]
 async fn test_initialize_repository_stores_error_message() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider with unreachable URL
@@ -373,14 +381,16 @@ async fn test_initialize_repository_stores_error_message() {
 }
 
 /// Test initialization with default branch_name (vibe-dev)
-/// 
+///
 /// This test verifies that when no branch_name is provided in the request body,
 /// the default "vibe-dev" branch name is used.
-/// 
+///
 /// Requirements: 1.1, 1.2
 #[tokio::test]
 async fn test_initialize_repository_with_default_branch_name() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider with unreachable URL
@@ -422,14 +432,16 @@ async fn test_initialize_repository_with_default_branch_name() {
 }
 
 /// Test initialization with custom branch_name
-/// 
+///
 /// This test verifies that when a custom branch_name is provided in the request body,
 /// it is used instead of the default.
-/// 
+///
 /// Requirements: 1.1, 1.2
 #[tokio::test]
 async fn test_initialize_repository_with_custom_branch_name() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider with unreachable URL
@@ -475,15 +487,17 @@ async fn test_initialize_repository_with_custom_branch_name() {
 }
 
 /// Test initialization attempts to create required labels
-/// 
+///
 /// This test verifies that initialization attempts to create all required labels
 /// with vibe/ prefix. Since we can't mock the GitProvider, we verify the error
 /// handling path.
-/// 
+///
 /// Requirements: 1.5, 1.6
 #[tokio::test]
 async fn test_initialize_repository_attempts_label_creation() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider with unreachable URL
@@ -537,14 +551,16 @@ async fn test_initialize_repository_attempts_label_creation() {
 }
 
 /// Test idempotent operation with default branch_name
-/// 
+///
 /// This test verifies that calling initialize multiple times with the default
 /// branch_name produces consistent results.
-/// 
+///
 /// Requirements: 1.10
 #[tokio::test]
 async fn test_initialize_repository_idempotent_with_default_branch() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider with unreachable URL
@@ -569,7 +585,7 @@ async fn test_initialize_repository_idempotent_with_default_branch() {
 
     // Initialize the repository multiple times with default branch
     let mut status_codes = Vec::new();
-    
+
     for _ in 0..3 {
         let app_clone = gitautodev::api::create_router(state.clone());
         let response = app_clone
@@ -583,14 +599,17 @@ async fn test_initialize_repository_idempotent_with_default_branch() {
             )
             .await
             .unwrap();
-        
+
         status_codes.push(response.status());
     }
 
     // All calls should return the same status code
     let first_status = status_codes[0];
     for status in &status_codes {
-        assert_eq!(*status, first_status, "All initialization calls should return the same status");
+        assert_eq!(
+            *status, first_status,
+            "All initialization calls should return the same status"
+        );
     }
 }
 
@@ -600,14 +619,16 @@ async fn test_initialize_repository_idempotent_with_default_branch() {
 // ============================================
 
 /// Test batch initialization returns 202 Accepted
-/// 
+///
 /// This test verifies that batch initialization returns 202 Accepted status
 /// and starts the background task.
-/// 
+///
 /// Requirements: 3.3
 #[tokio::test]
 async fn test_batch_initialize_returns_202() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider
@@ -646,7 +667,10 @@ async fn test_batch_initialize_returns_202() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/batch-initialize?provider_id={}", provider_id))
+                .uri(&format!(
+                    "/api/repositories/batch-initialize?provider_id={}",
+                    provider_id
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -665,14 +689,16 @@ async fn test_batch_initialize_returns_202() {
 }
 
 /// Test batch initialization without provider_id returns 400
-/// 
+///
 /// This test verifies that batch initialization without provider_id parameter
 /// returns 400 Bad Request.
-/// 
+///
 /// Requirements: 3.7
 #[tokio::test]
 async fn test_batch_initialize_without_provider_id_returns_400() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Try to batch initialize without provider_id
@@ -692,14 +718,16 @@ async fn test_batch_initialize_without_provider_id_returns_400() {
 }
 
 /// Test batch initialization with non-existent provider returns 404
-/// 
+///
 /// This test verifies that batch initialization with a non-existent provider
 /// returns 404 Not Found.
-/// 
+///
 /// Requirements: 3.6
 #[tokio::test]
 async fn test_batch_initialize_nonexistent_provider_returns_404() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Try to batch initialize with non-existent provider
@@ -719,14 +747,16 @@ async fn test_batch_initialize_nonexistent_provider_returns_404() {
 }
 
 /// Test batch initialization with invalid provider_id format
-/// 
+///
 /// This test verifies that batch initialization with invalid provider_id format
 /// is handled correctly.
-/// 
+///
 /// Requirements: 3.1
 #[tokio::test]
 async fn test_batch_initialize_with_invalid_provider_id_format() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Try to batch initialize with invalid provider_id format
@@ -746,14 +776,16 @@ async fn test_batch_initialize_with_invalid_provider_id_format() {
 }
 
 /// Test batch initialization processes eligible repositories
-/// 
+///
 /// This test verifies that batch initialization only processes repositories
 /// where has_required_branches is false.
-/// 
+///
 /// Requirements: 3.1, 3.3
 #[tokio::test]
 async fn test_batch_initialize_processes_eligible_repositories() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider
@@ -794,7 +826,10 @@ async fn test_batch_initialize_processes_eligible_repositories() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/batch-initialize?provider_id={}", provider_id))
+                .uri(&format!(
+                    "/api/repositories/batch-initialize?provider_id={}",
+                    provider_id
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -833,14 +868,16 @@ async fn test_batch_initialize_processes_eligible_repositories() {
 }
 
 /// Test batch initialization with default branch_name (vibe-dev)
-/// 
+///
 /// This test verifies that batch initialization uses the default "vibe-dev"
 /// branch name when no branch_name parameter is provided.
-/// 
+///
 /// Requirements: 4.2
 #[tokio::test]
 async fn test_batch_initialize_with_default_branch_name() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider
@@ -869,7 +906,10 @@ async fn test_batch_initialize_with_default_branch_name() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/batch-initialize?provider_id={}", provider_id))
+                .uri(&format!(
+                    "/api/repositories/batch-initialize?provider_id={}",
+                    provider_id
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -888,14 +928,16 @@ async fn test_batch_initialize_with_default_branch_name() {
 }
 
 /// Test batch initialization with custom branch_name
-/// 
+///
 /// This test verifies that batch initialization uses a custom branch name
 /// when the branch_name parameter is provided.
-/// 
+///
 /// Requirements: 4.2
 #[tokio::test]
 async fn test_batch_initialize_with_custom_branch_name() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let app = gitautodev::api::create_router(state.clone());
 
     // Create a provider
@@ -924,7 +966,10 @@ async fn test_batch_initialize_with_custom_branch_name() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/batch-initialize?provider_id={}&branch_name=custom-dev", provider_id))
+                .uri(&format!(
+                    "/api/repositories/batch-initialize?provider_id={}&branch_name=custom-dev",
+                    provider_id
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )
