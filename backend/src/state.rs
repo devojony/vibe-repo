@@ -86,7 +86,8 @@ mod tests {
             },
             webhook: WebhookConfig::default(),
         };
-        let repository_service = Arc::new(RepositoryService::new(db.clone()));
+        let config_arc = Arc::new(config.clone());
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
 
         // Act: Create AppState
         let state = AppState::new(db, config.clone(), repository_service);
@@ -105,7 +106,8 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let config = AppConfig::default();
-        let repository_service = Arc::new(RepositoryService::new(db.clone()));
+        let config_arc = Arc::new(config.clone());
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
 
         // Act: Create AppState and wrap in Arc
         let state = AppState::new(db, config, repository_service);
@@ -151,7 +153,8 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let config = AppConfig::default();
-        let repository_service = Arc::new(RepositoryService::new(db.clone()));
+        let config_arc = Arc::new(config.clone());
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
 
         // Act: Create AppState and clone it
         let state1 = AppState::new(db, config, repository_service);
@@ -172,7 +175,8 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let config = AppConfig::default();
-        let repository_service = Arc::new(RepositoryService::new(db.clone()));
+        let config_arc = Arc::new(config.clone());
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
         let state = Arc::new(AppState::new(db, config, repository_service));
 
         // This test verifies that AppState can be used with Axum's State extractor

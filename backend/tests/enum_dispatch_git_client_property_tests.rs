@@ -8,7 +8,6 @@ use gitautodev::git_provider::{
     GitClient, GitClientFactory, GitHubClient, GitLabClient, GitProvider, GitProviderError,
 };
 use proptest::prelude::*;
-use std::sync::Arc;
 
 // ============================================
 // Generators for property tests

@@ -55,6 +55,44 @@ pub struct WebhookConfig {
     pub domain: String,
     /// Secret key for signing webhook payloads
     pub secret_key: String,
+    /// Retry configuration
+    pub retry: WebhookRetryConfig,
+}
+
+/// Webhook retry configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookRetryConfig {
+    /// Maximum number of retry attempts
+    pub max_retries: u32,
+    /// Initial retry delay in seconds
+    pub initial_delay_secs: u64,
+    /// Maximum retry delay in seconds
+    pub max_delay_secs: u64,
+    /// Exponential backoff multiplier
+    pub backoff_multiplier: f64,
+}
+
+impl Default for WebhookRetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: std::env::var("WEBHOOK_MAX_RETRIES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5),
+            initial_delay_secs: std::env::var("WEBHOOK_INITIAL_DELAY_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(60), // 1 minute
+            max_delay_secs: std::env::var("WEBHOOK_MAX_DELAY_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(3600), // 1 hour
+            backoff_multiplier: std::env::var("WEBHOOK_BACKOFF_MULTIPLIER")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(2.0),
+        }
+    }
 }
 
 impl Default for WebhookConfig {
@@ -64,6 +102,7 @@ impl Default for WebhookConfig {
                 .unwrap_or_else(|_| "http://localhost:3000".to_string()),
             secret_key: std::env::var("WEBHOOK_SECRET_KEY")
                 .unwrap_or_else(|_| "default-webhook-secret-change-in-production".to_string()),
+            retry: WebhookRetryConfig::default(),
         }
     }
 }

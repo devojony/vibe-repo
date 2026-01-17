@@ -4,7 +4,7 @@
 
 use crate::{
     entities::{
-        prelude::RepoProvider,
+        prelude::{RepoProvider, Repository},
         repo_provider::{ActiveModel, Entity as RepoProviderEntity, ProviderType},
     },
     error::{GitAutoDevError, Result},
@@ -15,7 +15,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use std::sync::Arc;
 
 use super::models::{
@@ -287,7 +287,25 @@ pub async fn delete_provider(
         ));
     }
 
-    // Delete provider (cascades to repositories)
+    // Get all repositories for this provider
+    let repos = Repository::find()
+        .filter(crate::entities::repository::Column::ProviderId.eq(id))
+        .all(&state.db)
+        .await?;
+
+    // Delete webhooks for each repository
+    for repo in repos {
+        if let Err(e) = state.repository_service.delete_repository(repo.id).await {
+            tracing::error!(
+                repository_id = repo.id,
+                error = %e,
+                "Failed to delete repository during provider cleanup"
+            );
+            // Continue with other repositories
+        }
+    }
+
+    // Now delete provider (cascade will clean up any remaining DB records)
     RepoProviderEntity::delete_by_id(id).exec(&state.db).await?;
 
     Ok(StatusCode::NO_CONTENT)

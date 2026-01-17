@@ -19,6 +19,11 @@ pub struct Model {
     pub enabled: bool,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
+    // Retry fields
+    pub retry_count: i32,
+    pub last_retry_at: Option<DateTimeUtc>,
+    pub next_retry_at: Option<DateTimeUtc>,
+    pub last_error: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

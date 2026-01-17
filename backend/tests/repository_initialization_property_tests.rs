@@ -7,6 +7,8 @@
 //! **Property 2: Initialization Idempotency**
 //! **Validates: Requirements 1.2, 1.3, 1.4, 1.5**
 
+use std::sync::Arc;
+
 use gitautodev::entities::{prelude::*, repo_provider, repository};
 use gitautodev::services::RepositoryService;
 use gitautodev::test_utils::db::create_test_database;
@@ -129,7 +131,7 @@ proptest! {
             let db = create_test_database().await.expect("Failed to create test database");
 
             // Create repository service
-            let service = RepositoryService::new(db);
+            let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
             // Try to initialize a non-existent repository with vibe-dev branch
             let result = service.initialize_repository(repo_id, "vibe-dev", None, None).await;
@@ -188,7 +190,7 @@ proptest! {
             ).await;
 
             // Create repository service
-            let service = RepositoryService::new(db.clone());
+            let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
             // Try to initialize with vibe-dev - should fail because provider is unreachable
             let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
@@ -244,7 +246,7 @@ proptest! {
             ).await;
 
             // Create repository service
-            let service = RepositoryService::new(db);
+            let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
             // Try to initialize with vibe-dev - will fail due to network, but should not fail on parsing
             let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
@@ -311,7 +313,7 @@ proptest! {
             ).await;
 
             // Create repository service
-            let service = RepositoryService::new(db.clone());
+            let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
             // Call initialize multiple times with vibe-dev
             let mut results = Vec::new();
@@ -351,7 +353,7 @@ proptest! {
             let db = create_test_database().await.expect("Failed to create test database");
 
             // Create repository service
-            let service = RepositoryService::new(db);
+            let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
             // Call initialize multiple times for non-existent repo with vibe-dev
             let mut error_messages = Vec::new();
@@ -427,7 +429,7 @@ proptest! {
             }
 
             // Create repository service
-            let service = RepositoryService::new(db.clone());
+            let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
             // Call batch_initialize with vibe-dev
             let result = service.batch_initialize(provider.id, "vibe-dev", None, None).await;
@@ -502,7 +504,7 @@ proptest! {
             }
 
             // Create repository service
-            let service = RepositoryService::new(db.clone());
+            let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
             // Call batch_initialize with vibe-dev
             let result = service.batch_initialize(provider.id, "vibe-dev", None, None).await;
@@ -572,7 +574,7 @@ proptest! {
             }
 
             // Create repository service
-            let service = RepositoryService::new(db.clone());
+            let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
             // Call batch_initialize with vibe-dev
             let result = service.batch_initialize(provider.id, "vibe-dev", None, None).await;
@@ -637,7 +639,7 @@ proptest! {
             }
 
             // Create repository service
-            let service = RepositoryService::new(db);
+            let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
             // Call batch_initialize with vibe-dev
             let result = service.batch_initialize(provider.id, "vibe-dev", None, None).await;
@@ -664,7 +666,7 @@ mod unit_tests {
         let db = create_test_database()
             .await
             .expect("Failed to create test database");
-        let service = RepositoryService::new(db);
+        let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
         // Try to initialize a non-existent repository with vibe-dev
         let result = service.initialize_repository(99999, "vibe-dev", None, None).await;
@@ -715,7 +717,7 @@ mod unit_tests {
             format!("PRAGMA foreign_keys = OFF; UPDATE repositories SET provider_id = 99999 WHERE id = {}; PRAGMA foreign_keys = ON;", repo.id),
         )).await.expect("Failed to update repository");
 
-        let service = RepositoryService::new(db);
+        let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
         // Try to initialize with vibe-dev - should fail because provider doesn't exist
         let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
@@ -754,7 +756,7 @@ mod unit_tests {
         };
         let repo = repo.insert(&db).await.expect("Failed to insert repository");
 
-        let service = RepositoryService::new(db);
+        let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
         // Try to initialize with vibe-dev - should fail because full_name is invalid
         let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
@@ -785,7 +787,7 @@ mod unit_tests {
         )
         .await;
 
-        let service = RepositoryService::new(db.clone());
+        let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
         // Try to initialize with vibe-dev - should fail and store error message
         let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
@@ -1104,7 +1106,7 @@ proptest! {
             ).await;
 
             // Create repository service
-            let service = RepositoryService::new(db.clone());
+            let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
             // Try to initialize with vibe-dev - should fail because provider is unreachable
             let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
@@ -1175,7 +1177,7 @@ proptest! {
             let repo = repo.insert(&db).await.expect("Failed to insert repository");
 
             // Create repository service
-            let service = RepositoryService::new(db.clone());
+            let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
             // Try to initialize with vibe-dev - should fail because full_name is invalid
             let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
@@ -1444,7 +1446,7 @@ proptest! {
             ).await;
 
             // Create repository service
-            let service = RepositoryService::new(db.clone());
+            let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
             // Call initialize multiple times (which includes label creation)
             let mut results = Vec::new();
@@ -1508,7 +1510,7 @@ proptest! {
             let repo = repo.insert(&db).await.expect("Failed to insert repository");
 
             // Create repository service
-            let service = RepositoryService::new(db.clone());
+            let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
             // Try to initialize (will fail due to unreachable provider, but tests the logic)
             let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;

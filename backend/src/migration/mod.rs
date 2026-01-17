@@ -15,6 +15,7 @@ mod m20260117_000003_create_webhook_configs;
 mod m20260117_000004_add_repository_webhook_status;
 mod m20260117_000005_create_tasks;
 mod m20260117_000006_create_task_logs;
+mod m20260118_000001_add_webhook_retry_fields;
 
 pub struct Migrator;
 
@@ -33,6 +34,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260117_000004_add_repository_webhook_status::Migration),
             Box::new(m20260117_000005_create_tasks::Migration),
             Box::new(m20260117_000006_create_task_logs::Migration),
+            Box::new(m20260118_000001_add_webhook_retry_fields::Migration),
         ]
     }
 }

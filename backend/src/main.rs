@@ -43,7 +43,11 @@ async fn main() -> Result<()> {
     tracing::info!("Database migrations completed");
 
     // Create repository service (shared across handlers and background tasks)
-    let repository_service = Arc::new(RepositoryService::new(db_pool.connection().clone()));
+    let config_arc = Arc::new(config.clone());
+    let repository_service = Arc::new(RepositoryService::new(
+        db_pool.connection().clone(),
+        config_arc.clone(),
+    ));
     tracing::info!("Repository service created");
 
     // Create application state
@@ -58,17 +62,17 @@ async fn main() -> Result<()> {
     let mut service_manager = ServiceManager::new();
 
     // Register RepositoryService for background periodic sync
-    let background_service = RepositoryService::new(db_pool.connection().clone());
+    let background_service = RepositoryService::new(db_pool.connection().clone(), config_arc.clone());
     service_manager.register(background_service);
 
-    // Register WebhookRetryService for failed webhook retry
-    let config_arc = Arc::new(config.clone());
+    // Register WebhookRetryService for background webhook retry
     let webhook_retry_service = WebhookRetryService::new(db_pool.connection().clone(), config_arc.clone());
     service_manager.register(webhook_retry_service);
 
     // Register WebhookCleanupService for orphaned webhook cleanup
     let webhook_cleanup_service = WebhookCleanupService::new(db_pool.connection().clone(), config_arc.clone());
     service_manager.register(webhook_cleanup_service);
+
 
     service_manager.start_all(state.clone()).await?;
     tracing::info!("Background services started");
