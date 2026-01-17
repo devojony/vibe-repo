@@ -13,6 +13,8 @@ mod m20260117_000001_create_workspaces;
 mod m20260117_000002_create_agents;
 mod m20260117_000002_create_webhook_configs;
 mod m20260117_000003_add_repository_webhook_status;
+mod m20260117_000004_create_tasks;
+mod m20260117_000005_create_task_logs;
 
 pub struct Migrator;
 
@@ -29,6 +31,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260117_000002_create_agents::Migration),
             Box::new(m20260117_000002_create_webhook_configs::Migration),
             Box::new(m20260117_000003_add_repository_webhook_status::Migration),
+            Box::new(m20260117_000004_create_tasks::Migration),
+            Box::new(m20260117_000005_create_task_logs::Migration),
         ]
     }
 }
