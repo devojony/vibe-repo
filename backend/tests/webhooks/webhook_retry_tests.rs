@@ -5,10 +5,9 @@
 
 use chrono::Utc;
 use vibe_repo::config::WebhookRetryConfig;
-use vibe_repo::entities::{prelude::*, repo_provider, repository, webhook_config};
-use vibe_repo::services::RepositoryService;
+use vibe_repo::entities::{repo_provider, repository, webhook_config};
 use vibe_repo::test_utils::db::create_test_database;
-use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
+use sea_orm::{ActiveModelTrait, ActiveValue};
 
 /// Test that webhook retry fields exist in database
 /// Requirements: 4.2.1 - Add retry tracking fields

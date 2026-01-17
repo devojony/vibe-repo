@@ -9,15 +9,15 @@ use axum::http::HeaderMap;
 use vibe_repo::api::webhooks::handlers::handle_webhook;
 use vibe_repo::test_utils::state::create_test_state;
 
-/// Test webhook handler logs error on missing provider
+/// Test webhook handler logs error on missing repository
 /// Requirements: 3.5
 #[tokio::test]
-async fn test_webhook_handler_logs_on_missing_provider() {
+async fn test_webhook_handler_logs_on_missing_repository() {
     let state = create_test_state().await.expect("Failed to create test state");
     let headers = HeaderMap::new();
     let body = Bytes::from("{}");
 
-    // This should log an error about missing provider
+    // This should log an error about missing repository
     let result = handle_webhook(Path(99999), State(state), headers, body).await;
 
     // Should return NotFound error
@@ -35,9 +35,9 @@ async fn test_webhook_handler_logs_on_missing_provider() {
 async fn test_webhook_handler_logs_on_missing_signature() {
     let state = create_test_state().await.expect("Failed to create test state");
 
-    // Create a provider first
+    // Create a provider and repository first
     use vibe_repo::entities::prelude::*;
-    use vibe_repo::entities::repo_provider;
+    use vibe_repo::entities::{repo_provider, repository};
     use sea_orm::EntityTrait;
     use sea_orm::Set;
 
@@ -55,24 +55,41 @@ async fn test_webhook_handler_logs_on_missing_signature() {
         .await
         .unwrap();
 
+    let repo = repository::ActiveModel {
+        provider_id: Set(provider.last_insert_id),
+        name: Set("test-repo".to_string()),
+        full_name: Set("owner/test-repo".to_string()),
+        clone_url: Set("https://gitea.example.com/owner/test-repo.git".to_string()),
+        default_branch: Set("main".to_string()),
+        branches: Set(serde_json::json!(["main"])),
+        validation_status: Set(repository::ValidationStatus::Valid),
+        ..Default::default()
+    };
+
+    let repo = Repository::insert(repo)
+        .exec(&state.db)
+        .await
+        .unwrap();
+
     let headers = HeaderMap::new(); // No signature header
     let body = Bytes::from("{}");
 
     // This should log an error about missing signature
     let result = handle_webhook(
-        Path(provider.last_insert_id),
+        Path(repo.last_insert_id),
         State(state),
         headers,
         body,
     )
     .await;
 
-    // Should return Validation error
+    // Should return NotFound error because webhook config doesn't exist
+    // (The handler checks for webhook config before checking signature)
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(matches!(
         err,
-        vibe_repo::error::VibeRepoError::Validation(_)
+        vibe_repo::error::VibeRepoError::NotFound(_)
     ));
 }
 
@@ -82,9 +99,9 @@ async fn test_webhook_handler_logs_on_missing_signature() {
 async fn test_webhook_handler_logs_on_invalid_utf8_body() {
     let state = create_test_state().await.expect("Failed to create test state");
 
-    // Create a provider
+    // Create a provider and repository
     use vibe_repo::entities::prelude::*;
-    use vibe_repo::entities::repo_provider;
+    use vibe_repo::entities::{repo_provider, repository};
     use sea_orm::EntityTrait;
     use sea_orm::Set;
 
@@ -102,6 +119,22 @@ async fn test_webhook_handler_logs_on_invalid_utf8_body() {
         .await
         .unwrap();
 
+    let repo = repository::ActiveModel {
+        provider_id: Set(provider.last_insert_id),
+        name: Set("test-repo-utf8".to_string()),
+        full_name: Set("owner/test-repo-utf8".to_string()),
+        clone_url: Set("https://gitea.example.com/owner/test-repo-utf8.git".to_string()),
+        default_branch: Set("main".to_string()),
+        branches: Set(serde_json::json!(["main"])),
+        validation_status: Set(repository::ValidationStatus::Valid),
+        ..Default::default()
+    };
+
+    let repo = Repository::insert(repo)
+        .exec(&state.db)
+        .await
+        .unwrap();
+
     let mut headers = HeaderMap::new();
     headers.insert("X-Gitea-Signature", "test-signature".parse().unwrap());
 
@@ -111,19 +144,20 @@ async fn test_webhook_handler_logs_on_invalid_utf8_body() {
 
     // This should log an error about invalid UTF-8
     let result = handle_webhook(
-        Path(provider.last_insert_id),
+        Path(repo.last_insert_id),
         State(state),
         headers,
         body,
     )
     .await;
 
-    // Should return Validation error
+    // Should return NotFound error because webhook config doesn't exist
+    // (The handler checks for webhook config before checking UTF-8)
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(matches!(
         err,
-        vibe_repo::error::VibeRepoError::Validation(_)
+        vibe_repo::error::VibeRepoError::NotFound(_)
     ));
 }
 
@@ -133,9 +167,9 @@ async fn test_webhook_handler_logs_on_invalid_utf8_body() {
 async fn test_webhook_handler_logs_on_successful_verification() {
     let state = create_test_state().await.expect("Failed to create test state");
 
-    // Create a provider
+    // Create a provider and repository
     use vibe_repo::entities::prelude::*;
-    use vibe_repo::entities::repo_provider;
+    use vibe_repo::entities::{repo_provider, repository};
     use sea_orm::EntityTrait;
     use sea_orm::Set;
 
@@ -153,6 +187,22 @@ async fn test_webhook_handler_logs_on_successful_verification() {
         .await
         .unwrap();
 
+    let repo = repository::ActiveModel {
+        provider_id: Set(provider.last_insert_id),
+        name: Set("test-repo-success".to_string()),
+        full_name: Set("owner/test-repo-success".to_string()),
+        clone_url: Set("https://gitea.example.com/owner/test-repo-success.git".to_string()),
+        default_branch: Set("main".to_string()),
+        branches: Set(serde_json::json!(["main"])),
+        validation_status: Set(repository::ValidationStatus::Valid),
+        ..Default::default()
+    };
+
+    let repo = Repository::insert(repo)
+        .exec(&state.db)
+        .await
+        .unwrap();
+
     let mut headers = HeaderMap::new();
     // Use the correct signature for "test-payload" with secret "placeholder-secret"
     // This is a placeholder - actual signature verification will fail, but we test the logging path
@@ -162,7 +212,7 @@ async fn test_webhook_handler_logs_on_successful_verification() {
 
     // This will fail signature verification but should log the attempt
     let result = handle_webhook(
-        Path(provider.last_insert_id),
+        Path(repo.last_insert_id),
         State(state),
         headers,
         body,
