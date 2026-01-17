@@ -199,7 +199,8 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let config = AppConfig::default();
-        let repository_service = Arc::new(RepositoryService::new(db.clone()));
+        let config_arc = Arc::new(config.clone());
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
 
         // Act: Create AppState (Docker will be initialized if available)
         let state = AppState::new(db, config, repository_service);
@@ -224,7 +225,8 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let config = AppConfig::default();
-        let repository_service = Arc::new(RepositoryService::new(db.clone()));
+        let config_arc = Arc::new(config.clone());
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
 
         // Act: Create AppState
         let state = AppState::new(db, config.clone(), repository_service);
