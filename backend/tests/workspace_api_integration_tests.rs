@@ -5,7 +5,9 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Utc;
-use gitautodev::api::agents::models::{AgentResponse, CreateAgentRequest, UpdateAgentEnabledRequest};
+use gitautodev::api::agents::models::{
+    AgentResponse, CreateAgentRequest, UpdateAgentEnabledRequest,
+};
 use gitautodev::api::tasks::models::{CreateTaskRequest, TaskResponse, UpdateTaskStatusRequest};
 use gitautodev::api::workspaces::models::{
     CreateWorkspaceRequest, UpdateWorkspaceStatusRequest, WorkspaceResponse,
@@ -52,10 +54,7 @@ async fn create_test_provider(db: &DatabaseConnection) -> repo_provider::Model {
 }
 
 /// Create a test repository
-async fn create_test_repository(
-    db: &DatabaseConnection,
-    provider_id: i32,
-) -> repository::Model {
+async fn create_test_repository(db: &DatabaseConnection, provider_id: i32) -> repository::Model {
     repository::ActiveModel {
         provider_id: Set(provider_id),
         name: Set("test-repo".to_string()),
@@ -158,7 +157,9 @@ async fn create_agent_via_api(
 #[tokio::test]
 async fn test_create_workspace_returns_201() {
     // Arrange: Create test app and repository
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -207,7 +208,9 @@ async fn test_create_workspace_returns_201() {
 #[tokio::test]
 async fn test_get_workspace_by_id_returns_200() {
     // Arrange: Create workspace
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -242,7 +245,9 @@ async fn test_get_workspace_by_id_returns_200() {
 #[tokio::test]
 async fn test_get_workspace_nonexistent_returns_404() {
     // Arrange: Create test app
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let app = create_test_app_with_db(test_db.connection.clone()).await;
 
     // Act: Get non-existent workspace
@@ -266,7 +271,9 @@ async fn test_get_workspace_nonexistent_returns_404() {
 #[tokio::test]
 async fn test_list_workspaces_returns_200() {
     // Arrange: Create multiple workspaces
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo1 = create_test_repository(db, provider.id).await;
@@ -300,7 +307,9 @@ async fn test_list_workspaces_returns_200() {
 #[tokio::test]
 async fn test_update_workspace_status_returns_200() {
     // Arrange: Create workspace
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -320,9 +329,7 @@ async fn test_update_workspace_status_returns_200() {
                 .method("PATCH")
                 .uri(&format!("/api/workspaces/{}/status", workspace.id))
                 .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&update_request).unwrap(),
-                ))
+                .body(Body::from(serde_json::to_string(&update_request).unwrap()))
                 .unwrap(),
         )
         .await
@@ -341,7 +348,9 @@ async fn test_update_workspace_status_returns_200() {
 #[tokio::test]
 async fn test_delete_workspace_returns_204() {
     // Arrange: Create workspace
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -364,11 +373,14 @@ async fn test_delete_workspace_returns_204() {
 
     // Assert: Should return 200 OK with deleted workspace
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Verify the workspace is marked as deleted
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let deleted_workspace: WorkspaceResponse = serde_json::from_slice(&body).unwrap();
-    assert!(deleted_workspace.deleted_at.is_some(), "Workspace should have deleted_at timestamp");
+    assert!(
+        deleted_workspace.deleted_at.is_some(),
+        "Workspace should have deleted_at timestamp"
+    );
 }
 
 // ============================================================================
@@ -380,7 +392,9 @@ async fn test_delete_workspace_returns_204() {
 #[tokio::test]
 async fn test_create_agent_returns_201() {
     // Arrange: Create workspace
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -427,7 +441,9 @@ async fn test_create_agent_returns_201() {
 #[tokio::test]
 async fn test_get_agent_by_id_returns_200() {
     // Arrange: Create agent
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -463,7 +479,9 @@ async fn test_get_agent_by_id_returns_200() {
 #[tokio::test]
 async fn test_list_agents_by_workspace_returns_200() {
     // Arrange: Create multiple agents
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -500,7 +518,9 @@ async fn test_list_agents_by_workspace_returns_200() {
 #[tokio::test]
 async fn test_update_agent_enabled_returns_200() {
     // Arrange: Create agent
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -519,9 +539,7 @@ async fn test_update_agent_enabled_returns_200() {
                 .method("PATCH")
                 .uri(&format!("/api/agents/{}/enabled", agent.id))
                 .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&update_request).unwrap(),
-                ))
+                .body(Body::from(serde_json::to_string(&update_request).unwrap()))
                 .unwrap(),
         )
         .await
@@ -540,7 +558,9 @@ async fn test_update_agent_enabled_returns_200() {
 #[tokio::test]
 async fn test_delete_agent_returns_204() {
     // Arrange: Create agent
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -575,7 +595,9 @@ async fn test_delete_agent_returns_204() {
 #[tokio::test]
 async fn test_create_task_returns_201() {
     // Arrange: Create workspace
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -622,7 +644,9 @@ async fn test_create_task_returns_201() {
 #[tokio::test]
 async fn test_get_task_by_id_returns_200() {
     // Arrange: Create task
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -686,7 +710,9 @@ async fn test_get_task_by_id_returns_200() {
 #[tokio::test]
 async fn test_list_tasks_by_workspace_returns_200() {
     // Arrange: Create multiple tasks
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -746,7 +772,9 @@ async fn test_list_tasks_by_workspace_returns_200() {
 #[tokio::test]
 async fn test_update_task_status_returns_200() {
     // Arrange: Create task
-    let test_db = TestDatabase::new().await.expect("Failed to create test database");
+    let test_db = TestDatabase::new()
+        .await
+        .expect("Failed to create test database");
     let db = &test_db.connection;
     let provider = create_test_provider(db).await;
     let repo = create_test_repository(db, provider.id).await;
@@ -795,9 +823,7 @@ async fn test_update_task_status_returns_200() {
                 .method("PATCH")
                 .uri(&format!("/api/tasks/{}/status", task.id))
                 .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&update_request).unwrap(),
-                ))
+                .body(Body::from(serde_json::to_string(&update_request).unwrap()))
                 .unwrap(),
         )
         .await

@@ -312,7 +312,9 @@ mod tests {
         };
 
         // Act: Check health of non-existent container
-        let health = service.check_container_health("nonexistent-container-id").await;
+        let health = service
+            .check_container_health("nonexistent-container-id")
+            .await;
 
         // Assert: Should return error
         assert!(health.is_err());

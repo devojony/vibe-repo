@@ -185,9 +185,7 @@ mod tests {
         let health_status = updated.health_status.unwrap();
         // Should be either "Healthy", "Unhealthy", or "error" depending on container state
         assert!(
-            health_status == "Healthy"
-                || health_status == "Unhealthy"
-                || health_status == "error"
+            health_status == "Healthy" || health_status == "Unhealthy" || health_status == "error"
         );
 
         // container_status should be set (either Docker status or remain as "running" from setup)
@@ -216,9 +214,7 @@ mod tests {
     }
 
     // Helper functions
-    async fn create_test_repository(
-        db: &DatabaseConnection,
-    ) -> crate::entities::repository::Model {
+    async fn create_test_repository(db: &DatabaseConnection) -> crate::entities::repository::Model {
         use crate::entities::{prelude::*, repo_provider};
 
         let provider = repo_provider::ActiveModel {

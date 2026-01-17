@@ -35,7 +35,10 @@ impl AppState {
                 Some(service)
             }
             Err(e) => {
-                tracing::warn!("Docker service unavailable: {}. Container features will be disabled.", e);
+                tracing::warn!(
+                    "Docker service unavailable: {}. Container features will be disabled.",
+                    e
+                );
                 None
             }
         };
