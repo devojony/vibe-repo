@@ -6,5 +6,6 @@
 pub mod handlers;
 pub mod models;
 pub mod routes;
+pub mod verification;
 
 pub use routes::router;
