@@ -28,7 +28,13 @@ async fn verify_webhook_request(
     let provider = RepoProvider::find_by_id(provider_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| GitAutoDevError::NotFound(format!("Provider {} not found", provider_id)))?;
+        .ok_or_else(|| {
+            tracing::error!(
+                provider_id = provider_id,
+                "Provider not found for webhook request"
+            );
+            GitAutoDevError::NotFound(format!("Provider {} not found", provider_id))
+        })?;
 
     // Get webhook config for this provider
     // For now, we'll use a placeholder secret
@@ -41,11 +47,23 @@ async fn verify_webhook_request(
         .or_else(|| headers.get("X-Hub-Signature-256"))
         .or_else(|| headers.get("X-Gitlab-Token"))
         .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| GitAutoDevError::Validation("Missing webhook signature".to_string()))?;
+        .ok_or_else(|| {
+            tracing::error!(
+                provider_id = provider_id,
+                "Missing webhook signature header"
+            );
+            GitAutoDevError::Validation("Missing webhook signature".to_string())
+        })?;
 
     // Verify signature
-    let body_str = std::str::from_utf8(body)
-        .map_err(|e| GitAutoDevError::Validation(format!("Invalid UTF-8 in body: {}", e)))?;
+    let body_str = std::str::from_utf8(body).map_err(|e| {
+        tracing::error!(
+            provider_id = provider_id,
+            error = %e,
+            "Invalid UTF-8 in webhook body"
+        );
+        GitAutoDevError::Validation(format!("Invalid UTF-8 in body: {}", e))
+    })?;
 
     let is_valid = crate::api::webhooks::verification::verify_webhook_signature(
         &provider.provider_type,
@@ -55,6 +73,10 @@ async fn verify_webhook_request(
     )?;
 
     if !is_valid {
+        tracing::error!(
+            provider_id = provider_id,
+            "Invalid webhook signature"
+        );
         return Err(GitAutoDevError::Validation(
             "Invalid webhook signature".to_string(),
         ));
@@ -88,16 +110,28 @@ pub async fn handle_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<WebhookResponse>, GitAutoDevError> {
-    tracing::info!("Received webhook for provider {}", provider_id);
+    tracing::info!(
+        provider_id = provider_id,
+        "Received webhook request"
+    );
 
     // Verify webhook signature
     verify_webhook_request(provider_id, &headers, &body, &state).await?;
 
-    tracing::info!("Webhook signature verified for provider {}", provider_id);
+    tracing::info!(
+        provider_id = provider_id,
+        "Webhook signature verified"
+    );
 
     // Parse webhook payload based on event type
-    let payload_str = std::str::from_utf8(&body)
-        .map_err(|e| GitAutoDevError::Validation(format!("Invalid UTF-8 in payload: {}", e)))?;
+    let payload_str = std::str::from_utf8(&body).map_err(|e| {
+        tracing::error!(
+            provider_id = provider_id,
+            error = %e,
+            "Invalid UTF-8 in webhook payload"
+        );
+        GitAutoDevError::Validation(format!("Invalid UTF-8 in payload: {}", e))
+    })?;
 
     // Detect event type from headers
     let event_type = headers
@@ -105,21 +139,36 @@ pub async fn handle_webhook(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
 
-    tracing::info!("Processing webhook event type: {}", event_type);
+    tracing::info!(
+        provider_id = provider_id,
+        event_type = event_type,
+        "Processing webhook event"
+    );
 
     // Parse based on event type
     match event_type {
         "issue_comment" => {
-            let payload: super::models::GiteaIssueCommentPayload = serde_json::from_str(payload_str)
-                .map_err(|e| GitAutoDevError::Validation(format!("Failed to parse issue comment payload: {}", e)))?;
+            let payload: super::models::GiteaIssueCommentPayload =
+                serde_json::from_str(payload_str).map_err(|e| {
+                    tracing::error!(
+                        provider_id = provider_id,
+                        event_type = "issue_comment",
+                        error = %e,
+                        "Failed to parse issue comment payload"
+                    );
+                    GitAutoDevError::Validation(format!(
+                        "Failed to parse issue comment payload: {}",
+                        e
+                    ))
+                })?;
             
             let comment_info = payload.extract_comment_info()?;
             tracing::info!(
-                "Extracted issue comment info: comment_id={}, author={}, issue={}, repo={}",
-                comment_info.comment_id,
-                comment_info.comment_author,
-                comment_info.issue_or_pr_number,
-                comment_info.repository_full_name
+                comment_id = %comment_info.comment_id,
+                author = %comment_info.comment_author,
+                issue = comment_info.issue_or_pr_number,
+                repository = %comment_info.repository_full_name,
+                "Extracted issue comment info"
             );
             
             // Spawn async task to handle event
@@ -131,16 +180,24 @@ pub async fn handle_webhook(
             });
         }
         "pull_request_comment" => {
-            let payload: super::models::GiteaPullRequestCommentPayload = serde_json::from_str(payload_str)
-                .map_err(|e| GitAutoDevError::Validation(format!("Failed to parse PR comment payload: {}", e)))?;
+            let payload: super::models::GiteaPullRequestCommentPayload =
+                serde_json::from_str(payload_str).map_err(|e| {
+                    tracing::error!(
+                        provider_id = provider_id,
+                        event_type = "pull_request_comment",
+                        error = %e,
+                        "Failed to parse PR comment payload"
+                    );
+                    GitAutoDevError::Validation(format!("Failed to parse PR comment payload: {}", e))
+                })?;
             
             let comment_info = payload.extract_comment_info()?;
             tracing::info!(
-                "Extracted PR comment info: comment_id={}, author={}, pr={}, repo={}",
-                comment_info.comment_id,
-                comment_info.comment_author,
-                comment_info.issue_or_pr_number,
-                comment_info.repository_full_name
+                comment_id = %comment_info.comment_id,
+                author = %comment_info.comment_author,
+                pr = comment_info.issue_or_pr_number,
+                repository = %comment_info.repository_full_name,
+                "Extracted PR comment info"
             );
             
             // Spawn async task to handle event
@@ -152,7 +209,11 @@ pub async fn handle_webhook(
             });
         }
         _ => {
-            tracing::warn!("Unsupported event type: {}", event_type);
+            tracing::warn!(
+                provider_id = provider_id,
+                event_type = event_type,
+                "Unsupported webhook event type"
+            );
         }
     }
 
