@@ -14,32 +14,58 @@ use super::models::WebhookResponse;
 
 /// Verify webhook request signature
 ///
-/// Retrieves provider from database and verifies webhook signature
+/// Retrieves repository and webhook config from database and verifies webhook signature
 async fn verify_webhook_request(
-    provider_id: i32,
+    repository_id: i32,
     headers: &HeaderMap,
     body: &[u8],
     state: &AppState,
 ) -> Result<(), VibeRepoError> {
-    // Get provider from database
+    // Get repository, webhook config, and provider from database
     use crate::entities::prelude::*;
-    use sea_orm::EntityTrait;
+    use crate::entities::webhook_config;
+    use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
 
-    let provider = RepoProvider::find_by_id(provider_id)
+    // Get repository first
+    let repo = Repository::find_by_id(repository_id)
         .one(&state.db)
         .await?
         .ok_or_else(|| {
             tracing::error!(
-                provider_id = provider_id,
-                "Provider not found for webhook request"
+                repository_id = repository_id,
+                "Repository not found for webhook request"
             );
-            VibeRepoError::NotFound(format!("Provider {} not found", provider_id))
+            VibeRepoError::NotFound(format!("Repository {} not found", repository_id))
         })?;
 
-    // Get webhook config for this provider
-    // For now, we'll use a placeholder secret
-    // Real implementation will query webhook_configs table (Task 3.3)
-    let secret = "placeholder-secret";
+    // Get webhook_config to get the secret
+    let webhook = WebhookConfig::find()
+        .filter(webhook_config::Column::RepositoryId.eq(repository_id))
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| {
+            tracing::error!(
+                repository_id = repository_id,
+                "Webhook config not found for repository"
+            );
+            VibeRepoError::NotFound(format!("Webhook config not found for repository {}", repository_id))
+        })?;
+
+    // Get provider for signature verification algorithm
+    let provider = RepoProvider::find_by_id(repo.provider_id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| {
+            tracing::error!(
+                repository_id = repository_id,
+                provider_id = repo.provider_id,
+                "Provider not found for repository"
+            );
+            VibeRepoError::NotFound(format!("Provider {} not found", repo.provider_id))
+        })?;
+
+    // Use webhook.webhook_secret instead of placeholder
+    let secret = &webhook.webhook_secret;
 
     // Get signature from headers based on provider type
     let signature = headers
@@ -49,7 +75,7 @@ async fn verify_webhook_request(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| {
             tracing::error!(
-                provider_id = provider_id,
+                repository_id = repository_id,
                 "Missing webhook signature header"
             );
             VibeRepoError::Validation("Missing webhook signature".to_string())
@@ -58,7 +84,7 @@ async fn verify_webhook_request(
     // Verify signature
     let body_str = std::str::from_utf8(body).map_err(|e| {
         tracing::error!(
-            provider_id = provider_id,
+            repository_id = repository_id,
             error = %e,
             "Invalid UTF-8 in webhook body"
         );
@@ -74,7 +100,7 @@ async fn verify_webhook_request(
 
     if !is_valid {
         tracing::error!(
-            provider_id = provider_id,
+            repository_id = repository_id,
             "Invalid webhook signature"
         );
         return Err(VibeRepoError::Validation(
@@ -91,42 +117,42 @@ async fn verify_webhook_request(
 /// Future enhancements will parse payload and trigger workflows.
 #[utoipa::path(
     post,
-    path = "/api/webhooks/{provider_id}",
+    path = "/api/webhooks/{repository_id}",
     params(
-        ("provider_id" = i32, Path, description = "Git provider ID")
+        ("repository_id" = i32, Path, description = "Repository ID")
     ),
     request_body = String,
     responses(
         (status = 200, description = "Webhook received successfully", body = WebhookResponse),
         (status = 400, description = "Invalid signature or payload"),
-        (status = 404, description = "Provider not found"),
+        (status = 404, description = "Repository not found"),
         (status = 500, description = "Internal server error")
     ),
     tag = "webhooks"
 )]
 pub async fn handle_webhook(
-    Path(provider_id): Path<i32>,
+    Path(repository_id): Path<i32>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<WebhookResponse>, VibeRepoError> {
     tracing::info!(
-        provider_id = provider_id,
+        repository_id = repository_id,
         "Received webhook request"
     );
 
     // Verify webhook signature
-    verify_webhook_request(provider_id, &headers, &body, &state).await?;
+    verify_webhook_request(repository_id, &headers, &body, &state).await?;
 
     tracing::info!(
-        provider_id = provider_id,
+        repository_id = repository_id,
         "Webhook signature verified"
     );
 
     // Parse webhook payload based on event type
     let payload_str = std::str::from_utf8(&body).map_err(|e| {
         tracing::error!(
-            provider_id = provider_id,
+            repository_id = repository_id,
             error = %e,
             "Invalid UTF-8 in webhook payload"
         );
@@ -140,7 +166,7 @@ pub async fn handle_webhook(
         .unwrap_or("unknown");
 
     tracing::info!(
-        provider_id = provider_id,
+        repository_id = repository_id,
         event_type = event_type,
         "Processing webhook event"
     );
@@ -151,7 +177,7 @@ pub async fn handle_webhook(
             let payload: super::models::GiteaIssueCommentPayload =
                 serde_json::from_str(payload_str).map_err(|e| {
                     tracing::error!(
-                        provider_id = provider_id,
+                        repository_id = repository_id,
                         event_type = "issue_comment",
                         error = %e,
                         "Failed to parse issue comment payload"
@@ -183,7 +209,7 @@ pub async fn handle_webhook(
             let payload: super::models::GiteaPullRequestCommentPayload =
                 serde_json::from_str(payload_str).map_err(|e| {
                     tracing::error!(
-                        provider_id = provider_id,
+                        repository_id = repository_id,
                         event_type = "pull_request_comment",
                         error = %e,
                         "Failed to parse PR comment payload"
@@ -210,7 +236,7 @@ pub async fn handle_webhook(
         }
         _ => {
             tracing::warn!(
-                provider_id = provider_id,
+                repository_id = repository_id,
                 event_type = event_type,
                 "Unsupported webhook event type"
             );
