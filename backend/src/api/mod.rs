@@ -5,6 +5,7 @@
 pub mod health;
 pub mod repositories;
 pub mod settings;
+pub mod workspaces;
 
 use axum::{middleware, Router};
 use std::sync::Arc;
