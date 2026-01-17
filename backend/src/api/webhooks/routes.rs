@@ -9,5 +9,5 @@ use super::handlers;
 
 /// Create webhook router
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new().route("/:provider_id", post(handlers::handle_webhook))
+    Router::new().route("/:repository_id", post(handlers::handle_webhook))
 }
