@@ -25,6 +25,7 @@ pub struct Model {
     pub can_manage_prs: bool,
     pub can_manage_issues: bool,
     pub validation_message: Option<String>,
+    pub webhook_status: String,
     pub deleted_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
