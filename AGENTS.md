@@ -382,6 +382,44 @@ backend/
 - Background service for scheduled sync (hourly)
 - Repository initialization with configurable branch names and label management
 
+### Webhook Module
+
+#### Webhook Event Receiver
+- `POST /api/webhooks/:repository_id` - Receive webhook events from Git providers
+
+**Features:**
+- Repository-based webhook URLs for direct lookup
+- Signature verification using webhook_secret
+- Support for multiple Git providers (Gitea/GitHub/GitLab)
+- Automatic webhook creation during repository initialization
+- Retry mechanism for failed webhook deliveries
+
+**Webhook URL Format:**
+```
+https://vibe-repo.example.com/api/webhooks/{repository_id}
+```
+
+Where `{repository_id}` is the database ID of the repository. This design:
+- Enables direct webhook lookup by repository_id (indexed, fast)
+- Makes the webhook-repository association explicit
+- Avoids ambiguity about which repository the webhook belongs to
+- Allows signature verification without additional queries
+
+**Webhook-Repository-Provider Relationship:**
+```
+Provider (1) ──→ (N) Repository (1) ──→ (1) WebhookConfig
+                      ↑                        ↓
+                      └────── provider_id ─────┘
+                           (redundant for optimization)
+```
+
+- **Primary Association**: WebhookConfig → Repository (one-to-one)
+  - Each repository has at most one webhook
+  - Webhook URL uses repository_id
+- **Secondary Association**: WebhookConfig → Provider (many-to-one)
+  - provider_id is redundant but kept for performance
+  - Enables cascade delete and fast provider-level queries
+
 ### API Documentation
 - `GET /swagger-ui` - Interactive API documentation (Swagger UI)
 - `GET /api-docs/openapi.json` - OpenAPI 3.0 specification
@@ -570,6 +608,46 @@ Repository records with validation status.
 
 **Relationships:**
 - CASCADE DELETE: Deleting a provider deletes all its repositories
+
+#### webhook_configs
+Webhook configurations for repository event monitoring.
+
+**Fields:**
+- `id` (INTEGER, PRIMARY KEY)
+- `provider_id` (INTEGER, FOREIGN KEY → repo_providers.id)
+- `repository_id` (INTEGER, FOREIGN KEY → repositories.id)
+- `webhook_id` (TEXT, NOT NULL) - Provider's webhook ID
+- `webhook_secret` (TEXT, NOT NULL) - Secret for signature verification
+- `webhook_url` (TEXT, NOT NULL) - Full webhook URL
+- `events` (TEXT, NOT NULL) - JSON array of subscribed events
+- `enabled` (BOOLEAN, DEFAULT true)
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
+- `retry_count` (INTEGER, DEFAULT 0)
+- `last_retry_at` (TIMESTAMP, NULLABLE)
+- `next_retry_at` (TIMESTAMP, NULLABLE)
+- `last_error` (TEXT, NULLABLE)
+
+**Relationships:**
+- **Primary**: webhook_config → repository (one-to-one)
+  - Each repository has at most one webhook configuration
+  - Webhook URL format: `/api/webhooks/{repository_id}`
+- **Secondary**: webhook_config → provider (many-to-one, redundant)
+  - provider_id is redundant but kept for performance optimization
+  - Enables cascade delete when provider is removed
+  - Allows fast queries without JOIN operations
+
+**Constraints:**
+- UNIQUE (repository_id) - One webhook per repository
+- CASCADE DELETE: Deleting a repository deletes its webhook config
+- CASCADE DELETE: Deleting a provider deletes all its webhook configs
+
+**Design Rationale:**
+Webhooks are per-repository in Git providers (Gitea/GitHub/GitLab), not per-provider.
+The webhook URL uses `repository_id` to make this association explicit and enable
+direct lookup without database queries. While `provider_id` is technically redundant
+(can be obtained via `repository.provider_id`), it provides significant performance
+benefits for common operations like cascade deletion and provider-level queries.
 
 ### Planned Tables
 
