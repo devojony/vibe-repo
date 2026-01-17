@@ -72,14 +72,25 @@ impl HealthCheckService {
             match docker.check_container_health(container_id).await {
                 Ok(health) => {
                     // Update workspace with health status
+                    let workspace_id = workspace.id;
                     let mut workspace_active: workspace::ActiveModel = workspace.into();
-                    workspace_active.health_status = Set(Some(health.status.clone()));
+                    // health_status: High-level status (Healthy/Unhealthy)
+                    workspace_active.health_status = Set(Some(if health.is_running {
+                        "Healthy".to_string()
+                    } else {
+                        "Unhealthy".to_string()
+                    }));
+                    // container_status: Actual Docker status (running, exited, stopped, etc.)
                     workspace_active.container_status = Set(Some(health.status));
                     workspace_active.last_health_check = Set(Some(Utc::now()));
                     workspace_active.updated_at = Set(Utc::now());
 
                     if let Err(e) = workspace_active.update(self.db.as_ref()).await {
-                        tracing::error!("Failed to update workspace health: {}", e);
+                        tracing::warn!(
+                            "Failed to update workspace {} health status: {}",
+                            workspace_id,
+                            e
+                        );
                     }
                 }
                 Err(e) => {
@@ -90,13 +101,18 @@ impl HealthCheckService {
                     );
 
                     // Update workspace with error status
+                    let workspace_id = workspace.id;
                     let mut workspace_active: workspace::ActiveModel = workspace.into();
                     workspace_active.health_status = Set(Some("error".to_string()));
                     workspace_active.last_health_check = Set(Some(Utc::now()));
                     workspace_active.updated_at = Set(Utc::now());
 
                     if let Err(e) = workspace_active.update(self.db.as_ref()).await {
-                        tracing::error!("Failed to update workspace health: {}", e);
+                        tracing::warn!(
+                            "Failed to update workspace {} error status: {}",
+                            workspace_id,
+                            e
+                        );
                     }
                 }
             }
@@ -155,13 +171,27 @@ mod tests {
         // Assert
         assert!(result.is_ok());
 
-        // Verify workspace was updated
+        // Verify workspace was updated with health check timestamp
         let updated = Workspace::find_by_id(workspace.id)
             .one(db)
             .await
             .unwrap()
             .unwrap();
         assert!(updated.last_health_check.is_some());
+
+        // Verify health_status and container_status are populated
+        // Note: Since we're testing with a non-existent container, we expect error status
+        assert!(updated.health_status.is_some());
+        let health_status = updated.health_status.unwrap();
+        // Should be either "Healthy", "Unhealthy", or "error" depending on container state
+        assert!(
+            health_status == "Healthy"
+                || health_status == "Unhealthy"
+                || health_status == "error"
+        );
+
+        // container_status should be set (either Docker status or remain as "running" from setup)
+        assert!(updated.container_status.is_some());
     }
 
     /// Test HealthCheckService gracefully handles missing Docker
