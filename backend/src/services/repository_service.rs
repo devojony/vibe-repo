@@ -1146,6 +1146,130 @@ impl RepositoryService {
         Ok(())
     }
 
+    /// Delete a repository and its associated webhooks
+    ///
+    /// This method performs a hard delete:
+    /// 1. Deletes the webhook from the Git provider
+    /// 2. Deletes the repository record (cascade deletes webhook_config)
+    ///
+    /// # Arguments
+    /// * `repo_id` - The ID of the repository to delete
+    ///
+    /// # Returns
+    /// Ok(()) on success
+    ///
+    /// # Errors
+    /// - `NotFound` - Repository not found
+    ///
+    /// # Notes
+    /// - Webhook deletion from Git provider is best-effort; repository deletion proceeds even if it fails
+    /// - Database cascade delete ensures webhook_config is removed
+    pub async fn delete_repository(&self, repo_id: i32) -> Result<()> {
+        tracing::info!(repository_id = repo_id, "Deleting repository");
+        
+        // Get repository
+        let repo = Repository::find_by_id(repo_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| GitAutoDevError::NotFound(
+                format!("Repository {} not found", repo_id)
+            ))?;
+        
+        // Get webhook config
+        let webhook = WebhookConfig::find()
+            .filter(webhook_config::Column::RepositoryId.eq(repo_id))
+            .one(&self.db)
+            .await?;
+        
+        // If webhook exists, delete from Git provider
+        if let Some(webhook) = webhook {
+            if let Err(e) = self.delete_webhook_from_provider(&repo, &webhook).await {
+                tracing::error!(
+                    repository_id = repo_id,
+                    webhook_id = %webhook.webhook_id,
+                    error = %e,
+                    "Failed to delete webhook from Git provider, continuing with repository deletion"
+                );
+                // Continue with deletion even if webhook deletion fails
+            }
+        }
+        
+        // Delete repository (cascade deletes webhook_config)
+        let repo_active: repository::ActiveModel = repo.into();
+        repo_active.delete(&self.db).await?;
+        
+        tracing::info!(repository_id = repo_id, "Repository deleted successfully");
+        
+        Ok(())
+    }
+
+    /// Delete webhook from Git provider
+    ///
+    /// # Arguments
+    /// * `repo` - The repository model
+    /// * `webhook` - The webhook config model
+    ///
+    /// # Returns
+    /// Ok(()) on success
+    ///
+    /// # Errors
+    /// - Various errors from Git provider API
+    async fn delete_webhook_from_provider(
+        &self,
+        repo: &repository::Model,
+        webhook: &webhook_config::Model,
+    ) -> Result<()> {
+        // Get provider
+        let provider = RepoProvider::find_by_id(webhook.provider_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| GitAutoDevError::NotFound(
+                format!("Provider {} not found", webhook.provider_id)
+            ))?;
+        
+        // Create Git client
+        let client = GitClientFactory::from_provider(&provider).map_err(|e| {
+            GitAutoDevError::Internal(format!("Failed to create git client: {}", e))
+        })?;
+        
+        // Parse repository owner and name
+        let parts: Vec<&str> = repo.full_name.split('/').collect();
+        if parts.len() != 2 {
+            return Err(GitAutoDevError::Validation(format!(
+                "Invalid repository full_name format: {}",
+                repo.full_name
+            )));
+        }
+        let (owner, repo_name) = (parts[0], parts[1]);
+        
+        // Delete webhook from Git provider
+        match client
+            .delete_webhook(owner, repo_name, &webhook.webhook_id)
+            .await
+        {
+            Ok(_) => {
+                tracing::info!(
+                    webhook_id = %webhook.webhook_id,
+                    repository_id = repo.id,
+                    "Webhook deleted from Git provider"
+                );
+                Ok(())
+            }
+            Err(GitProviderError::NotFound(_)) => {
+                tracing::warn!(
+                    webhook_id = %webhook.webhook_id,
+                    "Webhook not found on Git provider, may have been deleted manually"
+                );
+                // Not an error - webhook already gone
+                Ok(())
+            }
+            Err(e) => Err(GitAutoDevError::Internal(format!(
+                "Failed to delete webhook from Git provider: {}",
+                e
+            ))),
+        }
+    }
+
     /// Restore a soft-deleted repository
     ///
     /// Clears the deleted_at timestamp and resets status to Uninitialized.
