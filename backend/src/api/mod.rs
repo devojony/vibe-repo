@@ -5,6 +5,7 @@
 pub mod health;
 pub mod repositories;
 pub mod settings;
+pub mod webhooks;
 
 use axum::{middleware, Router};
 use std::sync::Arc;
@@ -45,6 +46,7 @@ use crate::{logging, state::AppState};
         repositories::handlers::batch_delete_repositories,
         repositories::handlers::batch_refresh_repositories,
         repositories::handlers::batch_reinitialize_repositories,
+        webhooks::handlers::handle_webhook,
     ),
     components(schemas(
         health::handlers::HealthResponse,
@@ -61,6 +63,8 @@ use crate::{logging, state::AppState};
         repositories::models::BatchOperationRequest,
         repositories::models::BatchOperationResponse,
         repositories::models::BatchOperationResult,
+        webhooks::models::WebhookPayload,
+        webhooks::models::WebhookResponse,
         crate::entities::repo_provider::ProviderType,
         crate::entities::repository::ValidationStatus,
         crate::entities::repository::RepositoryStatus,
@@ -78,6 +82,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             settings::providers::routes::router(),
         )
         .nest("/api/repositories", repositories::routes::router())
+        .nest("/api/webhooks", webhooks::routes::router())
         // OpenAPI documentation
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // Attach shared state
