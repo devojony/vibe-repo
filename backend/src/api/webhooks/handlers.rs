@@ -122,7 +122,13 @@ pub async fn handle_webhook(
                 comment_info.repository_full_name
             );
             
-            // TODO: Task 3.4 - Route to event handler
+            // Spawn async task to handle event
+            let comment_info_clone = comment_info.clone();
+            tokio::spawn(async move {
+                if let Err(e) = super::event_handler::handle_comment_event(comment_info_clone).await {
+                    tracing::error!(error = %e, "Failed to handle comment event");
+                }
+            });
         }
         "pull_request_comment" => {
             let payload: super::models::GiteaPullRequestCommentPayload = serde_json::from_str(payload_str)
@@ -137,7 +143,13 @@ pub async fn handle_webhook(
                 comment_info.repository_full_name
             );
             
-            // TODO: Task 3.4 - Route to event handler
+            // Spawn async task to handle event
+            let comment_info_clone = comment_info.clone();
+            tokio::spawn(async move {
+                if let Err(e) = super::event_handler::handle_comment_event(comment_info_clone).await {
+                    tracing::error!(error = %e, "Failed to handle comment event");
+                }
+            });
         }
         _ => {
             tracing::warn!("Unsupported event type: {}", event_type);
