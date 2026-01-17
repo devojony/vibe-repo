@@ -6,8 +6,9 @@ use crate::git_provider::{
     error::GitProviderError,
     models::{
         CreateBranchRequest, CreateIssueRequest, CreateLabelRequest, CreatePullRequestRequest,
-        GitBranch, GitIssue, GitLabel, GitPullRequest, GitRepository, GitUser, IssueFilter,
-        MergeOptions, PullRequestFilter, UpdateIssueRequest, UpdatePullRequestRequest,
+        CreateWebhookRequest, GitBranch, GitIssue, GitLabel, GitPullRequest, GitRepository,
+        GitUser, GitWebhook, IssueFilter, MergeOptions, PullRequestFilter, UpdateIssueRequest,
+        UpdatePullRequestRequest,
     },
     traits::GitProvider,
 };
@@ -773,6 +774,41 @@ impl GitProvider for GiteaClient {
             let message = response.text().await.unwrap_or_default();
             Err(GitProviderError::from_status(status, message))
         }
+    }
+
+    async fn create_webhook(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreateWebhookRequest,
+    ) -> Result<GitWebhook, GitProviderError> {
+        // TODO: Implement in Task 2.3
+        Err(GitProviderError::UnsupportedOperation(
+            "Webhook operations not yet implemented for Gitea".to_string(),
+        ))
+    }
+
+    async fn delete_webhook(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _webhook_id: &str,
+    ) -> Result<(), GitProviderError> {
+        // TODO: Implement in Task 2.3
+        Err(GitProviderError::UnsupportedOperation(
+            "Webhook operations not yet implemented for Gitea".to_string(),
+        ))
+    }
+
+    async fn list_webhooks(
+        &self,
+        _owner: &str,
+        _repo: &str,
+    ) -> Result<Vec<GitWebhook>, GitProviderError> {
+        // TODO: Implement in Task 2.3
+        Err(GitProviderError::UnsupportedOperation(
+            "Webhook operations not yet implemented for Gitea".to_string(),
+        ))
     }
 
     fn provider_type(&self) -> &'static str {

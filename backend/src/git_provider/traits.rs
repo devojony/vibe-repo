@@ -4,8 +4,9 @@ use super::{
     error::GitProviderError,
     models::{
         CreateBranchRequest, CreateIssueRequest, CreateLabelRequest, CreatePullRequestRequest,
-        GitBranch, GitIssue, GitLabel, GitPullRequest, GitRepository, GitUser, IssueFilter,
-        MergeOptions, PullRequestFilter, UpdateIssueRequest, UpdatePullRequestRequest,
+        CreateWebhookRequest, GitBranch, GitIssue, GitLabel, GitPullRequest, GitRepository,
+        GitUser, GitWebhook, IssueFilter, MergeOptions, PullRequestFilter, UpdateIssueRequest,
+        UpdatePullRequestRequest,
     },
 };
 
@@ -207,6 +208,54 @@ pub trait GitProvider: Send + Sync {
         repo: &str,
         name: &str,
     ) -> Result<(), GitProviderError>;
+
+    // ==================== Webhook Operations ====================
+
+    /// Create a webhook for a repository
+    ///
+    /// # Arguments
+    /// * `owner` - Repository owner
+    /// * `repo` - Repository name
+    /// * `req` - Webhook creation request
+    ///
+    /// # Returns
+    /// Created webhook information
+    async fn create_webhook(
+        &self,
+        owner: &str,
+        repo: &str,
+        req: CreateWebhookRequest,
+    ) -> Result<GitWebhook, GitProviderError>;
+
+    /// Delete a webhook
+    ///
+    /// # Arguments
+    /// * `owner` - Repository owner
+    /// * `repo` - Repository name
+    /// * `webhook_id` - Webhook ID to delete
+    ///
+    /// # Returns
+    /// Ok(()) if successful, error otherwise
+    async fn delete_webhook(
+        &self,
+        owner: &str,
+        repo: &str,
+        webhook_id: &str,
+    ) -> Result<(), GitProviderError>;
+
+    /// List all webhooks for a repository
+    ///
+    /// # Arguments
+    /// * `owner` - Repository owner
+    /// * `repo` - Repository name
+    ///
+    /// # Returns
+    /// List of webhooks
+    async fn list_webhooks(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<GitWebhook>, GitProviderError>;
 
     // ==================== Provider Info ====================
 

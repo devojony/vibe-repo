@@ -289,6 +289,32 @@ impl GitProvider for GitClient {
         dispatch_git_provider!(self, delete_label, owner, repo, name).await
     }
 
+    async fn create_webhook(
+        &self,
+        owner: &str,
+        repo: &str,
+        req: CreateWebhookRequest,
+    ) -> Result<GitWebhook, GitProviderError> {
+        dispatch_git_provider!(self, create_webhook, owner, repo, req).await
+    }
+
+    async fn delete_webhook(
+        &self,
+        owner: &str,
+        repo: &str,
+        webhook_id: &str,
+    ) -> Result<(), GitProviderError> {
+        dispatch_git_provider!(self, delete_webhook, owner, repo, webhook_id).await
+    }
+
+    async fn list_webhooks(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<GitWebhook>, GitProviderError> {
+        dispatch_git_provider!(self, list_webhooks, owner, repo).await
+    }
+
     fn provider_type(&self) -> &'static str {
         dispatch_git_provider!(self, provider_type)
     }
@@ -488,6 +514,32 @@ impl GitProvider for GitHubClient {
         Err(GitProviderError::UnsupportedProvider("github".to_string()))
     }
 
+    async fn create_webhook(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreateWebhookRequest,
+    ) -> Result<GitWebhook, GitProviderError> {
+        Err(GitProviderError::UnsupportedProvider("github".to_string()))
+    }
+
+    async fn delete_webhook(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _webhook_id: &str,
+    ) -> Result<(), GitProviderError> {
+        Err(GitProviderError::UnsupportedProvider("github".to_string()))
+    }
+
+    async fn list_webhooks(
+        &self,
+        _owner: &str,
+        _repo: &str,
+    ) -> Result<Vec<GitWebhook>, GitProviderError> {
+        Err(GitProviderError::UnsupportedProvider("github".to_string()))
+    }
+
     fn provider_type(&self) -> &'static str {
         "github"
     }
@@ -681,6 +733,32 @@ impl GitProvider for GitLabClient {
         _repo: &str,
         _name: &str,
     ) -> Result<(), GitProviderError> {
+        Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
+    }
+
+    async fn create_webhook(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _req: CreateWebhookRequest,
+    ) -> Result<GitWebhook, GitProviderError> {
+        Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
+    }
+
+    async fn delete_webhook(
+        &self,
+        _owner: &str,
+        _repo: &str,
+        _webhook_id: &str,
+    ) -> Result<(), GitProviderError> {
+        Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
+    }
+
+    async fn list_webhooks(
+        &self,
+        _owner: &str,
+        _repo: &str,
+    ) -> Result<Vec<GitWebhook>, GitProviderError> {
         Err(GitProviderError::UnsupportedProvider("gitlab".to_string()))
     }
 
