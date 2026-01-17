@@ -1,6 +1,7 @@
-use sea_orm::{DatabaseConnection, EntityTrait, Set};
+use sea_orm::{DatabaseConnection, EntityTrait, Set, ActiveModelTrait};
 use crate::entities::{workspace, prelude::*};
 use crate::error::{GitAutoDevError, Result};
+use chrono::Utc;
 
 #[derive(Clone)]
 pub struct WorkspaceService {
@@ -45,6 +46,34 @@ impl WorkspaceService {
             .all(&self.db)
             .await
             .map_err(|e| GitAutoDevError::Database(e))
+    }
+    
+    pub async fn update_workspace_status(&self, id: i32, status: &str) -> Result<workspace::Model> {
+        let workspace = self.get_workspace_by_id(id).await?;
+        
+        let mut workspace: workspace::ActiveModel = workspace.into();
+        workspace.workspace_status = Set(status.to_string());
+        workspace.updated_at = Set(Utc::now());
+        
+        let workspace = workspace.update(&self.db)
+            .await
+            .map_err(|e| GitAutoDevError::Database(e))?;
+        
+        Ok(workspace)
+    }
+    
+    pub async fn soft_delete_workspace(&self, id: i32) -> Result<workspace::Model> {
+        let workspace = self.get_workspace_by_id(id).await?;
+        
+        let mut workspace: workspace::ActiveModel = workspace.into();
+        workspace.deleted_at = Set(Some(Utc::now()));
+        workspace.updated_at = Set(Utc::now());
+        
+        let workspace = workspace.update(&self.db)
+            .await
+            .map_err(|e| GitAutoDevError::Database(e))?;
+        
+        Ok(workspace)
     }
 }
 
@@ -155,6 +184,42 @@ mod tests {
         assert!(result.is_ok());
         let workspaces = result.unwrap();
         assert!(workspaces.len() >= 2);
+    }
+
+    #[tokio::test]
+    async fn test_update_workspace_success() {
+        // Arrange
+        let test_db = TestDatabase::new().await.expect("Failed to create test database");
+        let db = &test_db.connection;
+        let service = WorkspaceService::new(db.clone());
+        let repo = create_test_repository(db).await;
+        let workspace = service.create_workspace(repo.id).await.unwrap();
+        
+        // Act
+        let result = service.update_workspace_status(workspace.id, "Active").await;
+        
+        // Assert
+        assert!(result.is_ok());
+        let updated = result.unwrap();
+        assert_eq!(updated.workspace_status, "Active");
+    }
+
+    #[tokio::test]
+    async fn test_soft_delete_workspace_success() {
+        // Arrange
+        let test_db = TestDatabase::new().await.expect("Failed to create test database");
+        let db = &test_db.connection;
+        let service = WorkspaceService::new(db.clone());
+        let repo = create_test_repository(db).await;
+        let workspace = service.create_workspace(repo.id).await.unwrap();
+        
+        // Act
+        let result = service.soft_delete_workspace(workspace.id).await;
+        
+        // Assert
+        assert!(result.is_ok());
+        let deleted = result.unwrap();
+        assert!(deleted.deleted_at.is_some());
     }
 
     // Helper function
