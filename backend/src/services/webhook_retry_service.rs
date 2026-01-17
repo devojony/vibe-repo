@@ -108,6 +108,8 @@ impl WebhookRetryService {
         let (owner, repo_name) = (parts[0], parts[1]);
 
         // Attempt to create webhook
+        // Note: Uses the webhook URL stored in the database (format: /api/webhooks/{repository_id})
+        // The URL is generated during webhook creation in RepositoryService
         let webhook_request = CreateWebhookRequest {
             url: webhook.webhook_url.clone(),
             secret: webhook.webhook_secret.clone(),
