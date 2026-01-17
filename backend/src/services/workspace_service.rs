@@ -28,7 +28,7 @@ impl WorkspaceService {
         let workspace = Workspace::insert(workspace)
             .exec_with_returning(&self.db)
             .await
-            .map_err(|e| GitAutoDevError::Database(e))?;
+            .map_err(GitAutoDevError::Database)?;
         
         Ok(workspace)
     }
@@ -37,7 +37,7 @@ impl WorkspaceService {
         Workspace::find_by_id(id)
             .one(&self.db)
             .await
-            .map_err(|e| GitAutoDevError::Database(e))?
+            .map_err(GitAutoDevError::Database)?
             .ok_or_else(|| GitAutoDevError::NotFound(format!("Workspace with id {} not found", id)))
     }
     
@@ -45,7 +45,7 @@ impl WorkspaceService {
         Workspace::find()
             .all(&self.db)
             .await
-            .map_err(|e| GitAutoDevError::Database(e))
+            .map_err(GitAutoDevError::Database)
     }
     
     pub async fn update_workspace_status(&self, id: i32, status: &str) -> Result<workspace::Model> {
@@ -57,7 +57,7 @@ impl WorkspaceService {
         
         let workspace = workspace.update(&self.db)
             .await
-            .map_err(|e| GitAutoDevError::Database(e))?;
+            .map_err(GitAutoDevError::Database)?;
         
         Ok(workspace)
     }
@@ -71,7 +71,7 @@ impl WorkspaceService {
         
         let workspace = workspace.update(&self.db)
             .await
-            .map_err(|e| GitAutoDevError::Database(e))?;
+            .map_err(GitAutoDevError::Database)?;
         
         Ok(workspace)
     }
