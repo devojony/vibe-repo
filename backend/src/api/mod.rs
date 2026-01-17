@@ -47,6 +47,16 @@ use crate::{logging, state::AppState};
         repositories::handlers::batch_delete_repositories,
         repositories::handlers::batch_refresh_repositories,
         repositories::handlers::batch_reinitialize_repositories,
+        workspaces::handlers::create_workspace,
+        workspaces::handlers::get_workspace,
+        workspaces::handlers::list_workspaces,
+        workspaces::handlers::update_workspace_status,
+        workspaces::handlers::delete_workspace,
+        agents::handlers::create_agent,
+        agents::handlers::get_agent,
+        agents::handlers::list_agents_by_workspace,
+        agents::handlers::update_agent_enabled,
+        agents::handlers::delete_agent,
     ),
     components(schemas(
         health::handlers::HealthResponse,
@@ -66,6 +76,12 @@ use crate::{logging, state::AppState};
         crate::entities::repo_provider::ProviderType,
         crate::entities::repository::ValidationStatus,
         crate::entities::repository::RepositoryStatus,
+        workspaces::WorkspaceResponse,
+        workspaces::CreateWorkspaceRequest,
+        workspaces::UpdateWorkspaceStatusRequest,
+        agents::AgentResponse,
+        agents::CreateAgentRequest,
+        agents::UpdateAgentEnabledRequest,
     ))
 )]
 pub struct ApiDoc;
@@ -81,6 +97,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .nest("/api/repositories", repositories::routes::router())
         .merge(workspaces::workspace_routes())
+        .merge(agents::agent_routes())
         // OpenAPI documentation
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // Attach shared state
