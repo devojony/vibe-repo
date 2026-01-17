@@ -6,7 +6,7 @@ use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
 use crate::config::AppConfig;
-use crate::services::RepositoryService;
+use crate::services::{DockerService, RepositoryService};
 
 /// Shared application state
 #[derive(Clone)]
@@ -17,6 +17,8 @@ pub struct AppState {
     pub config: AppConfig,
     /// Repository service for direct method calls
     pub repository_service: Arc<RepositoryService>,
+    /// Docker service for container management (optional)
+    pub docker: Option<DockerService>,
 }
 
 impl AppState {
@@ -26,10 +28,23 @@ impl AppState {
         config: AppConfig,
         repository_service: Arc<RepositoryService>,
     ) -> Self {
+        // Try to initialize Docker service, log warning if unavailable
+        let docker = match DockerService::new() {
+            Ok(service) => {
+                tracing::info!("Docker service initialized successfully");
+                Some(service)
+            }
+            Err(e) => {
+                tracing::warn!("Docker service unavailable: {}. Container features will be disabled.", e);
+                None
+            }
+        };
+
         Self {
             db,
             config,
             repository_service,
+            docker,
         }
     }
 
@@ -162,5 +177,51 @@ mod tests {
 
         // Verify we can create a State extractor from Arc<AppState>
         let _state_extractor: State<Arc<AppState>> = State(state);
+    }
+
+    // ============================================
+    // Task 4: Tests for AppState with Docker
+    // ============================================
+
+    #[tokio::test]
+    async fn test_appstate_with_docker_when_available() {
+        // Arrange: Create a test database and config
+        let db = create_test_database()
+            .await
+            .expect("Failed to create test database");
+        let config = AppConfig::default();
+        let repository_service = Arc::new(RepositoryService::new(db.clone()));
+
+        // Act: Create AppState (Docker will be initialized if available)
+        let state = AppState::new(db, config, repository_service);
+
+        // Assert: Docker field should be Some if Docker is available, None otherwise
+        // This test passes regardless of Docker availability
+        match &state.docker {
+            Some(docker) => {
+                // If Docker is available, verify we can clone it
+                let _docker_clone = docker.clone();
+            }
+            None => {
+                // Docker not available, which is acceptable
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_appstate_docker_is_optional() {
+        // Arrange: Create a test database and config
+        let db = create_test_database()
+            .await
+            .expect("Failed to create test database");
+        let config = AppConfig::default();
+        let repository_service = Arc::new(RepositoryService::new(db.clone()));
+
+        // Act: Create AppState
+        let state = AppState::new(db, config.clone(), repository_service);
+
+        // Assert: AppState should be created successfully regardless of Docker availability
+        // This verifies graceful degradation
+        assert_eq!(state.config.database.url, config.database.url);
     }
 }

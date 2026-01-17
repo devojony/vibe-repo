@@ -25,7 +25,7 @@ pub async fn create_workspace(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateWorkspaceRequest>,
 ) -> Result<(StatusCode, Json<WorkspaceResponse>)> {
-    let service = WorkspaceService::new(state.db.clone());
+    let service = WorkspaceService::new(state.db.clone(), state.docker.clone());
 
     let workspace = service.create_workspace(req.repository_id).await?;
 
@@ -50,7 +50,7 @@ pub async fn get_workspace(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
 ) -> Result<Json<WorkspaceResponse>> {
-    let service = WorkspaceService::new(state.db.clone());
+    let service = WorkspaceService::new(state.db.clone(), state.docker.clone());
 
     let workspace = service.get_workspace_by_id(id).await?;
 
@@ -70,7 +70,7 @@ pub async fn get_workspace(
 pub async fn list_workspaces(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<WorkspaceResponse>>> {
-    let service = WorkspaceService::new(state.db.clone());
+    let service = WorkspaceService::new(state.db.clone(), state.docker.clone());
 
     let workspaces = service.list_workspaces().await?;
 
@@ -99,7 +99,7 @@ pub async fn update_workspace_status(
     Path(id): Path<i32>,
     Json(req): Json<UpdateWorkspaceStatusRequest>,
 ) -> Result<Json<WorkspaceResponse>> {
-    let service = WorkspaceService::new(state.db.clone());
+    let service = WorkspaceService::new(state.db.clone(), state.docker.clone());
 
     let workspace = service.update_workspace_status(id, &req.status).await?;
 
@@ -124,7 +124,7 @@ pub async fn delete_workspace(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
 ) -> Result<Json<WorkspaceResponse>> {
-    let service = WorkspaceService::new(state.db.clone());
+    let service = WorkspaceService::new(state.db.clone(), state.docker.clone());
 
     let workspace = service.soft_delete_workspace(id).await?;
 
