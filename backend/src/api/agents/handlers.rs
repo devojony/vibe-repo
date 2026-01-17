@@ -5,12 +5,7 @@ use axum::{
 };
 use std::sync::Arc;
 
-use crate::{
-    api::agents::models::*,
-    error::Result,
-    services::AgentService,
-    state::AppState,
-};
+use crate::{api::agents::models::*, error::Result, services::AgentService, state::AppState};
 
 /// Create a new agent
 #[utoipa::path(
@@ -29,16 +24,18 @@ pub async fn create_agent(
     Json(req): Json<CreateAgentRequest>,
 ) -> Result<(StatusCode, Json<AgentResponse>)> {
     let service = AgentService::new(state.db.clone());
-    
-    let agent = service.create_agent(
-        req.workspace_id,
-        &req.name,
-        &req.tool_type,
-        &req.command,
-        req.env_vars,
-        req.timeout,
-    ).await?;
-    
+
+    let agent = service
+        .create_agent(
+            req.workspace_id,
+            &req.name,
+            &req.tool_type,
+            &req.command,
+            req.env_vars,
+            req.timeout,
+        )
+        .await?;
+
     Ok((StatusCode::CREATED, Json(agent.into())))
 }
 
@@ -61,9 +58,9 @@ pub async fn get_agent(
     Path(id): Path<i32>,
 ) -> Result<Json<AgentResponse>> {
     let service = AgentService::new(state.db.clone());
-    
+
     let agent = service.get_agent_by_id(id).await?;
-    
+
     Ok(Json(agent.into()))
 }
 
@@ -85,14 +82,11 @@ pub async fn list_agents_by_workspace(
     Path(workspace_id): Path<i32>,
 ) -> Result<Json<Vec<AgentResponse>>> {
     let service = AgentService::new(state.db.clone());
-    
+
     let agents = service.list_agents_by_workspace(workspace_id).await?;
-    
-    let responses: Vec<AgentResponse> = agents
-        .into_iter()
-        .map(|a| a.into())
-        .collect();
-    
+
+    let responses: Vec<AgentResponse> = agents.into_iter().map(|a| a.into()).collect();
+
     Ok(Json(responses))
 }
 
@@ -117,9 +111,9 @@ pub async fn update_agent_enabled(
     Json(req): Json<UpdateAgentEnabledRequest>,
 ) -> Result<Json<AgentResponse>> {
     let service = AgentService::new(state.db.clone());
-    
+
     let agent = service.update_agent_enabled(id, req.enabled).await?;
-    
+
     Ok(Json(agent.into()))
 }
 
@@ -142,8 +136,8 @@ pub async fn delete_agent(
     Path(id): Path<i32>,
 ) -> Result<StatusCode> {
     let service = AgentService::new(state.db.clone());
-    
+
     service.delete_agent(id).await?;
-    
+
     Ok(StatusCode::NO_CONTENT)
 }

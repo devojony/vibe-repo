@@ -6,10 +6,7 @@ use axum::{
 use std::sync::Arc;
 
 use crate::{
-    api::workspaces::models::*,
-    error::Result,
-    services::WorkspaceService,
-    state::AppState,
+    api::workspaces::models::*, error::Result, services::WorkspaceService, state::AppState,
 };
 
 /// Create a new workspace
@@ -29,9 +26,9 @@ pub async fn create_workspace(
     Json(req): Json<CreateWorkspaceRequest>,
 ) -> Result<(StatusCode, Json<WorkspaceResponse>)> {
     let service = WorkspaceService::new(state.db.clone());
-    
+
     let workspace = service.create_workspace(req.repository_id).await?;
-    
+
     Ok((StatusCode::CREATED, Json(workspace.into())))
 }
 
@@ -54,9 +51,9 @@ pub async fn get_workspace(
     Path(id): Path<i32>,
 ) -> Result<Json<WorkspaceResponse>> {
     let service = WorkspaceService::new(state.db.clone());
-    
+
     let workspace = service.get_workspace_by_id(id).await?;
-    
+
     Ok(Json(workspace.into()))
 }
 
@@ -74,14 +71,11 @@ pub async fn list_workspaces(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<WorkspaceResponse>>> {
     let service = WorkspaceService::new(state.db.clone());
-    
+
     let workspaces = service.list_workspaces().await?;
-    
-    let responses: Vec<WorkspaceResponse> = workspaces
-        .into_iter()
-        .map(|w| w.into())
-        .collect();
-    
+
+    let responses: Vec<WorkspaceResponse> = workspaces.into_iter().map(|w| w.into()).collect();
+
     Ok(Json(responses))
 }
 
@@ -106,9 +100,9 @@ pub async fn update_workspace_status(
     Json(req): Json<UpdateWorkspaceStatusRequest>,
 ) -> Result<Json<WorkspaceResponse>> {
     let service = WorkspaceService::new(state.db.clone());
-    
+
     let workspace = service.update_workspace_status(id, &req.status).await?;
-    
+
     Ok(Json(workspace.into()))
 }
 
@@ -131,8 +125,8 @@ pub async fn delete_workspace(
     Path(id): Path<i32>,
 ) -> Result<Json<WorkspaceResponse>> {
     let service = WorkspaceService::new(state.db.clone());
-    
+
     let workspace = service.soft_delete_workspace(id).await?;
-    
+
     Ok(Json(workspace.into()))
 }
