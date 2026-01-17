@@ -32,5 +32,6 @@ ui/.env
 
 # Git worktrees
 .worktrees/
+worktrees/
 
 tmp/
