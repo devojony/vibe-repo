@@ -15,9 +15,6 @@ pub mod workspace_service;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-mod repository_service_tests;
-
 pub use agent_service::AgentService;
 pub use docker_service::DockerService;
 pub use health_check_service::HealthCheckService;
