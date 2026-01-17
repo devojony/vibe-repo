@@ -442,3 +442,98 @@ async fn test_openapi_spec_documents_provider_conflict_responses() {
         update_description
     );
 }
+
+/// Test OpenAPI spec documents webhook endpoint with repository_id
+/// Requirements: Task 5 - Webhook refactor to use repository_id
+#[tokio::test]
+async fn test_openapi_spec_documents_webhook_endpoint() {
+    // Arrange: Create test state and router
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
+    let app = create_router(state);
+
+    // Act: Send request to OpenAPI spec endpoint
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api-docs/openapi.json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Assert: Parse JSON response
+    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("Failed to read response body");
+    let json_value: serde_json::Value =
+        serde_json::from_slice(&body_bytes).expect("Response body should be valid JSON");
+
+    // Assert: Paths should contain webhook endpoint with repository_id
+    let paths = json_value
+        .get("paths")
+        .expect("OpenAPI spec should contain 'paths' field");
+
+    // Check /api/webhooks/{repository_id} endpoint exists
+    assert!(
+        paths.get("/api/webhooks/{repository_id}").is_some(),
+        "Paths should contain '/api/webhooks/{{repository_id}}' endpoint"
+    );
+
+    // Verify the endpoint has POST method
+    let webhook_path = paths.get("/api/webhooks/{repository_id}").unwrap();
+    assert!(
+        webhook_path.get("post").is_some(),
+        "Webhook endpoint should have POST method"
+    );
+
+    // Verify the POST method has parameters
+    let post_method = webhook_path.get("post").unwrap();
+    let parameters = post_method
+        .get("parameters")
+        .expect("POST method should have parameters");
+
+    // Verify repository_id parameter exists
+    let params_array = parameters.as_array().expect("Parameters should be an array");
+    let has_repository_id = params_array.iter().any(|param| {
+        param
+            .get("name")
+            .and_then(|n| n.as_str())
+            .map(|name| name == "repository_id")
+            .unwrap_or(false)
+    });
+
+    assert!(
+        has_repository_id,
+        "Webhook endpoint should have repository_id parameter"
+    );
+
+    // Verify no provider_id parameter exists (old format)
+    let has_provider_id = params_array.iter().any(|param| {
+        param
+            .get("name")
+            .and_then(|n| n.as_str())
+            .map(|name| name == "provider_id")
+            .unwrap_or(false)
+    });
+
+    assert!(
+        !has_provider_id,
+        "Webhook endpoint should NOT have provider_id parameter (old format)"
+    );
+
+    // Assert: Components should contain WebhookResponse schema
+    let components = json_value
+        .get("components")
+        .expect("OpenAPI spec should contain 'components' field");
+    let schemas = components
+        .get("schemas")
+        .expect("Components should contain 'schemas' field");
+
+    assert!(
+        schemas.get("WebhookResponse").is_some(),
+        "Schemas should contain 'WebhookResponse'"
+    );
+}
