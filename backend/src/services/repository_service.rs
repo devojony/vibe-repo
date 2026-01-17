@@ -211,7 +211,7 @@ impl RepositoryService {
     ///
     /// # Returns
     /// Some(DateTime) if retry should be scheduled, None if max retries exceeded
-    fn calculate_next_retry_time(
+    pub fn calculate_next_retry_time(
         retry_count: i32,
         config: &crate::config::WebhookRetryConfig,
     ) -> Option<chrono::DateTime<chrono::Utc>> {

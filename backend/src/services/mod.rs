@@ -4,6 +4,7 @@
 
 pub mod repository_service;
 pub mod service_manager;
+pub mod webhook_retry_service;
 
 #[cfg(test)]
 mod tests;
@@ -13,3 +14,4 @@ mod repository_service_tests;
 
 pub use repository_service::RepositoryService;
 pub use service_manager::{BackgroundService, ServiceManager};
+pub use webhook_retry_service::WebhookRetryService;

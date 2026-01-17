@@ -10,7 +10,7 @@ use gitautodev::{
     config::AppConfig,
     db::database::DatabasePool,
     logging,
-    services::{RepositoryService, ServiceManager},
+    services::{RepositoryService, ServiceManager, WebhookRetryService},
     state::AppState,
 };
 
@@ -62,8 +62,12 @@ async fn main() -> Result<()> {
     let mut service_manager = ServiceManager::new();
 
     // Register RepositoryService for background periodic sync
-    let background_service = RepositoryService::new(db_pool.connection().clone(), config_arc);
+    let background_service = RepositoryService::new(db_pool.connection().clone(), config_arc.clone());
     service_manager.register(background_service);
+
+    // Register WebhookRetryService for background webhook retry
+    let webhook_retry_service = WebhookRetryService::new(db_pool.connection().clone(), config_arc.clone());
+    service_manager.register(webhook_retry_service);
 
     service_manager.start_all(state.clone()).await?;
     tracing::info!("Background services started");
