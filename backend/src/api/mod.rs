@@ -6,6 +6,7 @@ pub mod agents;
 pub mod health;
 pub mod repositories;
 pub mod settings;
+pub mod tasks;
 pub mod workspaces;
 
 use axum::{middleware, Router};
@@ -57,6 +58,10 @@ use crate::{logging, state::AppState};
         agents::handlers::list_agents_by_workspace,
         agents::handlers::update_agent_enabled,
         agents::handlers::delete_agent,
+        tasks::handlers::create_task,
+        tasks::handlers::get_task,
+        tasks::handlers::list_tasks_by_workspace,
+        tasks::handlers::update_task_status,
     ),
     components(schemas(
         health::handlers::HealthResponse,
@@ -82,6 +87,9 @@ use crate::{logging, state::AppState};
         agents::AgentResponse,
         agents::CreateAgentRequest,
         agents::UpdateAgentEnabledRequest,
+        tasks::TaskResponse,
+        tasks::CreateTaskRequest,
+        tasks::UpdateTaskStatusRequest,
     ))
 )]
 pub struct ApiDoc;
@@ -98,6 +106,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .nest("/api/repositories", repositories::routes::router())
         .merge(workspaces::workspace_routes())
         .merge(agents::agent_routes())
+        .merge(tasks::task_routes())
         // OpenAPI documentation
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // Attach shared state
