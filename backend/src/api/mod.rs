@@ -2,10 +2,13 @@
 //!
 //! Combines all feature routers into a single application router.
 
+pub mod agents;
 pub mod health;
 pub mod repositories;
 pub mod settings;
+pub mod tasks;
 pub mod webhooks;
+pub mod workspaces;
 
 use axum::{middleware, Router};
 use std::sync::Arc;
@@ -47,6 +50,20 @@ use crate::{logging, state::AppState};
         repositories::handlers::batch_refresh_repositories,
         repositories::handlers::batch_reinitialize_repositories,
         webhooks::handlers::handle_webhook,
+        workspaces::handlers::create_workspace,
+        workspaces::handlers::get_workspace,
+        workspaces::handlers::list_workspaces,
+        workspaces::handlers::update_workspace_status,
+        workspaces::handlers::delete_workspace,
+        agents::handlers::create_agent,
+        agents::handlers::get_agent,
+        agents::handlers::list_agents_by_workspace,
+        agents::handlers::update_agent_enabled,
+        agents::handlers::delete_agent,
+        tasks::handlers::create_task,
+        tasks::handlers::get_task,
+        tasks::handlers::list_tasks_by_workspace,
+        tasks::handlers::update_task_status,
     ),
     components(schemas(
         health::handlers::HealthResponse,
@@ -68,6 +85,15 @@ use crate::{logging, state::AppState};
         crate::entities::repo_provider::ProviderType,
         crate::entities::repository::ValidationStatus,
         crate::entities::repository::RepositoryStatus,
+        workspaces::WorkspaceResponse,
+        workspaces::CreateWorkspaceRequest,
+        workspaces::UpdateWorkspaceStatusRequest,
+        agents::AgentResponse,
+        agents::CreateAgentRequest,
+        agents::UpdateAgentEnabledRequest,
+        tasks::TaskResponse,
+        tasks::CreateTaskRequest,
+        tasks::UpdateTaskStatusRequest,
     ))
 )]
 pub struct ApiDoc;
@@ -83,6 +109,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         .nest("/api/repositories", repositories::routes::router())
         .nest("/api/webhooks", webhooks::routes::router())
+        .merge(workspaces::workspace_routes())
+        .merge(agents::agent_routes())
+        .merge(tasks::task_routes())
         // OpenAPI documentation
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // Attach shared state

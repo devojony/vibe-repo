@@ -1,10 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use gitautodev::git_provider::{
-    error::GitProviderError,
-    models::*,
-    traits::GitProvider,
-};
+use gitautodev::git_provider::{error::GitProviderError, models::*, traits::GitProvider};
 
 /// Mock implementation to test trait compilation
 struct MockGitProvider;
@@ -255,10 +251,7 @@ async fn test_mock_provider_implements_webhook_methods() {
         active: true,
     };
 
-    let webhook = provider
-        .create_webhook("owner", "repo", req)
-        .await
-        .unwrap();
+    let webhook = provider.create_webhook("owner", "repo", req).await.unwrap();
     assert_eq!(webhook.id, "1");
     assert!(webhook.active);
 }
