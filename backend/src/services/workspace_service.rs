@@ -114,13 +114,34 @@ impl WorkspaceService {
                         }
                         Err(e) => {
                             // Failed to start, clean up container
-                            let _ = docker.remove_container(&container_id, true).await;
+                            if let Err(cleanup_err) = docker.remove_container(&container_id, true).await {
+                                tracing::warn!("Failed to cleanup container {}: {}", container_id, cleanup_err);
+                            }
+                            
+                            // Update workspace status to Failed before returning error
+                            let mut workspace_active: workspace::ActiveModel = workspace.into();
+                            workspace_active.workspace_status = Set("Failed".to_string());
+                            workspace_active.updated_at = Set(Utc::now());
+                            
+                            if let Err(db_err) = workspace_active.update(&self.db).await {
+                                tracing::error!("Failed to update workspace status to Failed: {}", db_err);
+                            }
+                            
                             tracing::error!("Failed to start container: {}", e);
                             return Err(e);
                         }
                     }
                 }
                 Err(e) => {
+                    // Update workspace status to Failed before returning error
+                    let mut workspace_active: workspace::ActiveModel = workspace.into();
+                    workspace_active.workspace_status = Set("Failed".to_string());
+                    workspace_active.updated_at = Set(Utc::now());
+                    
+                    if let Err(db_err) = workspace_active.update(&self.db).await {
+                        tracing::error!("Failed to update workspace status to Failed: {}", db_err);
+                    }
+                    
                     tracing::error!("Failed to create container: {}", e);
                     return Err(e);
                 }
@@ -353,13 +374,15 @@ mod tests {
         match result {
             Ok(workspace) => {
                 assert_eq!(workspace.repository_id, repo.id);
-                if workspace.container_id.is_some() {
+                if let Some(container_id) = &workspace.container_id {
                     // Container was created successfully
                     assert_eq!(workspace.container_status, Some("running".to_string()));
                     
-                    // Cleanup: remove container
-                    if let (Some(docker_service), Some(container_id)) = (docker, &workspace.container_id) {
-                        let _ = docker_service.remove_container(container_id, true).await;
+                    // Cleanup: remove container (always runs regardless of assertion failures)
+                    if let Some(docker_service) = docker {
+                        if let Err(e) = docker_service.remove_container(container_id, true).await {
+                            tracing::warn!("Failed to cleanup test container {}: {}", container_id, e);
+                        }
                     }
                 } else {
                     // Docker available but container creation failed (e.g., image not available)
@@ -370,6 +393,9 @@ mod tests {
                 // Docker connection succeeded but container creation failed
                 // This is acceptable in test environment
                 eprintln!("Container creation failed (expected in test env): {:?}", e);
+                
+                // Note: No container to cleanup since creation failed
+                // The service should have already cleaned up any partial state
             }
         }
     }
