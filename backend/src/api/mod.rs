@@ -2,6 +2,7 @@
 //!
 //! Combines all feature routers into a single application router.
 
+pub mod agents;
 pub mod health;
 pub mod repositories;
 pub mod settings;
