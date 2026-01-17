@@ -8,7 +8,7 @@ use axum::{
 };
 use std::sync::Arc;
 
-use crate::{error::GitAutoDevError, state::AppState};
+use crate::{error::VibeRepoError, state::AppState};
 
 use super::models::WebhookResponse;
 
@@ -20,7 +20,7 @@ async fn verify_webhook_request(
     headers: &HeaderMap,
     body: &[u8],
     state: &AppState,
-) -> Result<(), GitAutoDevError> {
+) -> Result<(), VibeRepoError> {
     // Get provider from database
     use crate::entities::prelude::*;
     use sea_orm::EntityTrait;
@@ -33,7 +33,7 @@ async fn verify_webhook_request(
                 provider_id = provider_id,
                 "Provider not found for webhook request"
             );
-            GitAutoDevError::NotFound(format!("Provider {} not found", provider_id))
+            VibeRepoError::NotFound(format!("Provider {} not found", provider_id))
         })?;
 
     // Get webhook config for this provider
@@ -52,7 +52,7 @@ async fn verify_webhook_request(
                 provider_id = provider_id,
                 "Missing webhook signature header"
             );
-            GitAutoDevError::Validation("Missing webhook signature".to_string())
+            VibeRepoError::Validation("Missing webhook signature".to_string())
         })?;
 
     // Verify signature
@@ -62,7 +62,7 @@ async fn verify_webhook_request(
             error = %e,
             "Invalid UTF-8 in webhook body"
         );
-        GitAutoDevError::Validation(format!("Invalid UTF-8 in body: {}", e))
+        VibeRepoError::Validation(format!("Invalid UTF-8 in body: {}", e))
     })?;
 
     let is_valid = crate::api::webhooks::verification::verify_webhook_signature(
@@ -77,7 +77,7 @@ async fn verify_webhook_request(
             provider_id = provider_id,
             "Invalid webhook signature"
         );
-        return Err(GitAutoDevError::Validation(
+        return Err(VibeRepoError::Validation(
             "Invalid webhook signature".to_string(),
         ));
     }
@@ -109,7 +109,7 @@ pub async fn handle_webhook(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<WebhookResponse>, GitAutoDevError> {
+) -> Result<Json<WebhookResponse>, VibeRepoError> {
     tracing::info!(
         provider_id = provider_id,
         "Received webhook request"
@@ -130,7 +130,7 @@ pub async fn handle_webhook(
             error = %e,
             "Invalid UTF-8 in webhook payload"
         );
-        GitAutoDevError::Validation(format!("Invalid UTF-8 in payload: {}", e))
+        VibeRepoError::Validation(format!("Invalid UTF-8 in payload: {}", e))
     })?;
 
     // Detect event type from headers
@@ -156,7 +156,7 @@ pub async fn handle_webhook(
                         error = %e,
                         "Failed to parse issue comment payload"
                     );
-                    GitAutoDevError::Validation(format!(
+                    VibeRepoError::Validation(format!(
                         "Failed to parse issue comment payload: {}",
                         e
                     ))
@@ -188,7 +188,7 @@ pub async fn handle_webhook(
                         error = %e,
                         "Failed to parse PR comment payload"
                     );
-                    GitAutoDevError::Validation(format!("Failed to parse PR comment payload: {}", e))
+                    VibeRepoError::Validation(format!("Failed to parse PR comment payload: {}", e))
                 })?;
             
             let comment_info = payload.extract_comment_info()?;

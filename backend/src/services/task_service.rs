@@ -1,5 +1,5 @@
 use crate::entities::{prelude::*, task};
-use crate::error::{GitAutoDevError, Result};
+use crate::error::{VibeRepoError, Result};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
@@ -38,7 +38,7 @@ impl TaskService {
         let task = Task::insert(task)
             .exec_with_returning(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         Ok(task)
     }
@@ -47,8 +47,8 @@ impl TaskService {
         Task::find_by_id(id)
             .one(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?
-            .ok_or_else(|| GitAutoDevError::NotFound(format!("Task with id {} not found", id)))
+            .map_err(VibeRepoError::Database)?
+            .ok_or_else(|| VibeRepoError::NotFound(format!("Task with id {} not found", id)))
     }
 
     pub async fn list_tasks_by_workspace(&self, workspace_id: i32) -> Result<Vec<task::Model>> {
@@ -56,7 +56,7 @@ impl TaskService {
             .filter(task::Column::WorkspaceId.eq(workspace_id))
             .all(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)
+            .map_err(VibeRepoError::Database)
     }
 
     pub async fn update_task_status(&self, id: i32, status: String) -> Result<task::Model> {
@@ -69,7 +69,7 @@ impl TaskService {
         let task = task
             .update(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         Ok(task)
     }
@@ -174,7 +174,7 @@ mod tests {
         // Assert
         assert!(result.is_err());
         match result.unwrap_err() {
-            GitAutoDevError::NotFound(_) => {}
+            VibeRepoError::NotFound(_) => {}
             _ => panic!("Expected NotFound error"),
         }
     }
@@ -302,7 +302,7 @@ mod tests {
         // Assert
         assert!(result.is_err());
         match result.unwrap_err() {
-            GitAutoDevError::NotFound(_) => {}
+            VibeRepoError::NotFound(_) => {}
             _ => panic!("Expected NotFound error"),
         }
     }

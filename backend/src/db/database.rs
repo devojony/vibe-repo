@@ -6,7 +6,7 @@ use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use std::time::Duration;
 
 use crate::config::DatabaseConfig;
-use crate::error::{GitAutoDevError, Result};
+use crate::error::{VibeRepoError, Result};
 
 /// Initialize database connection from configuration
 ///
@@ -18,7 +18,7 @@ use crate::error::{GitAutoDevError, Result};
 ///
 /// # Returns
 /// * `Ok(DatabaseConnection)` - Successfully connected database
-/// * `Err(GitAutoDevError::Database)` - Connection failed with descriptive error
+/// * `Err(VibeRepoError::Database)` - Connection failed with descriptive error
 pub async fn init_database(config: &DatabaseConfig) -> Result<DatabaseConnection> {
     let mut opt = ConnectOptions::new(&config.url);
     opt.max_connections(config.max_connections)
@@ -31,7 +31,7 @@ pub async fn init_database(config: &DatabaseConfig) -> Result<DatabaseConnection
 
     Database::connect(opt)
         .await
-        .map_err(GitAutoDevError::Database)
+        .map_err(VibeRepoError::Database)
 }
 
 /// Run pending database migrations
@@ -44,14 +44,14 @@ pub async fn init_database(config: &DatabaseConfig) -> Result<DatabaseConnection
 ///
 /// # Returns
 /// * `Ok(())` - Migrations completed successfully
-/// * `Err(GitAutoDevError::Database)` - Migration failed
+/// * `Err(VibeRepoError::Database)` - Migration failed
 pub async fn run_migrations(db: &DatabaseConnection) -> Result<()> {
     use crate::migration::Migrator;
     use sea_orm_migration::MigratorTrait;
 
     Migrator::up(db, None)
         .await
-        .map_err(GitAutoDevError::Database)
+        .map_err(VibeRepoError::Database)
 }
 
 /// Database pool wrapper for compatibility with existing code
@@ -120,7 +120,7 @@ mod tests {
 
         // Verify error is a Database error
         match result {
-            Err(GitAutoDevError::Database(_)) => {
+            Err(VibeRepoError::Database(_)) => {
                 // Expected error type
             }
             Err(other) => {
@@ -148,7 +148,7 @@ mod tests {
 
         // Verify error is a Database error with descriptive message
         match result {
-            Err(GitAutoDevError::Database(db_err)) => {
+            Err(VibeRepoError::Database(db_err)) => {
                 let error_msg = db_err.to_string();
                 // Error message should be descriptive (not empty)
                 assert!(

@@ -11,7 +11,7 @@ use serde::Serialize;
 
 /// Unified error type for the application
 #[derive(Debug, thiserror::Error)]
-pub enum GitAutoDevError {
+pub enum VibeRepoError {
     #[error("Database error: {0}")]
     Database(#[from] sea_orm::DbErr),
 
@@ -50,31 +50,31 @@ pub struct ErrorResponse {
     pub details: Option<serde_json::Value>,
 }
 
-impl IntoResponse for GitAutoDevError {
+impl IntoResponse for VibeRepoError {
     fn into_response(self) -> Response {
         let (status, code, error) = match &self {
-            GitAutoDevError::Database(e) => (
+            VibeRepoError::Database(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DATABASE_ERROR",
                 e.to_string(),
             ),
-            GitAutoDevError::NotFound(msg) => (StatusCode::NOT_FOUND, "NOT_FOUND", msg.clone()),
-            GitAutoDevError::Validation(msg) => {
+            VibeRepoError::NotFound(msg) => (StatusCode::NOT_FOUND, "NOT_FOUND", msg.clone()),
+            VibeRepoError::Validation(msg) => {
                 (StatusCode::BAD_REQUEST, "VALIDATION_ERROR", msg.clone())
             }
-            GitAutoDevError::Conflict(msg) => (StatusCode::CONFLICT, "CONFLICT_ERROR", msg.clone()),
-            GitAutoDevError::Config(msg) => (
+            VibeRepoError::Conflict(msg) => (StatusCode::CONFLICT, "CONFLICT_ERROR", msg.clone()),
+            VibeRepoError::Config(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "CONFIG_ERROR",
                 msg.clone(),
             ),
-            GitAutoDevError::Internal(msg) => (
+            VibeRepoError::Internal(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
                 msg.clone(),
             ),
-            GitAutoDevError::Forbidden(msg) => (StatusCode::FORBIDDEN, "FORBIDDEN", msg.clone()),
-            GitAutoDevError::ServiceUnavailable(msg) => (
+            VibeRepoError::Forbidden(msg) => (StatusCode::FORBIDDEN, "FORBIDDEN", msg.clone()),
+            VibeRepoError::ServiceUnavailable(msg) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "SERVICE_UNAVAILABLE",
                 msg.clone(),
@@ -92,7 +92,7 @@ impl IntoResponse for GitAutoDevError {
 }
 
 /// Result type alias for convenience
-pub type Result<T> = std::result::Result<T, GitAutoDevError>;
+pub type Result<T> = std::result::Result<T, VibeRepoError>;
 
 #[cfg(test)]
 mod tests {
@@ -106,38 +106,38 @@ mod tests {
     #[test]
     fn test_database_error_variant_exists() {
         let db_err = sea_orm::DbErr::Custom("test error".to_string());
-        let error = GitAutoDevError::Database(db_err);
-        assert!(matches!(error, GitAutoDevError::Database(_)));
+        let error = VibeRepoError::Database(db_err);
+        assert!(matches!(error, VibeRepoError::Database(_)));
     }
 
     #[test]
     fn test_not_found_error_variant_exists() {
-        let error = GitAutoDevError::NotFound("resource".to_string());
-        assert!(matches!(error, GitAutoDevError::NotFound(_)));
+        let error = VibeRepoError::NotFound("resource".to_string());
+        assert!(matches!(error, VibeRepoError::NotFound(_)));
     }
 
     #[test]
     fn test_validation_error_variant_exists() {
-        let error = GitAutoDevError::Validation("invalid input".to_string());
-        assert!(matches!(error, GitAutoDevError::Validation(_)));
+        let error = VibeRepoError::Validation("invalid input".to_string());
+        assert!(matches!(error, VibeRepoError::Validation(_)));
     }
 
     #[test]
     fn test_config_error_variant_exists() {
-        let error = GitAutoDevError::Config("missing config".to_string());
-        assert!(matches!(error, GitAutoDevError::Config(_)));
+        let error = VibeRepoError::Config("missing config".to_string());
+        assert!(matches!(error, VibeRepoError::Config(_)));
     }
 
     #[test]
     fn test_internal_error_variant_exists() {
-        let error = GitAutoDevError::Internal("unexpected error".to_string());
-        assert!(matches!(error, GitAutoDevError::Internal(_)));
+        let error = VibeRepoError::Internal("unexpected error".to_string());
+        assert!(matches!(error, VibeRepoError::Internal(_)));
     }
 
     #[test]
     fn test_database_error_message_is_descriptive() {
         let db_err = sea_orm::DbErr::Custom("connection failed".to_string());
-        let error = GitAutoDevError::Database(db_err);
+        let error = VibeRepoError::Database(db_err);
         let message = error.to_string();
         assert!(message.contains("Database error"));
         assert!(message.contains("connection failed"));
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_not_found_error_message_is_descriptive() {
-        let error = GitAutoDevError::NotFound("User with id 123".to_string());
+        let error = VibeRepoError::NotFound("User with id 123".to_string());
         let message = error.to_string();
         assert!(message.contains("Resource not found"));
         assert!(message.contains("User with id 123"));
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_validation_error_message_is_descriptive() {
-        let error = GitAutoDevError::Validation("email format invalid".to_string());
+        let error = VibeRepoError::Validation("email format invalid".to_string());
         let message = error.to_string();
         assert!(message.contains("Validation error"));
         assert!(message.contains("email format invalid"));
@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_config_error_message_is_descriptive() {
-        let error = GitAutoDevError::Config("DATABASE_URL not set".to_string());
+        let error = VibeRepoError::Config("DATABASE_URL not set".to_string());
         let message = error.to_string();
         assert!(message.contains("Configuration error"));
         assert!(message.contains("DATABASE_URL not set"));
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_internal_error_message_is_descriptive() {
-        let error = GitAutoDevError::Internal("unexpected state".to_string());
+        let error = VibeRepoError::Internal("unexpected state".to_string());
         let message = error.to_string();
         assert!(message.contains("Internal error"));
         assert!(message.contains("unexpected state"));
@@ -182,14 +182,14 @@ mod tests {
 
     #[test]
     fn test_forbidden_error_variant_exists() {
-        let error = GitAutoDevError::Forbidden("access denied".to_string());
-        assert!(matches!(error, GitAutoDevError::Forbidden(_)));
+        let error = VibeRepoError::Forbidden("access denied".to_string());
+        assert!(matches!(error, VibeRepoError::Forbidden(_)));
     }
 
     #[test]
     fn test_forbidden_error_message_is_descriptive() {
         let error =
-            GitAutoDevError::Forbidden("Insufficient permissions to create branch".to_string());
+            VibeRepoError::Forbidden("Insufficient permissions to create branch".to_string());
         let message = error.to_string();
         assert!(message.contains("Forbidden"));
         assert!(message.contains("Insufficient permissions to create branch"));
@@ -197,13 +197,13 @@ mod tests {
 
     #[test]
     fn test_service_unavailable_error_variant_exists() {
-        let error = GitAutoDevError::ServiceUnavailable("service down".to_string());
-        assert!(matches!(error, GitAutoDevError::ServiceUnavailable(_)));
+        let error = VibeRepoError::ServiceUnavailable("service down".to_string());
+        assert!(matches!(error, VibeRepoError::ServiceUnavailable(_)));
     }
 
     #[test]
     fn test_service_unavailable_error_message_is_descriptive() {
-        let error = GitAutoDevError::ServiceUnavailable("Git provider unreachable".to_string());
+        let error = VibeRepoError::ServiceUnavailable("Git provider unreachable".to_string());
         let message = error.to_string();
         assert!(message.contains("Service unavailable"));
         assert!(message.contains("Git provider unreachable"));
@@ -212,8 +212,8 @@ mod tests {
     #[test]
     fn test_database_error_from_sea_orm_db_err() {
         let db_err = sea_orm::DbErr::Custom("test".to_string());
-        let error: GitAutoDevError = db_err.into();
-        assert!(matches!(error, GitAutoDevError::Database(_)));
+        let error: VibeRepoError = db_err.into();
+        assert!(matches!(error, VibeRepoError::Database(_)));
     }
 
     // ============================================
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_not_found_error_returns_404() {
-        let error = GitAutoDevError::NotFound("User not found".to_string());
+        let error = VibeRepoError::NotFound("User not found".to_string());
         let response = error.into_response();
         let (status, body) = extract_status_and_body(response);
 
@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_validation_error_returns_400() {
-        let error = GitAutoDevError::Validation("Invalid email".to_string());
+        let error = VibeRepoError::Validation("Invalid email".to_string());
         let response = error.into_response();
         let (status, body) = extract_status_and_body(response);
 
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn test_database_error_returns_500() {
         let db_err = sea_orm::DbErr::Custom("connection failed".to_string());
-        let error = GitAutoDevError::Database(db_err);
+        let error = VibeRepoError::Database(db_err);
         let response = error.into_response();
         let (status, body) = extract_status_and_body(response);
 
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_config_error_returns_500() {
-        let error = GitAutoDevError::Config("Missing DATABASE_URL".to_string());
+        let error = VibeRepoError::Config("Missing DATABASE_URL".to_string());
         let response = error.into_response();
         let (status, body) = extract_status_and_body(response);
 
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_internal_error_returns_500() {
-        let error = GitAutoDevError::Internal("Unexpected state".to_string());
+        let error = VibeRepoError::Internal("Unexpected state".to_string());
         let response = error.into_response();
         let (status, body) = extract_status_and_body(response);
 
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn test_forbidden_error_returns_403() {
         let error =
-            GitAutoDevError::Forbidden("Insufficient permissions to create branch".to_string());
+            VibeRepoError::Forbidden("Insufficient permissions to create branch".to_string());
         let response = error.into_response();
         let (status, body) = extract_status_and_body(response);
 
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_service_unavailable_error_returns_503() {
-        let error = GitAutoDevError::ServiceUnavailable("Git provider unreachable".to_string());
+        let error = VibeRepoError::ServiceUnavailable("Git provider unreachable".to_string());
         let response = error.into_response();
         let (status, body) = extract_status_and_body(response);
 
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn test_error_response_has_required_error_field() {
-        let error = GitAutoDevError::NotFound("test".to_string());
+        let error = VibeRepoError::NotFound("test".to_string());
         let response = error.into_response();
         let (_, body) = extract_status_and_body(response);
 
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_error_response_has_code_field() {
-        let error = GitAutoDevError::Validation("test".to_string());
+        let error = VibeRepoError::Validation("test".to_string());
         let response = error.into_response();
         let (_, body) = extract_status_and_body(response);
 
@@ -343,7 +343,7 @@ mod tests {
     #[test]
     fn test_error_response_schema_matches() {
         // Test that response body can be deserialized to ErrorResponse
-        let error = GitAutoDevError::Internal("test error".to_string());
+        let error = VibeRepoError::Internal("test error".to_string());
         let response = error.into_response();
         let (_, body) = extract_status_and_body(response);
 
@@ -372,43 +372,43 @@ mod tests {
         }
 
         /// Strategy to generate NotFound errors
-        fn not_found_error_strategy() -> impl Strategy<Value = GitAutoDevError> {
-            error_message_strategy().prop_map(GitAutoDevError::NotFound)
+        fn not_found_error_strategy() -> impl Strategy<Value = VibeRepoError> {
+            error_message_strategy().prop_map(VibeRepoError::NotFound)
         }
 
         /// Strategy to generate Validation errors
-        fn validation_error_strategy() -> impl Strategy<Value = GitAutoDevError> {
-            error_message_strategy().prop_map(GitAutoDevError::Validation)
+        fn validation_error_strategy() -> impl Strategy<Value = VibeRepoError> {
+            error_message_strategy().prop_map(VibeRepoError::Validation)
         }
 
         /// Strategy to generate Config errors
-        fn config_error_strategy() -> impl Strategy<Value = GitAutoDevError> {
-            error_message_strategy().prop_map(GitAutoDevError::Config)
+        fn config_error_strategy() -> impl Strategy<Value = VibeRepoError> {
+            error_message_strategy().prop_map(VibeRepoError::Config)
         }
 
         /// Strategy to generate Internal errors
-        fn internal_error_strategy() -> impl Strategy<Value = GitAutoDevError> {
-            error_message_strategy().prop_map(GitAutoDevError::Internal)
+        fn internal_error_strategy() -> impl Strategy<Value = VibeRepoError> {
+            error_message_strategy().prop_map(VibeRepoError::Internal)
         }
 
         /// Strategy to generate Database errors
-        fn database_error_strategy() -> impl Strategy<Value = GitAutoDevError> {
+        fn database_error_strategy() -> impl Strategy<Value = VibeRepoError> {
             error_message_strategy()
-                .prop_map(|msg| GitAutoDevError::Database(sea_orm::DbErr::Custom(msg)))
+                .prop_map(|msg| VibeRepoError::Database(sea_orm::DbErr::Custom(msg)))
         }
 
         /// Strategy to generate Forbidden errors
-        fn forbidden_error_strategy() -> impl Strategy<Value = GitAutoDevError> {
-            error_message_strategy().prop_map(GitAutoDevError::Forbidden)
+        fn forbidden_error_strategy() -> impl Strategy<Value = VibeRepoError> {
+            error_message_strategy().prop_map(VibeRepoError::Forbidden)
         }
 
         /// Strategy to generate ServiceUnavailable errors
-        fn service_unavailable_error_strategy() -> impl Strategy<Value = GitAutoDevError> {
-            error_message_strategy().prop_map(GitAutoDevError::ServiceUnavailable)
+        fn service_unavailable_error_strategy() -> impl Strategy<Value = VibeRepoError> {
+            error_message_strategy().prop_map(VibeRepoError::ServiceUnavailable)
         }
 
-        /// Strategy to generate any GitAutoDevError variant
-        fn any_error_strategy() -> impl Strategy<Value = GitAutoDevError> {
+        /// Strategy to generate any VibeRepoError variant
+        fn any_error_strategy() -> impl Strategy<Value = VibeRepoError> {
             prop_oneof![
                 not_found_error_strategy(),
                 validation_error_strategy(),
@@ -424,7 +424,7 @@ mod tests {
             #![proptest_config(ProptestConfig::with_cases(100))]
 
             /// Feature: backend-init, Property 3: Error conversion consistency
-            /// For any GitAutoDevError, converting to HTTP response produces valid status and body
+            /// For any VibeRepoError, converting to HTTP response produces valid status and body
             #[test]
             fn prop_error_conversion_produces_valid_http_status(error in any_error_strategy()) {
                 let response = error.into_response();
@@ -438,7 +438,7 @@ mod tests {
             }
 
             /// Feature: backend-init, Property 3: Error conversion consistency
-            /// For any GitAutoDevError, the response body deserializes to ErrorResponse with non-empty error
+            /// For any VibeRepoError, the response body deserializes to ErrorResponse with non-empty error
             #[test]
             fn prop_error_conversion_produces_valid_error_response(error in any_error_strategy()) {
                 let response = error.into_response();

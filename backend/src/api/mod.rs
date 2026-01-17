@@ -22,9 +22,9 @@ use crate::{logging, state::AppState};
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "GitAutoDev API",
+        title = "VibeRepo API",
         version = "0.1.0",
-        description = "GitAutoDev automated programming assistant API"
+        description = "VibeRepo automated programming assistant API"
     ),
     paths(
         health::handlers::health_check,

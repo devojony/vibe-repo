@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to GitAutoDev will be documented in this file.
+All notable changes to VibeRepo will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: Renamed project from GitAutoDev to VibeRepo
+- Updated all package names, binary names, and module references
+- Changed error type from `GitAutoDevError` to `VibeRepoError`
+- Updated database path from `./data/gitautodev/` to `./data/vibe-repo/`
+- Updated API documentation title and description
+
 ### Planned
 - Workspace API implementation
 - Agent configuration management
@@ -28,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Project skill system in `.opencode/skills/`
-- `gitautodev-development.md` skill for development workflow guidance
+- `vibe-repo-development.md` skill for development workflow guidance
 - Development progress tracking document (CHANGELOG.md)
 
 ### Changed
@@ -43,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Backend Foundation**
   - Configuration management with environment variables
   - Database connection pooling (SQLite/PostgreSQL)
-  - Unified error handling with `GitAutoDevError`
+  - Unified error handling with `VibeRepoError`
   - Health check endpoint with database connectivity check
   - Structured logging with tracing
   - Graceful shutdown support
@@ -162,8 +169,8 @@ When making changes:
 
 ## Links
 
-- [Project Repository](https://github.com/yourusername/gitautodev)
-- [Issue Tracker](https://github.com/yourusername/gitautodev/issues)
+- [Project Repository](https://github.com/yourusername/vibe-repo)
+- [Issue Tracker](https://github.com/yourusername/vibe-repo/issues)
 - [Documentation](./docs/)
 - [AGENTS.md](./AGENTS.md) - Development Guidelines
 

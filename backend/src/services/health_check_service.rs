@@ -3,7 +3,7 @@
 //! Periodically checks container health and updates workspace status.
 
 use crate::entities::{prelude::*, workspace};
-use crate::error::{GitAutoDevError, Result};
+use crate::error::{VibeRepoError, Result};
 use crate::services::DockerService;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
@@ -59,7 +59,7 @@ impl HealthCheckService {
         let workspaces = Workspace::find()
             .all(self.db.as_ref())
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         for workspace in workspaces {
             // Skip workspaces without containers

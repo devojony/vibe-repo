@@ -1,11 +1,11 @@
-//! GitAutoDev Backend Application
+//! VibeRepo Backend Application
 //!
-//! Main entry point for the GitAutoDev automated programming assistant.
+//! Main entry point for the VibeRepo automated programming assistant.
 
 use anyhow::Result;
 use std::sync::Arc;
 
-use gitautodev::{
+use vibe_repo::{
     api::create_router,
     config::AppConfig,
     db::database::DatabasePool,
@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
 
     logging::init_tracing(json_format);
 
-    tracing::info!("Starting GitAutoDev system...");
+    tracing::info!("Starting VibeRepo system...");
 
     // Load configuration
     let config = AppConfig::from_env().map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -100,7 +100,7 @@ async fn main() -> Result<()> {
 
     // Stop services on shutdown
     service_manager.stop_all().await?;
-    tracing::info!("GitAutoDev system shutdown complete");
+    tracing::info!("VibeRepo system shutdown complete");
 
     Ok(())
 }

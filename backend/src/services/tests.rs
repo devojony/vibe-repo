@@ -48,7 +48,7 @@ mod tests {
 
         async fn start(&self, _state: Arc<crate::state::AppState>) -> crate::error::Result<()> {
             if self.should_fail_start {
-                Err(crate::error::GitAutoDevError::Internal(
+                Err(crate::error::VibeRepoError::Internal(
                     "Mock start failure".to_string(),
                 ))
             } else {
@@ -58,7 +58,7 @@ mod tests {
 
         async fn stop(&self) -> crate::error::Result<()> {
             if self.should_fail_stop {
-                Err(crate::error::GitAutoDevError::Internal(
+                Err(crate::error::VibeRepoError::Internal(
                     "Mock stop failure".to_string(),
                 ))
             } else {

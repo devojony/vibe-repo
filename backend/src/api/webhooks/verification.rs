@@ -42,7 +42,7 @@ fn verify_hmac_sha256(signature: &str, body: &str, secret: &str) -> Result<bool>
     
     // Calculate expected signature
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .map_err(|e| crate::error::GitAutoDevError::Internal(format!("Invalid secret: {}", e)))?;
+        .map_err(|e| crate::error::VibeRepoError::Internal(format!("Invalid secret: {}", e)))?;
     
     mac.update(body.as_bytes());
     let expected = format!("{:x}", mac.finalize().into_bytes());

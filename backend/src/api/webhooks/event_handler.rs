@@ -1,7 +1,7 @@
 //! Event handlers for webhook events
 
 use crate::api::webhooks::models::CommentInfo;
-use crate::error::GitAutoDevError;
+use crate::error::VibeRepoError;
 
 /// Handle issue or PR comment event
 ///
@@ -9,7 +9,7 @@ use crate::error::GitAutoDevError;
 /// Future implementation will trigger AI agent workflows.
 pub async fn handle_comment_event(
     comment_info: CommentInfo,
-) -> Result<(), GitAutoDevError> {
+) -> Result<(), VibeRepoError> {
     tracing::info!(
         comment_id = %comment_info.comment_id,
         author = %comment_info.comment_author,

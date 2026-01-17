@@ -1,5 +1,5 @@
 [package]
-name = "gitautodev"
+name = "vibe-repo"
 version = "0.1.1"
 edition = "2021"
 
@@ -8,11 +8,11 @@ default = []
 test-utils = ["dep:tempfile"]
 
 [[bin]]
-name = "gitautodev"
+name = "vibe-repo"
 path = "src/main.rs"
 
 [lib]
-name = "gitautodev"
+name = "vibe_repo"
 path = "src/lib.rs"
 
 [dependencies]
@@ -93,6 +93,6 @@ utoipa-swagger-ui = { version = "7", features = ["axum"] }
 tokio-test = "0.4"
 tempfile = "3.8"
 serde_yaml = "0.9"
-gitautodev = { path = ".", features = ["test-utils"] }
+vibe-repo = { path = ".", features = ["test-utils"] }
 http-body-util = "0.1"
 wiremock = "0.6"

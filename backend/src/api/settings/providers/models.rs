@@ -100,7 +100,7 @@ impl ProviderResponse {
 /// # Examples
 ///
 /// ```
-/// use gitautodev::api::settings::providers::models::mask_token;
+/// use vibe_repo::api::settings::providers::models::mask_token;
 ///
 /// assert_eq!(mask_token("ghp_1234567890abcdef"), "ghp_1234***");
 /// assert_eq!(mask_token("short"), "***");

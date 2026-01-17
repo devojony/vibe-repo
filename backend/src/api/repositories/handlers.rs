@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use crate::{
     entities::{prelude::*, repository},
-    error::GitAutoDevError,
+    error::VibeRepoError,
     state::AppState,
 };
 
@@ -44,7 +44,7 @@ pub async fn initialize_repository(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
     Json(req): Json<InitializeRepositoryRequest>,
-) -> Result<Json<RepositoryResponse>, GitAutoDevError> {
+) -> Result<Json<RepositoryResponse>, VibeRepoError> {
     // Call RepositoryService to initialize the repository
     let repository = state
         .repository_service
@@ -80,17 +80,17 @@ pub async fn initialize_repository(
 pub async fn batch_initialize_repositories(
     State(state): State<Arc<AppState>>,
     Query(params): Query<BatchInitializeParams>,
-) -> Result<(StatusCode, Json<BatchInitializeResponse>), GitAutoDevError> {
+) -> Result<(StatusCode, Json<BatchInitializeResponse>), VibeRepoError> {
     // Validate provider_id parameter
     let provider_id = params
         .provider_id
-        .ok_or_else(|| GitAutoDevError::Validation("provider_id is required".to_string()))?;
+        .ok_or_else(|| VibeRepoError::Validation("provider_id is required".to_string()))?;
 
     // Verify provider exists
     let _provider = RepoProvider::find_by_id(provider_id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| GitAutoDevError::NotFound("Provider not found".to_string()))?;
+        .ok_or_else(|| VibeRepoError::NotFound("Provider not found".to_string()))?;
 
     // Spawn background task for batch initialization
     let service = state.repository_service.clone();
@@ -155,7 +155,7 @@ pub struct ListRepositoriesQuery {
 pub async fn list_repositories(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ListRepositoriesQuery>,
-) -> Result<Json<Vec<RepositoryResponse>>, GitAutoDevError> {
+) -> Result<Json<Vec<RepositoryResponse>>, VibeRepoError> {
     // Start with base query
     let mut query = Repository::find();
 
@@ -171,7 +171,7 @@ pub async fn list_repositories(
             "invalid" => repository::ValidationStatus::Invalid,
             "pending" => repository::ValidationStatus::Pending,
             _ => {
-                return Err(GitAutoDevError::Validation(format!(
+                return Err(VibeRepoError::Validation(format!(
                     "Invalid validation_status: {}. Must be one of: valid, invalid, pending",
                     status_str
                 )));
@@ -214,12 +214,12 @@ pub async fn list_repositories(
 pub async fn get_repository(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
-) -> Result<Json<RepositoryResponse>, GitAutoDevError> {
+) -> Result<Json<RepositoryResponse>, VibeRepoError> {
     // Query repository by ID
     let repository = Repository::find_by_id(id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| GitAutoDevError::NotFound(format!("Repository {} not found", id)))?;
+        .ok_or_else(|| VibeRepoError::NotFound(format!("Repository {} not found", id)))?;
 
     // Convert to response DTO
     let response = RepositoryResponse::from_model(repository);
@@ -251,19 +251,19 @@ pub async fn get_repository(
 pub async fn refresh_repository(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
-) -> Result<Json<RepositoryResponse>, GitAutoDevError> {
+) -> Result<Json<RepositoryResponse>, VibeRepoError> {
     // Fetch repository from database
     let repository = Repository::find_by_id(id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| GitAutoDevError::NotFound(format!("Repository {} not found", id)))?;
+        .ok_or_else(|| VibeRepoError::NotFound(format!("Repository {} not found", id)))?;
 
     // Fetch provider from database
     let provider = RepoProvider::find_by_id(repository.provider_id)
         .one(&state.db)
         .await?
         .ok_or_else(|| {
-            GitAutoDevError::NotFound(format!("Provider {} not found", repository.provider_id))
+            VibeRepoError::NotFound(format!("Provider {} not found", repository.provider_id))
         })?;
 
     // Create HTTP client for validation
@@ -352,7 +352,7 @@ async fn validate_permissions(
     base_url: &str,
     token: &str,
     repo: &str,
-) -> Result<PermissionInfo, GitAutoDevError> {
+) -> Result<PermissionInfo, VibeRepoError> {
     let url = format!("{}/api/v1/repos/{}", base_url.trim_end_matches('/'), repo);
 
     let response = http_client
@@ -360,17 +360,17 @@ async fn validate_permissions(
         .header("Authorization", format!("token {}", token))
         .send()
         .await
-        .map_err(|e| GitAutoDevError::Internal(format!("Failed to check permissions: {}", e)))?;
+        .map_err(|e| VibeRepoError::Internal(format!("Failed to check permissions: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(GitAutoDevError::Internal(format!(
+        return Err(VibeRepoError::Internal(format!(
             "Failed to fetch repository info: status {}",
             response.status()
         )));
     }
 
     let repo_info: GiteaRepoInfo = response.json().await.map_err(|e| {
-        GitAutoDevError::Internal(format!("Failed to parse repository info: {}", e))
+        VibeRepoError::Internal(format!("Failed to parse repository info: {}", e))
     })?;
 
     Ok(PermissionInfo {
@@ -386,7 +386,7 @@ async fn check_branches(
     base_url: &str,
     token: &str,
     repo: &str,
-) -> Result<BranchInfo, GitAutoDevError> {
+) -> Result<BranchInfo, VibeRepoError> {
     let url = format!(
         "{}/api/v1/repos/{}/branches",
         base_url.trim_end_matches('/'),
@@ -398,10 +398,10 @@ async fn check_branches(
         .header("Authorization", format!("token {}", token))
         .send()
         .await
-        .map_err(|e| GitAutoDevError::Internal(format!("Failed to fetch branches: {}", e)))?;
+        .map_err(|e| VibeRepoError::Internal(format!("Failed to fetch branches: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(GitAutoDevError::Internal(format!(
+        return Err(VibeRepoError::Internal(format!(
             "Failed to fetch branches: status {}",
             response.status()
         )));
@@ -411,7 +411,7 @@ async fn check_branches(
     let branches: Option<Vec<GiteaBranch>> = response
         .json()
         .await
-        .map_err(|e| GitAutoDevError::Internal(format!("Failed to parse branches: {}", e)))?;
+        .map_err(|e| VibeRepoError::Internal(format!("Failed to parse branches: {}", e)))?;
 
     let branch_names: Vec<String> = branches
         .unwrap_or_default()
@@ -436,7 +436,7 @@ async fn check_labels(
     base_url: &str,
     token: &str,
     repo: &str,
-) -> Result<bool, GitAutoDevError> {
+) -> Result<bool, VibeRepoError> {
     let url = format!(
         "{}/api/v1/repos/{}/labels",
         base_url.trim_end_matches('/'),
@@ -448,10 +448,10 @@ async fn check_labels(
         .header("Authorization", format!("token {}", token))
         .send()
         .await
-        .map_err(|e| GitAutoDevError::Internal(format!("Failed to fetch labels: {}", e)))?;
+        .map_err(|e| VibeRepoError::Internal(format!("Failed to fetch labels: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(GitAutoDevError::Internal(format!(
+        return Err(VibeRepoError::Internal(format!(
             "Failed to fetch labels: status {}",
             response.status()
         )));
@@ -461,7 +461,7 @@ async fn check_labels(
     let labels: Option<Vec<GiteaLabel>> = response
         .json()
         .await
-        .map_err(|e| GitAutoDevError::Internal(format!("Failed to parse labels: {}", e)))?;
+        .map_err(|e| VibeRepoError::Internal(format!("Failed to parse labels: {}", e)))?;
 
     let label_names: Vec<String> = labels
         .unwrap_or_default()
@@ -504,7 +504,7 @@ pub async fn update_repository(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
     Json(req): Json<UpdateRepositoryRequest>,
-) -> Result<Json<RepositoryResponse>, GitAutoDevError> {
+) -> Result<Json<RepositoryResponse>, VibeRepoError> {
     let repository = if let Some(name) = req.name {
         state
             .repository_service
@@ -514,7 +514,7 @@ pub async fn update_repository(
         Repository::find_by_id(id)
             .one(&state.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?
+            .ok_or_else(|| VibeRepoError::NotFound("Repository not found".to_string()))?
     };
 
     let response = RepositoryResponse::from_model(repository);
@@ -539,7 +539,7 @@ pub async fn update_repository(
 pub async fn archive_repository(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
-) -> Result<Json<RepositoryResponse>, GitAutoDevError> {
+) -> Result<Json<RepositoryResponse>, VibeRepoError> {
     let repository = state.repository_service.archive_repository(id).await?;
     let response = RepositoryResponse::from_model(repository);
     Ok(Json(response))
@@ -563,7 +563,7 @@ pub async fn archive_repository(
 pub async fn unarchive_repository(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
-) -> Result<Json<RepositoryResponse>, GitAutoDevError> {
+) -> Result<Json<RepositoryResponse>, VibeRepoError> {
     let repository = state.repository_service.unarchive_repository(id).await?;
     let response = RepositoryResponse::from_model(repository);
     Ok(Json(response))
@@ -587,7 +587,7 @@ pub async fn unarchive_repository(
 pub async fn delete_repository(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
-) -> Result<StatusCode, GitAutoDevError> {
+) -> Result<StatusCode, VibeRepoError> {
     state.repository_service.soft_delete_repository(id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -613,7 +613,7 @@ pub async fn reinitialize_repository(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
     Json(req): Json<InitializeRepositoryRequest>,
-) -> Result<Json<RepositoryResponse>, GitAutoDevError> {
+) -> Result<Json<RepositoryResponse>, VibeRepoError> {
     let repository = state
         .repository_service
         .initialize_repository(
@@ -641,7 +641,7 @@ pub async fn reinitialize_repository(
 pub async fn batch_archive_repositories(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BatchOperationRequest>,
-) -> Result<Json<BatchOperationResponse>, GitAutoDevError> {
+) -> Result<Json<BatchOperationResponse>, VibeRepoError> {
     let mut results = Vec::new();
     let mut succeeded = 0;
     let mut failed = 0;
@@ -696,7 +696,7 @@ pub async fn batch_archive_repositories(
 pub async fn batch_delete_repositories(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BatchOperationRequest>,
-) -> Result<Json<BatchOperationResponse>, GitAutoDevError> {
+) -> Result<Json<BatchOperationResponse>, VibeRepoError> {
     let mut results = Vec::new();
     let mut succeeded = 0;
     let mut failed = 0;
@@ -755,7 +755,7 @@ pub async fn batch_delete_repositories(
 pub async fn batch_refresh_repositories(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BatchOperationRequest>,
-) -> Result<Json<BatchOperationResponse>, GitAutoDevError> {
+) -> Result<Json<BatchOperationResponse>, VibeRepoError> {
     let mut results = Vec::new();
     let mut succeeded = 0;
     let failed = 0;
@@ -799,7 +799,7 @@ pub async fn batch_refresh_repositories(
 pub async fn batch_reinitialize_repositories(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BatchOperationRequest>,
-) -> Result<Json<BatchOperationResponse>, GitAutoDevError> {
+) -> Result<Json<BatchOperationResponse>, VibeRepoError> {
     let mut results = Vec::new();
     let mut succeeded = 0;
     let mut failed = 0;

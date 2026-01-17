@@ -1,6 +1,6 @@
-//! GitAutoDev Backend Library
+//! VibeRepo Backend Library
 //!
-//! This library provides the core functionality for the GitAutoDev automated
+//! This library provides the core functionality for the VibeRepo automated
 //! programming assistant system.
 
 // Core modules
@@ -29,7 +29,7 @@ pub mod test_utils;
 
 // Re-export commonly used types
 pub use config::AppConfig;
-pub use error::{GitAutoDevError, Result};
+pub use error::{VibeRepoError, Result};
 pub use state::AppState;
 
 // Re-export database types

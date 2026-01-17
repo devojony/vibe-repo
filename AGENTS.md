@@ -1,12 +1,12 @@
-# Agent Guidelines for GitAutoDev
+# Agent Guidelines for VibeRepo
 
 **Current Version:** v0.1.20 (Pre-1.0 - Breaking changes allowed)
 
-This document provides coding guidelines for AI agents working on the GitAutoDev codebase.
+This document provides coding guidelines for AI agents working on the VibeRepo codebase.
 
 ## Project Overview
 
-GitAutoDev is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
+VibeRepo is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
 
 ### Current Status (v0.1.20)
 
@@ -162,7 +162,7 @@ pub struct DatabaseConfig {
 
 ```rust
 #[derive(Debug, thiserror::Error)]
-pub enum GitAutoDevError {
+pub enum VibeRepoError {
     #[error("Database error: {0}")]
     Database(#[from] sea_orm::DbErr),
     
@@ -174,8 +174,8 @@ pub enum GitAutoDevError {
 ### Error Handling
 
 #### Error Types
-- Use the unified `GitAutoDevError` enum for application errors
-- Use `Result<T>` type alias: `pub type Result<T> = std::result::Result<T, GitAutoDevError>;`
+- Use the unified `VibeRepoError` enum for application errors
+- Use `Result<T>` type alias: `pub type Result<T> = std::result::Result<T, VibeRepoError>;`
 - Implement `IntoResponse` for custom error types to convert to HTTP responses
 - Map errors to appropriate HTTP status codes:
   - `NotFound` → 404
@@ -200,7 +200,7 @@ pub struct ErrorResponse {
 ### Naming Conventions
 
 - **Modules**: `snake_case` (e.g., `git_provider`, `repository_service`)
-- **Structs/Enums**: `PascalCase` (e.g., `AppConfig`, `GitAutoDevError`)
+- **Structs/Enums**: `PascalCase` (e.g., `AppConfig`, `VibeRepoError`)
 - **Functions/Variables**: `snake_case` (e.g., `create_router`, `db_pool`)
 - **Constants**: `SCREAMING_SNAKE_CASE` (e.g., `MAX_CONNECTIONS`)
 - **Type Aliases**: `PascalCase` (e.g., `Result`)
@@ -255,7 +255,7 @@ async fn test_health_endpoint_returns_200_when_healthy() {
 ### API Handlers
 
 - Use Axum extractors for request data
-- Return `Result<Json<T>, GitAutoDevError>` or `impl IntoResponse`
+- Return `Result<Json<T>, VibeRepoError>` or `impl IntoResponse`
 - Add OpenAPI documentation with `#[utoipa::path]`
 - Keep handlers thin - delegate to service layer
 
@@ -269,7 +269,7 @@ async fn test_health_endpoint_returns_200_when_healthy() {
 )]
 pub async fn health_check(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<HealthResponse>, GitAutoDevError> {
+) -> Result<Json<HealthResponse>, VibeRepoError> {
     // Implementation
 }
 ```
@@ -391,7 +391,7 @@ backend/
 Configuration is loaded from `.env` file in project root:
 
 ```bash
-DATABASE_URL=sqlite:./data/gitautodev/db/gitautodev.db?mode=rwc
+DATABASE_URL=sqlite:./data/vibe-repo/db/vibe-repo.db?mode=rwc
 DATABASE_MAX_CONNECTIONS=10
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000

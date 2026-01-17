@@ -122,7 +122,7 @@ impl WebhookCleanupService {
         
         // Create Git client
         let client = GitClientFactory::from_provider(&provider).map_err(|e| {
-            crate::error::GitAutoDevError::Internal(format!("Failed to create git client: {}", e))
+            crate::error::VibeRepoError::Internal(format!("Failed to create git client: {}", e))
         })?;
         
         // Parse repository owner and name

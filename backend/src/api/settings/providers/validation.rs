@@ -2,7 +2,7 @@
 //!
 //! Logic for validating provider tokens against Git provider APIs.
 
-use crate::error::{GitAutoDevError, Result};
+use crate::error::{VibeRepoError, Result};
 use crate::git_provider::{GitClientFactory, GitProvider, GitUser};
 
 /// Validate a provider token
@@ -15,7 +15,7 @@ pub async fn validate_token(
 ) -> Result<(bool, String, Option<GitUser>)> {
     // Create GitProvider client
     let git_client = GitClientFactory::create(provider_type, base_url, access_token)
-        .map_err(|e| GitAutoDevError::Validation(format!("Failed to create git client: {}", e)))?;
+        .map_err(|e| VibeRepoError::Validation(format!("Failed to create git client: {}", e)))?;
 
     // Validate token using GitProvider
     match git_client.validate_token().await {
@@ -44,7 +44,7 @@ pub async fn validate_token(
                     None,
                 ))
             } else {
-                Err(GitAutoDevError::Internal(format!(
+                Err(VibeRepoError::Internal(format!(
                     "Failed to validate token: {}",
                     e
                 )))
@@ -69,7 +69,7 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(GitAutoDevError::Validation(msg)) => {
+            Err(VibeRepoError::Validation(msg)) => {
                 assert!(msg.contains("Failed to create git client"));
             }
             _ => panic!("Expected validation error"),

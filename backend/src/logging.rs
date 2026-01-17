@@ -19,7 +19,7 @@ pub const REQUEST_ID_HEADER: &str = "x-request-id";
 ///
 /// # Examples
 /// ```no_run
-/// use gitautodev::logging::init_tracing;
+/// use vibe_repo::logging::init_tracing;
 ///
 /// // Development mode (human-readable)
 /// init_tracing(false);
@@ -56,7 +56,7 @@ pub fn init_tracing(json_format: bool) {
 /// ```no_run
 /// use axum::{Router, middleware};
 /// use std::sync::Arc;
-/// use gitautodev::{logging::request_id_middleware, state::AppState};
+/// use vibe_repo::{logging::request_id_middleware, state::AppState};
 ///
 /// # async fn example(state: Arc<AppState>) {
 /// let app: Router = Router::new()

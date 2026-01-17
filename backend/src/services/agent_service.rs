@@ -1,5 +1,5 @@
 use crate::entities::{agent, prelude::*};
-use crate::error::{GitAutoDevError, Result};
+use crate::error::{VibeRepoError, Result};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use serde_json::Value as JsonValue;
@@ -37,7 +37,7 @@ impl AgentService {
         let agent = Agent::insert(agent)
             .exec_with_returning(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         Ok(agent)
     }
@@ -46,8 +46,8 @@ impl AgentService {
         Agent::find_by_id(id)
             .one(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?
-            .ok_or_else(|| GitAutoDevError::NotFound(format!("Agent with id {} not found", id)))
+            .map_err(VibeRepoError::Database)?
+            .ok_or_else(|| VibeRepoError::NotFound(format!("Agent with id {} not found", id)))
     }
 
     pub async fn list_agents_by_workspace(&self, workspace_id: i32) -> Result<Vec<agent::Model>> {
@@ -55,7 +55,7 @@ impl AgentService {
             .filter(agent::Column::WorkspaceId.eq(workspace_id))
             .all(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)
+            .map_err(VibeRepoError::Database)
     }
 
     pub async fn update_agent_enabled(&self, id: i32, enabled: bool) -> Result<agent::Model> {
@@ -68,7 +68,7 @@ impl AgentService {
         let agent = agent
             .update(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         Ok(agent)
     }
@@ -80,7 +80,7 @@ impl AgentService {
         agent
             .delete(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         Ok(())
     }

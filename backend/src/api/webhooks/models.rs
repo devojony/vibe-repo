@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::error::GitAutoDevError;
+use crate::error::VibeRepoError;
 
 /// Generic webhook payload
 /// This will be expanded to handle specific webhook types
@@ -174,10 +174,10 @@ impl GiteaIssueCommentPayload {
     /// Extract unified comment information from issue comment payload
     ///
     /// Validates the action field and returns an error for invalid actions.
-    pub fn extract_comment_info(&self) -> Result<CommentInfo, GitAutoDevError> {
+    pub fn extract_comment_info(&self) -> Result<CommentInfo, VibeRepoError> {
         // Validate action
         if !matches!(self.action.as_str(), "created" | "edited" | "deleted") {
-            return Err(GitAutoDevError::Validation(format!(
+            return Err(VibeRepoError::Validation(format!(
                 "Invalid action '{}'. Expected 'created', 'edited', or 'deleted'",
                 self.action
             )));
@@ -201,10 +201,10 @@ impl GiteaPullRequestCommentPayload {
     /// Extract unified comment information from PR comment payload
     ///
     /// Validates the action field and returns an error for invalid actions.
-    pub fn extract_comment_info(&self) -> Result<CommentInfo, GitAutoDevError> {
+    pub fn extract_comment_info(&self) -> Result<CommentInfo, VibeRepoError> {
         // Validate action
         if !matches!(self.action.as_str(), "created" | "edited" | "deleted") {
-            return Err(GitAutoDevError::Validation(format!(
+            return Err(VibeRepoError::Validation(format!(
                 "Invalid action '{}'. Expected 'created', 'edited', or 'deleted'",
                 self.action
             )));

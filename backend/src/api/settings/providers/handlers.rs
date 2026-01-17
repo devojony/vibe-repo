@@ -7,7 +7,7 @@ use crate::{
         prelude::{RepoProvider, Repository},
         repo_provider::{ActiveModel, Entity as RepoProviderEntity, ProviderType},
     },
-    error::{GitAutoDevError, Result},
+    error::{VibeRepoError, Result},
     state::AppState,
 };
 use axum::{
@@ -67,20 +67,20 @@ pub async fn create_provider(
 ) -> Result<(StatusCode, Json<ProviderResponse>)> {
     // Validate input
     if req.name.trim().is_empty() {
-        return Err(GitAutoDevError::Validation("Name cannot be empty".into()));
+        return Err(VibeRepoError::Validation("Name cannot be empty".into()));
     }
     if req.access_token.trim().is_empty() {
-        return Err(GitAutoDevError::Validation(
+        return Err(VibeRepoError::Validation(
             "Access token cannot be empty".into(),
         ));
     }
     if req.provider_type != ProviderType::Gitea {
-        return Err(GitAutoDevError::Validation(
+        return Err(VibeRepoError::Validation(
             "Only 'gitea' provider type is supported in v0.1.0".into(),
         ));
     }
     if req.base_url.trim().is_empty() {
-        return Err(GitAutoDevError::Validation(
+        return Err(VibeRepoError::Validation(
             "Base URL is required for Gitea providers".into(),
         ));
     }
@@ -104,12 +104,12 @@ pub async fn create_provider(
             if db_err.message().contains("UNIQUE constraint failed")
                 || db_err.message().contains("duplicate key")
             {
-                return Err(GitAutoDevError::Conflict(
+                return Err(VibeRepoError::Conflict(
                     "A provider with the same name, base_url, and access_token already exists"
                         .into(),
                 ));
             }
-            return Err(GitAutoDevError::Database(sea_orm::DbErr::Exec(
+            return Err(VibeRepoError::Database(sea_orm::DbErr::Exec(
                 sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(db_err)),
             )));
         }
@@ -153,7 +153,7 @@ pub async fn get_provider(
     let provider = RepoProvider::find_by_id(id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| GitAutoDevError::NotFound(format!("Provider {} not found", id)))?;
+        .ok_or_else(|| VibeRepoError::NotFound(format!("Provider {} not found", id)))?;
 
     Ok(Json(ProviderResponse::from_model(provider)))
 }
@@ -185,12 +185,12 @@ pub async fn update_provider(
     let provider = RepoProvider::find_by_id(id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| GitAutoDevError::NotFound(format!("Provider {} not found", id)))?;
+        .ok_or_else(|| VibeRepoError::NotFound(format!("Provider {} not found", id)))?;
 
     // Validate provider type if provided
     if let Some(ref provider_type) = req.provider_type {
         if *provider_type != ProviderType::Gitea {
-            return Err(GitAutoDevError::Validation(
+            return Err(VibeRepoError::Validation(
                 "Only 'gitea' provider type is supported in v0.1.0".into(),
             ));
         }
@@ -228,12 +228,12 @@ pub async fn update_provider(
             if db_err.message().contains("UNIQUE constraint failed")
                 || db_err.message().contains("duplicate key")
             {
-                return Err(GitAutoDevError::Conflict(
+                return Err(VibeRepoError::Conflict(
                     "A provider with the same name, base_url, and access_token already exists"
                         .into(),
                 ));
             }
-            return Err(GitAutoDevError::Database(sea_orm::DbErr::Exec(
+            return Err(VibeRepoError::Database(sea_orm::DbErr::Exec(
                 sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(db_err)),
             )));
         }
@@ -278,11 +278,11 @@ pub async fn delete_provider(
     let provider = RepoProvider::find_by_id(id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| GitAutoDevError::NotFound(format!("Provider {} not found", id)))?;
+        .ok_or_else(|| VibeRepoError::NotFound(format!("Provider {} not found", id)))?;
 
     // Check if locked
     if provider.locked {
-        return Err(GitAutoDevError::Conflict(
+        return Err(VibeRepoError::Conflict(
             "Cannot delete locked provider".into(),
         ));
     }
@@ -335,7 +335,7 @@ pub async fn validate_provider(
     let provider = RepoProvider::find_by_id(id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| GitAutoDevError::NotFound(format!("Provider {} not found", id)))?;
+        .ok_or_else(|| VibeRepoError::NotFound(format!("Provider {} not found", id)))?;
 
     // Validate token
     let provider_type_str = match provider.provider_type {
@@ -389,7 +389,7 @@ pub async fn sync_provider(
     let provider = RepoProvider::find_by_id(id)
         .one(&state.db)
         .await?
-        .ok_or_else(|| GitAutoDevError::NotFound(format!("Provider {} not found", id)))?;
+        .ok_or_else(|| VibeRepoError::NotFound(format!("Provider {} not found", id)))?;
 
     // Spawn background task to sync the provider
     let service = state.repository_service.clone();

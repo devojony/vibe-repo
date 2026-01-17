@@ -76,7 +76,7 @@ impl WebhookRetryService {
             .one(&self.db)
             .await?
             .ok_or_else(|| {
-                crate::error::GitAutoDevError::NotFound(format!(
+                crate::error::VibeRepoError::NotFound(format!(
                     "Repository {} not found",
                     webhook.repository_id
                 ))
@@ -86,7 +86,7 @@ impl WebhookRetryService {
             .one(&self.db)
             .await?
             .ok_or_else(|| {
-                crate::error::GitAutoDevError::NotFound(format!(
+                crate::error::VibeRepoError::NotFound(format!(
                     "Provider {} not found",
                     webhook.provider_id
                 ))
@@ -94,13 +94,13 @@ impl WebhookRetryService {
 
         // Create Git client
         let client = GitClientFactory::from_provider(&provider).map_err(|e| {
-            crate::error::GitAutoDevError::Internal(format!("Failed to create git client: {}", e))
+            crate::error::VibeRepoError::Internal(format!("Failed to create git client: {}", e))
         })?;
 
         // Parse repository owner and name
         let parts: Vec<&str> = repo.full_name.split('/').collect();
         if parts.len() != 2 {
-            return Err(crate::error::GitAutoDevError::Validation(format!(
+            return Err(crate::error::VibeRepoError::Validation(format!(
                 "Invalid repository full_name format: {}",
                 repo.full_name
             )));
@@ -179,7 +179,7 @@ impl WebhookRetryService {
                     "Webhook retry failed"
                 );
 
-                Err(crate::error::GitAutoDevError::Internal(format!(
+                Err(crate::error::VibeRepoError::Internal(format!(
                     "Webhook retry failed: {}",
                     error_message
                 )))

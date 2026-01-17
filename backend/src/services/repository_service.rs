@@ -12,7 +12,7 @@ use sea_orm::{
 use std::sync::Arc;
 
 use crate::entities::{prelude::*, repository, webhook_config};
-use crate::error::{GitAutoDevError, Result};
+use crate::error::{VibeRepoError, Result};
 use crate::git_provider::{
     CreateBranchRequest, CreateWebhookRequest, GitClientFactory, GitProvider, GitProviderError,
     WebhookEvent,
@@ -105,13 +105,13 @@ impl RepositoryService {
 
         // Create Git client
         let client = GitClientFactory::from_provider(provider).map_err(|e| {
-            GitAutoDevError::Internal(format!("Failed to create git client: {}", e))
+            VibeRepoError::Internal(format!("Failed to create git client: {}", e))
         })?;
 
         // Parse repository owner and name from full_name
         let parts: Vec<&str> = repo.full_name.split('/').collect();
         if parts.len() != 2 {
-            return Err(GitAutoDevError::Validation(format!(
+            return Err(VibeRepoError::Validation(format!(
                 "Invalid repository full_name format: {}",
                 repo.full_name
             )));
@@ -137,19 +137,19 @@ impl RepositoryService {
             .create_webhook(owner, repo_name, webhook_request)
             .await
             .map_err(|e| match e {
-                GitProviderError::Forbidden(_) => GitAutoDevError::Forbidden(format!(
+                GitProviderError::Forbidden(_) => VibeRepoError::Forbidden(format!(
                     "Insufficient permissions to create webhook for repository {}",
                     repo.full_name
                 )),
-                GitProviderError::NotFound(_) => GitAutoDevError::NotFound(format!(
+                GitProviderError::NotFound(_) => VibeRepoError::NotFound(format!(
                     "Repository {} not found on Git provider",
                     repo.full_name
                 )),
-                GitProviderError::NetworkError(_) => GitAutoDevError::ServiceUnavailable(format!(
+                GitProviderError::NetworkError(_) => VibeRepoError::ServiceUnavailable(format!(
                     "Git provider unreachable while creating webhook for {}",
                     repo.full_name
                 )),
-                _ => GitAutoDevError::Internal(format!(
+                _ => VibeRepoError::Internal(format!(
                     "Failed to create webhook for {}: {}",
                     repo.full_name, e
                 )),
@@ -157,7 +157,7 @@ impl RepositoryService {
 
         // Store webhook config in database
         let events_json = serde_json::to_string(&git_webhook.events).map_err(|e| {
-            GitAutoDevError::Internal(format!("Failed to serialize webhook events: {}", e))
+            VibeRepoError::Internal(format!("Failed to serialize webhook events: {}", e))
         })?;
 
         let webhook_config = webhook_config::ActiveModel {
@@ -338,17 +338,17 @@ impl RepositoryService {
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+            .ok_or_else(|| VibeRepoError::NotFound("Repository not found".to_string()))?;
 
         // 2. Fetch provider
         let provider = RepoProvider::find_by_id(repo.provider_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound("Provider not found".to_string()))?;
+            .ok_or_else(|| VibeRepoError::NotFound("Provider not found".to_string()))?;
 
         // 3. Create GitProvider client
         let git_client = GitClientFactory::from_provider(&provider).map_err(|e| {
-            GitAutoDevError::Internal(format!("Failed to create git client: {}", e))
+            VibeRepoError::Internal(format!("Failed to create git client: {}", e))
         })?;
 
         // 4. Parse owner/repo from full_name
@@ -370,7 +370,7 @@ impl RepositoryService {
             Ok(_) => {
                 tracing::info!("Created {} branch for repository {}", branch_name, repo_id);
             }
-            Err(GitAutoDevError::Conflict(_)) => {
+            Err(VibeRepoError::Conflict(_)) => {
                 // Branch already exists - this is fine (idempotent operation)
                 tracing::info!(
                     "{} branch already exists for repository {}",
@@ -477,7 +477,7 @@ impl RepositoryService {
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+            .ok_or_else(|| VibeRepoError::NotFound("Repository not found".to_string()))?;
 
         let mut active: repository::ActiveModel = repo.into();
         active.branches = ActiveValue::Set(serde_json::json!(branch_names));
@@ -532,7 +532,7 @@ impl RepositoryService {
             .await
             .map_err(|e| match e {
                 GitProviderError::BranchAlreadyExists(_) => {
-                    GitAutoDevError::Conflict("Branch already exists".to_string())
+                    VibeRepoError::Conflict("Branch already exists".to_string())
                 }
                 other => self.map_git_error(other),
             })?;
@@ -540,7 +540,7 @@ impl RepositoryService {
         Ok(())
     }
 
-    /// Map GitProviderError to GitAutoDevError with appropriate status codes
+    /// Map GitProviderError to VibeRepoError with appropriate status codes
     ///
     /// # Error Mapping
     /// - `Unauthorized` / `Forbidden` -> `Forbidden` (403)
@@ -549,10 +549,10 @@ impl RepositoryService {
     /// - `NotFound` (other) -> `NotFound` (404)
     /// - `BranchAlreadyExists` -> `Conflict` (409)
     /// - Others -> `Internal` (500)
-    pub(crate) fn map_git_error(&self, error: GitProviderError) -> GitAutoDevError {
+    pub(crate) fn map_git_error(&self, error: GitProviderError) -> VibeRepoError {
         match error {
             GitProviderError::Unauthorized(_) | GitProviderError::Forbidden(_) => {
-                GitAutoDevError::Forbidden("Insufficient permissions to create branch".to_string())
+                VibeRepoError::Forbidden("Insufficient permissions to create branch".to_string())
             }
             GitProviderError::NotFound(msg) => {
                 // Check if the error is about a branch or ref (source branch not found)
@@ -561,18 +561,18 @@ impl RepositoryService {
                     || msg_lower.contains("ref")
                     || msg_lower.contains("reference")
                 {
-                    GitAutoDevError::Validation("Default branch not found".to_string())
+                    VibeRepoError::Validation("Default branch not found".to_string())
                 } else {
-                    GitAutoDevError::NotFound(msg)
+                    VibeRepoError::NotFound(msg)
                 }
             }
             GitProviderError::NetworkError(_) => {
-                GitAutoDevError::ServiceUnavailable("Git provider unreachable".to_string())
+                VibeRepoError::ServiceUnavailable("Git provider unreachable".to_string())
             }
             GitProviderError::BranchAlreadyExists(_) => {
-                GitAutoDevError::Conflict("Branch already exists".to_string())
+                VibeRepoError::Conflict("Branch already exists".to_string())
             }
-            _ => GitAutoDevError::Internal(error.to_string()),
+            _ => VibeRepoError::Internal(error.to_string()),
         }
     }
 
@@ -662,7 +662,7 @@ impl RepositoryService {
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+            .ok_or_else(|| VibeRepoError::NotFound("Repository not found".to_string()))?;
 
         let mut active: repository::ActiveModel = repo.into();
         active.validation_message = ActiveValue::Set(message);
@@ -676,7 +676,7 @@ impl RepositoryService {
     fn parse_full_name<'a>(&self, full_name: &'a str) -> Result<(&'a str, &'a str)> {
         let parts: Vec<&str> = full_name.split('/').collect();
         if parts.len() != 2 {
-            return Err(GitAutoDevError::Internal(format!(
+            return Err(VibeRepoError::Internal(format!(
                 "Invalid repository full_name: {}",
                 full_name
             )));
@@ -693,17 +693,17 @@ impl RepositoryService {
             .one(&self.db)
             .await?
             .ok_or_else(|| {
-                GitAutoDevError::NotFound(format!("Provider {} not found", provider_id))
+                VibeRepoError::NotFound(format!("Provider {} not found", provider_id))
             })?;
 
         // Create GitProvider client
         let git_client = GitClientFactory::from_provider(&provider).map_err(|e| {
-            GitAutoDevError::Internal(format!("Failed to create git client: {}", e))
+            VibeRepoError::Internal(format!("Failed to create git client: {}", e))
         })?;
 
         // Fetch repositories using GitProvider
         let repos = git_client.list_repositories().await.map_err(|e| {
-            GitAutoDevError::Internal(format!("Failed to fetch repositories: {}", e))
+            VibeRepoError::Internal(format!("Failed to fetch repositories: {}", e))
         })?;
 
         tracing::info!(
@@ -830,7 +830,7 @@ impl RepositoryService {
         // Parse owner and repo from full_name (format: "owner/repo")
         let parts: Vec<&str> = repo_full_name.split('/').collect();
         if parts.len() != 2 {
-            return Err(GitAutoDevError::Internal(format!(
+            return Err(VibeRepoError::Internal(format!(
                 "Invalid repository full_name: {}",
                 repo_full_name
             )));
@@ -865,7 +865,7 @@ impl RepositoryService {
         repo: &str,
     ) -> Result<PermissionInfo> {
         let repository = git_client.get_repository(owner, repo).await.map_err(|e| {
-            GitAutoDevError::Internal(format!("Failed to check permissions: {}", e))
+            VibeRepoError::Internal(format!("Failed to check permissions: {}", e))
         })?;
 
         Ok(PermissionInfo {
@@ -898,7 +898,7 @@ impl RepositoryService {
         let branches = git_client
             .list_branches(owner, repo)
             .await
-            .map_err(|e| GitAutoDevError::Internal(format!("Failed to fetch branches: {}", e)))?;
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to fetch branches: {}", e)))?;
 
         let branch_names: Vec<String> = branches.iter().map(|b| b.name.clone()).collect();
 
@@ -925,7 +925,7 @@ impl RepositoryService {
         let labels = git_client
             .list_labels(owner, repo)
             .await
-            .map_err(|e| GitAutoDevError::Internal(format!("Failed to fetch labels: {}", e)))?;
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to fetch labels: {}", e)))?;
 
         let label_names: Vec<String> = labels.iter().map(|l| l.name.clone()).collect();
 
@@ -957,7 +957,7 @@ impl RepositoryService {
         let existing_labels = git_client
             .list_labels(owner, repo)
             .await
-            .map_err(|e| GitAutoDevError::Internal(format!("Failed to fetch labels: {}", e)))?;
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to fetch labels: {}", e)))?;
 
         let existing_names: Vec<String> = existing_labels.iter().map(|l| l.name.clone()).collect();
 
@@ -1000,7 +1000,7 @@ impl RepositoryService {
             .one(&self.db)
             .await?
             .ok_or_else(|| {
-                GitAutoDevError::NotFound(format!("Repository {} not found", repo_id))
+                VibeRepoError::NotFound(format!("Repository {} not found", repo_id))
             })?;
 
         let mut active: repository::ActiveModel = repo.into();
@@ -1038,18 +1038,18 @@ impl RepositoryService {
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+            .ok_or_else(|| VibeRepoError::NotFound("Repository not found".to_string()))?;
 
         // Check if repository has workspace
         if repo.has_workspace {
-            return Err(GitAutoDevError::Conflict(
+            return Err(VibeRepoError::Conflict(
                 "Cannot archive repository with workspace. Delete workspace first.".to_string(),
             ));
         }
 
         // Check if already archived
         if repo.status == repository::RepositoryStatus::Archived {
-            return Err(GitAutoDevError::Conflict(
+            return Err(VibeRepoError::Conflict(
                 "Repository is already archived".to_string(),
             ));
         }
@@ -1080,11 +1080,11 @@ impl RepositoryService {
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+            .ok_or_else(|| VibeRepoError::NotFound("Repository not found".to_string()))?;
 
         // Check if repository is archived
         if repo.status != repository::RepositoryStatus::Archived {
-            return Err(GitAutoDevError::Conflict(
+            return Err(VibeRepoError::Conflict(
                 "Repository is not archived".to_string(),
             ));
         }
@@ -1128,11 +1128,11 @@ impl RepositoryService {
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+            .ok_or_else(|| VibeRepoError::NotFound("Repository not found".to_string()))?;
 
         // Check if repository has workspace
         if repo.has_workspace {
-            return Err(GitAutoDevError::Conflict(
+            return Err(VibeRepoError::Conflict(
                 "Cannot delete repository with workspace. Delete workspace first.".to_string(),
             ));
         }
@@ -1171,7 +1171,7 @@ impl RepositoryService {
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound(
+            .ok_or_else(|| VibeRepoError::NotFound(
                 format!("Repository {} not found", repo_id)
             ))?;
         
@@ -1223,19 +1223,19 @@ impl RepositoryService {
         let provider = RepoProvider::find_by_id(webhook.provider_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound(
+            .ok_or_else(|| VibeRepoError::NotFound(
                 format!("Provider {} not found", webhook.provider_id)
             ))?;
         
         // Create Git client
         let client = GitClientFactory::from_provider(&provider).map_err(|e| {
-            GitAutoDevError::Internal(format!("Failed to create git client: {}", e))
+            VibeRepoError::Internal(format!("Failed to create git client: {}", e))
         })?;
         
         // Parse repository owner and name
         let parts: Vec<&str> = repo.full_name.split('/').collect();
         if parts.len() != 2 {
-            return Err(GitAutoDevError::Validation(format!(
+            return Err(VibeRepoError::Validation(format!(
                 "Invalid repository full_name format: {}",
                 repo.full_name
             )));
@@ -1263,7 +1263,7 @@ impl RepositoryService {
                 // Not an error - webhook already gone
                 Ok(())
             }
-            Err(e) => Err(GitAutoDevError::Internal(format!(
+            Err(e) => Err(VibeRepoError::Internal(format!(
                 "Failed to delete webhook from Git provider: {}",
                 e
             ))),
@@ -1288,11 +1288,11 @@ impl RepositoryService {
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+            .ok_or_else(|| VibeRepoError::NotFound("Repository not found".to_string()))?;
 
         // Check if repository is deleted
         if repo.deleted_at.is_none() {
-            return Err(GitAutoDevError::Conflict(
+            return Err(VibeRepoError::Conflict(
                 "Repository is not deleted".to_string(),
             ));
         }
@@ -1330,11 +1330,11 @@ impl RepositoryService {
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| GitAutoDevError::NotFound("Repository not found".to_string()))?;
+            .ok_or_else(|| VibeRepoError::NotFound("Repository not found".to_string()))?;
 
         // Check if repository is archived
         if repo.status == repository::RepositoryStatus::Archived {
-            return Err(GitAutoDevError::Conflict(
+            return Err(VibeRepoError::Conflict(
                 "Cannot modify archived repository. Unarchive it first.".to_string(),
             ));
         }
@@ -1554,7 +1554,7 @@ mod tests {
         // Try to archive - should fail
         let result = service.archive_repository(repo.id).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), GitAutoDevError::Conflict(_)));
+        assert!(matches!(result.unwrap_err(), VibeRepoError::Conflict(_)));
     }
 
     #[tokio::test]
@@ -1586,7 +1586,7 @@ mod tests {
         // Try to archive again - should fail
         let result = service.archive_repository(repo.id).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), GitAutoDevError::Conflict(_)));
+        assert!(matches!(result.unwrap_err(), VibeRepoError::Conflict(_)));
     }
 
     // Test unarchive_repository
@@ -1652,7 +1652,7 @@ mod tests {
         // Try to unarchive - should fail
         let result = service.unarchive_repository(repo.id).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), GitAutoDevError::Conflict(_)));
+        assert!(matches!(result.unwrap_err(), VibeRepoError::Conflict(_)));
     }
 
     // Test soft_delete_repository
@@ -1724,7 +1724,7 @@ mod tests {
         // Try to delete - should fail
         let result = service.soft_delete_repository(repo.id).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), GitAutoDevError::Conflict(_)));
+        assert!(matches!(result.unwrap_err(), VibeRepoError::Conflict(_)));
     }
 
     // Test restore_repository
@@ -1792,6 +1792,6 @@ mod tests {
         // Try to restore - should fail
         let result = service.restore_repository(repo.id).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), GitAutoDevError::Conflict(_)));
+        assert!(matches!(result.unwrap_err(), VibeRepoError::Conflict(_)));
     }
 }

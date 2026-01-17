@@ -6,7 +6,7 @@ use sea_orm::{Database, DatabaseConnection};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tempfile::NamedTempFile;
 
-use crate::error::{GitAutoDevError, Result};
+use crate::error::{VibeRepoError, Result};
 use crate::migration::Migrator;
 use sea_orm_migration::MigratorTrait;
 
@@ -26,17 +26,17 @@ impl TestDatabase {
     /// Create a new test database with migrations applied
     pub async fn new() -> Result<Self> {
         let temp_file = NamedTempFile::new()
-            .map_err(|e: std::io::Error| GitAutoDevError::Internal(e.to_string()))?;
+            .map_err(|e: std::io::Error| VibeRepoError::Internal(e.to_string()))?;
 
         let url = format!("sqlite:{}?mode=rwc", temp_file.path().display());
         let connection = Database::connect(&url)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         // Run migrations
         Migrator::up(&connection, None)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         Ok(Self {
             connection,
@@ -56,12 +56,12 @@ impl TestDatabase {
 
         let connection = Database::connect(&url)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         // Run migrations
         Migrator::up(&connection, None)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         Ok(Self {
             connection,
@@ -83,12 +83,12 @@ pub async fn create_test_database() -> Result<DatabaseConnection> {
 
     let connection = Database::connect(&url)
         .await
-        .map_err(GitAutoDevError::Database)?;
+        .map_err(VibeRepoError::Database)?;
 
     // Run migrations
     Migrator::up(&connection, None)
         .await
-        .map_err(GitAutoDevError::Database)?;
+        .map_err(VibeRepoError::Database)?;
 
     Ok(connection)
 }

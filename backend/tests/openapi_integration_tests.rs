@@ -4,8 +4,8 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use gitautodev::api::create_router;
-use gitautodev::test_utils::state::create_test_state;
+use vibe_repo::api::create_router;
+use vibe_repo::test_utils::state::create_test_state;
 use tower::ServiceExt; // for `oneshot`
 
 /// Test /api-docs/openapi.json returns valid JSON
@@ -169,8 +169,8 @@ async fn test_openapi_spec_contains_api_info() {
     // Assert: Verify specific values
     assert_eq!(
         info.get("title").unwrap().as_str().unwrap(),
-        "GitAutoDev API",
-        "API title should be 'GitAutoDev API'"
+        "VibeRepo API",
+        "API title should be 'VibeRepo API'"
     );
     assert_eq!(
         info.get("version").unwrap().as_str().unwrap(),

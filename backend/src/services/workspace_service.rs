@@ -1,5 +1,5 @@
 use crate::entities::{prelude::*, workspace};
-use crate::error::{GitAutoDevError, Result};
+use crate::error::{VibeRepoError, Result};
 use crate::services::DockerService;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
@@ -30,7 +30,7 @@ impl WorkspaceService {
         let workspace = Workspace::insert(workspace)
             .exec_with_returning(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         Ok(workspace)
     }
@@ -39,15 +39,15 @@ impl WorkspaceService {
         Workspace::find_by_id(id)
             .one(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?
-            .ok_or_else(|| GitAutoDevError::NotFound(format!("Workspace with id {} not found", id)))
+            .map_err(VibeRepoError::Database)?
+            .ok_or_else(|| VibeRepoError::NotFound(format!("Workspace with id {} not found", id)))
     }
 
     pub async fn list_workspaces(&self) -> Result<Vec<workspace::Model>> {
         Workspace::find()
             .all(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)
+            .map_err(VibeRepoError::Database)
     }
 
     pub async fn update_workspace_status(&self, id: i32, status: &str) -> Result<workspace::Model> {
@@ -60,7 +60,7 @@ impl WorkspaceService {
         let workspace = workspace
             .update(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         Ok(workspace)
     }
@@ -75,7 +75,7 @@ impl WorkspaceService {
         let workspace = workspace
             .update(&self.db)
             .await
-            .map_err(GitAutoDevError::Database)?;
+            .map_err(VibeRepoError::Database)?;
 
         Ok(workspace)
     }
@@ -116,7 +116,7 @@ impl WorkspaceService {
                             workspace = workspace_active
                                 .update(&self.db)
                                 .await
-                                .map_err(GitAutoDevError::Database)?;
+                                .map_err(VibeRepoError::Database)?;
                         }
                         Err(e) => {
                             // Failed to start, clean up container
@@ -257,7 +257,7 @@ mod tests {
         // Assert
         assert!(result.is_err());
         match result.unwrap_err() {
-            GitAutoDevError::NotFound(_) => {}
+            VibeRepoError::NotFound(_) => {}
             _ => panic!("Expected NotFound error"),
         }
     }

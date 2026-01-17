@@ -2,7 +2,7 @@
 //!
 //! Tests Requirements 6.1, 6.4
 
-use gitautodev::{api::create_router, test_utils::state::create_test_state};
+use vibe_repo::{api::create_router, test_utils::state::create_test_state};
 use std::time::Duration;
 use tokio::time::timeout;
 

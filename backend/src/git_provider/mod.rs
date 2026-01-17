@@ -31,7 +31,7 @@ use gitea::GiteaClient;
 ///
 /// # Example
 /// ```ignore
-/// use gitautodev::git_provider::{GitClient, GitProvider};
+/// use vibe_repo::git_provider::{GitClient, GitProvider};
 ///
 /// let client = GitClient::Gitea(GiteaClient::new("https://gitea.example.com", "token"));
 /// let user = client.get_current_user().await?;

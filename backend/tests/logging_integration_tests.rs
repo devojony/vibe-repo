@@ -9,7 +9,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use gitautodev::test_utils::state::create_test_app;
+use vibe_repo::test_utils::state::create_test_app;
 use tower::ServiceExt;
 
 /// Test that request ID is added to response headers

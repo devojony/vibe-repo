@@ -3,8 +3,8 @@
 //! Tests the database migration that adds status, has_workspace, and deleted_at fields.
 //! Requirements: Phase 1.1, Phase 1.3
 
-use gitautodev::entities::{prelude::*, repository};
-use gitautodev::test_utils::state::create_test_state;
+use vibe_repo::entities::{prelude::*, repository};
+use vibe_repo::test_utils::state::create_test_state;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
 /// Test migration adds status field with default value 'uninitialized'
@@ -16,7 +16,7 @@ async fn test_migration_adds_status_field_with_default() {
         .expect("Failed to create test state");
 
     // Create a test provider first
-    use gitautodev::entities::repo_provider;
+    use vibe_repo::entities::repo_provider;
     let provider = repo_provider::ActiveModel {
         name: Set("Test Provider".to_string()),
         provider_type: Set(repo_provider::ProviderType::Gitea),
@@ -59,7 +59,7 @@ async fn test_migration_adds_has_workspace_field_with_default() {
         .expect("Failed to create test state");
 
     // Create a test provider first
-    use gitautodev::entities::repo_provider;
+    use vibe_repo::entities::repo_provider;
     let provider = repo_provider::ActiveModel {
         name: Set("Test Provider".to_string()),
         provider_type: Set(repo_provider::ProviderType::Gitea),
@@ -102,7 +102,7 @@ async fn test_migration_adds_deleted_at_field_nullable() {
         .expect("Failed to create test state");
 
     // Create a test provider first
-    use gitautodev::entities::repo_provider;
+    use vibe_repo::entities::repo_provider;
     let provider = repo_provider::ActiveModel {
         name: Set("Test Provider".to_string()),
         provider_type: Set(repo_provider::ProviderType::Gitea),
@@ -145,7 +145,7 @@ async fn test_can_query_by_status() {
         .expect("Failed to create test state");
 
     // Create a test provider first
-    use gitautodev::entities::repo_provider;
+    use vibe_repo::entities::repo_provider;
     let provider = repo_provider::ActiveModel {
         name: Set("Test Provider".to_string()),
         provider_type: Set(repo_provider::ProviderType::Gitea),
@@ -222,7 +222,7 @@ async fn test_can_query_by_has_workspace() {
         .expect("Failed to create test state");
 
     // Create a test provider first
-    use gitautodev::entities::repo_provider;
+    use vibe_repo::entities::repo_provider;
     let provider = repo_provider::ActiveModel {
         name: Set("Test Provider".to_string()),
         provider_type: Set(repo_provider::ProviderType::Gitea),
@@ -301,7 +301,7 @@ async fn test_can_filter_soft_deleted_repositories() {
         .expect("Failed to create test state");
 
     // Create a test provider first
-    use gitautodev::entities::repo_provider;
+    use vibe_repo::entities::repo_provider;
     let provider = repo_provider::ActiveModel {
         name: Set("Test Provider".to_string()),
         provider_type: Set(repo_provider::ProviderType::Gitea),

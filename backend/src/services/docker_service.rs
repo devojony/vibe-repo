@@ -9,7 +9,7 @@ use bollard::container::{
 use bollard::models::{HostConfig, Mount, MountTypeEnum};
 use bollard::Docker;
 
-use crate::error::{GitAutoDevError, Result};
+use crate::error::{VibeRepoError, Result};
 
 /// Container health status
 #[derive(Debug, Clone, PartialEq)]
@@ -28,7 +28,7 @@ pub struct DockerService {
 impl DockerService {
     pub fn new() -> Result<Self> {
         let docker = Docker::connect_with_local_defaults().map_err(|e| {
-            GitAutoDevError::Internal(format!("Failed to connect to Docker: {}", e))
+            VibeRepoError::Internal(format!("Failed to connect to Docker: {}", e))
         })?;
 
         Ok(Self { docker })
@@ -39,7 +39,7 @@ impl DockerService {
             .ping()
             .await
             .map(|_| true)
-            .map_err(|e| GitAutoDevError::Internal(format!("Docker ping failed: {}", e)))
+            .map_err(|e| VibeRepoError::Internal(format!("Docker ping failed: {}", e)))
     }
 
     pub async fn create_container(
@@ -87,7 +87,7 @@ impl DockerService {
             .docker
             .create_container(Some(options), config)
             .await
-            .map_err(|e| GitAutoDevError::Internal(format!("Failed to create container: {}", e)))?;
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to create container: {}", e)))?;
 
         Ok(response.id)
     }
@@ -101,14 +101,14 @@ impl DockerService {
         self.docker
             .remove_container(container_id, Some(options))
             .await
-            .map_err(|e| GitAutoDevError::Internal(format!("Failed to remove container: {}", e)))
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to remove container: {}", e)))
     }
 
     pub async fn start_container(&self, container_id: &str) -> Result<()> {
         self.docker
             .start_container(container_id, None::<StartContainerOptions<String>>)
             .await
-            .map_err(|e| GitAutoDevError::Internal(format!("Failed to start container: {}", e)))
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to start container: {}", e)))
     }
 
     pub async fn stop_container(&self, container_id: &str, timeout: i64) -> Result<()> {
@@ -117,7 +117,7 @@ impl DockerService {
         self.docker
             .stop_container(container_id, Some(options))
             .await
-            .map_err(|e| GitAutoDevError::Internal(format!("Failed to stop container: {}", e)))
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to stop container: {}", e)))
     }
 
     pub async fn get_container_status(&self, container_id: &str) -> Result<String> {
@@ -126,7 +126,7 @@ impl DockerService {
             .inspect_container(container_id, None::<InspectContainerOptions>)
             .await
             .map_err(|e| {
-                GitAutoDevError::Internal(format!("Failed to inspect container: {}", e))
+                VibeRepoError::Internal(format!("Failed to inspect container: {}", e))
             })?;
 
         let status = inspect
@@ -152,11 +152,11 @@ impl DockerService {
             .inspect_container(container_id, None::<InspectContainerOptions>)
             .await
             .map_err(|e| {
-                GitAutoDevError::Internal(format!("Failed to inspect container: {}", e))
+                VibeRepoError::Internal(format!("Failed to inspect container: {}", e))
             })?;
 
         let state = inspect.state.ok_or_else(|| {
-            GitAutoDevError::Internal("Container state not available".to_string())
+            VibeRepoError::Internal("Container state not available".to_string())
         })?;
 
         let is_running = state.running.unwrap_or(false);
@@ -182,15 +182,15 @@ fn parse_memory_limit(limit: &str) -> Result<i64> {
     if let Some(gb) = limit.strip_suffix("GB") {
         let value: f64 = gb
             .parse()
-            .map_err(|_| GitAutoDevError::Validation("Invalid memory limit format".to_string()))?;
+            .map_err(|_| VibeRepoError::Validation("Invalid memory limit format".to_string()))?;
         Ok((value * 1024.0 * 1024.0 * 1024.0) as i64)
     } else if let Some(mb) = limit.strip_suffix("MB") {
         let value: f64 = mb
             .parse()
-            .map_err(|_| GitAutoDevError::Validation("Invalid memory limit format".to_string()))?;
+            .map_err(|_| VibeRepoError::Validation("Invalid memory limit format".to_string()))?;
         Ok((value * 1024.0 * 1024.0) as i64)
     } else {
-        Err(GitAutoDevError::Validation(
+        Err(VibeRepoError::Validation(
             "Memory limit must end with GB or MB".to_string(),
         ))
     }
