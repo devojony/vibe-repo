@@ -22,7 +22,7 @@ async fn test_migration_repository_webhook_status_column_exists() {
 
     // Verify webhook_status field is accessible
     assert!(
-        !repo.webhook_status.is_empty(),
+        !repo.webhook_status != repository::WebhookStatus::Pending,
         "webhook_status field should exist and be accessible"
     );
 }
@@ -62,7 +62,7 @@ async fn test_migration_repository_webhook_status_default_value() {
 
     let saved = repo.insert(&db).await.unwrap();
     assert_eq!(
-        saved.webhook_status, "pending",
+        saved.webhook_status, repository::WebhookStatus::Pending,
         "webhook_status should default to 'pending'"
     );
 }
@@ -78,21 +78,21 @@ async fn test_repository_webhook_status_valid_values() {
 
     // Test 'pending' status
     let repo_pending =
-        create_test_repository_with_webhook_status(&db, provider.id, "pending").await;
-    assert_eq!(repo_pending.webhook_status, "pending");
+        create_test_repository_with_webhook_status(&db, provider.id, repository::WebhookStatus::Pending).await;
+    assert_eq!(repo_pending.webhook_status, repository::WebhookStatus::Pending);
 
     // Test 'active' status
-    let repo_active = create_test_repository_with_webhook_status(&db, provider.id, "active").await;
-    assert_eq!(repo_active.webhook_status, "active");
+    let repo_active = create_test_repository_with_webhook_status(&db, provider.id, repository::WebhookStatus::Active).await;
+    assert_eq!(repo_active.webhook_status, repository::WebhookStatus::Active);
 
     // Test 'failed' status
-    let repo_failed = create_test_repository_with_webhook_status(&db, provider.id, "failed").await;
-    assert_eq!(repo_failed.webhook_status, "failed");
+    let repo_failed = create_test_repository_with_webhook_status(&db, provider.id, repository::WebhookStatus::Failed).await;
+    assert_eq!(repo_failed.webhook_status, repository::WebhookStatus::Failed);
 
     // Test 'disabled' status
     let repo_disabled =
-        create_test_repository_with_webhook_status(&db, provider.id, "disabled").await;
-    assert_eq!(repo_disabled.webhook_status, "disabled");
+        create_test_repository_with_webhook_status(&db, provider.id, repository::WebhookStatus::Disabled).await;
+    assert_eq!(repo_disabled.webhook_status, repository::WebhookStatus::Disabled);
 }
 
 /// Test updating webhook_status
@@ -106,23 +106,23 @@ async fn test_update_repository_webhook_status() {
     let repo = create_test_repository(&db, provider.id).await;
 
     // Initial status should be pending
-    assert_eq!(repo.webhook_status, "pending");
+    assert_eq!(repo.webhook_status, repository::WebhookStatus::Pending);
 
     // Update to active
     let mut repo_active: repository::ActiveModel = repo.into();
-    repo_active.webhook_status = Set("active".to_string());
+    repo_active.webhook_status = Set(repository::WebhookStatus::Active);
     repo_active.updated_at = Set(Utc::now());
 
     let updated = repo_active.update(&db).await.unwrap();
-    assert_eq!(updated.webhook_status, "active");
+    assert_eq!(updated.webhook_status, repository::WebhookStatus::Active);
 
     // Update to failed
     let mut repo_failed: repository::ActiveModel = updated.into();
-    repo_failed.webhook_status = Set("failed".to_string());
+    repo_failed.webhook_status = Set(repository::WebhookStatus::Failed);
     repo_failed.updated_at = Set(Utc::now());
 
     let updated = repo_failed.update(&db).await.unwrap();
-    assert_eq!(updated.webhook_status, "failed");
+    assert_eq!(updated.webhook_status, repository::WebhookStatus::Failed);
 }
 
 // Helper functions
@@ -211,7 +211,7 @@ async fn create_test_repository_with_webhook_status(
         can_manage_issues: Set(true),
         validation_message: Set(None),
         deleted_at: Set(None),
-        webhook_status: Set(webhook_status.to_string()),
+        webhook_status: Set(webhook_status.clone()),
         created_at: Set(Utc::now()),
         updated_at: Set(Utc::now()),
         ..Default::default()

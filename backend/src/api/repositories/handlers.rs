@@ -48,7 +48,12 @@ pub async fn initialize_repository(
     // Call RepositoryService to initialize the repository
     let repository = state
         .repository_service
-        .initialize_repository(id, &req.branch_name)
+        .initialize_repository(
+            id,
+            &req.branch_name,
+            Some(state.config.webhook.domain.clone()),
+            Some(state.config.webhook.secret_key.clone()),
+        )
         .await?;
 
     // Convert to response DTO
@@ -90,8 +95,18 @@ pub async fn batch_initialize_repositories(
     // Spawn background task for batch initialization
     let service = state.repository_service.clone();
     let branch_name = params.branch_name.clone();
+    let webhook_domain = state.config.webhook.domain.clone();
+    let webhook_secret = state.config.webhook.secret_key.clone();
     tokio::spawn(async move {
-        if let Err(e) = service.batch_initialize(provider_id, &branch_name).await {
+        if let Err(e) = service
+            .batch_initialize(
+                provider_id,
+                &branch_name,
+                Some(webhook_domain),
+                Some(webhook_secret),
+            )
+            .await
+        {
             tracing::error!(
                 "Batch initialization failed for provider {}: {}",
                 provider_id,
@@ -601,7 +616,12 @@ pub async fn reinitialize_repository(
 ) -> Result<Json<RepositoryResponse>, GitAutoDevError> {
     let repository = state
         .repository_service
-        .initialize_repository(id, &req.branch_name)
+        .initialize_repository(
+            id,
+            &req.branch_name,
+            Some(state.config.webhook.domain.clone()),
+            Some(state.config.webhook.secret_key.clone()),
+        )
         .await?;
     let response = RepositoryResponse::from_model(repository);
     Ok(Json(response))
@@ -792,7 +812,12 @@ pub async fn batch_reinitialize_repositories(
 
         match state
             .repository_service
-            .initialize_repository(*repo_id, "vibe-dev")
+            .initialize_repository(
+                *repo_id,
+                "vibe-dev",
+                Some(state.config.webhook.domain.clone()),
+                Some(state.config.webhook.secret_key.clone()),
+            )
             .await
         {
             Ok(_) => {

@@ -25,7 +25,7 @@ pub struct Model {
     pub can_manage_prs: bool,
     pub can_manage_issues: bool,
     pub validation_message: Option<String>,
-    pub webhook_status: String,
+    pub webhook_status: WebhookStatus,
     pub deleted_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
@@ -59,6 +59,21 @@ pub enum RepositoryStatus {
     Unavailable,
     #[sea_orm(string_value = "archived")]
     Archived,
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize, ToSchema,
+)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]
+pub enum WebhookStatus {
+    #[sea_orm(string_value = "pending")]
+    Pending,
+    #[sea_orm(string_value = "active")]
+    Active,
+    #[sea_orm(string_value = "failed")]
+    Failed,
+    #[sea_orm(string_value = "disabled")]
+    Disabled,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

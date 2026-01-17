@@ -42,7 +42,7 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{DatabaseConfig, ServerConfig};
+    use crate::config::{DatabaseConfig, ServerConfig, WebhookConfig};
     use crate::test_utils::db::create_test_database;
 
     // ============================================
@@ -62,9 +62,11 @@ mod tests {
                 max_connections: 5,
             },
             server: ServerConfig {
+
                 host: "127.0.0.1".to_string(),
                 port: 8080,
             },
+            webhook: WebhookConfig::default(),
         };
         let repository_service = Arc::new(RepositoryService::new(db.clone()));
 

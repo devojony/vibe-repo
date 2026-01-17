@@ -132,7 +132,7 @@ proptest! {
             let service = RepositoryService::new(db);
 
             // Try to initialize a non-existent repository with vibe-dev branch
-            let result = service.initialize_repository(repo_id, "vibe-dev").await;
+            let result = service.initialize_repository(repo_id, "vibe-dev", None, None).await;
 
             // Should return NotFound error
             prop_assert!(result.is_err(), "Should return error for non-existent repository");
@@ -191,7 +191,7 @@ proptest! {
             let service = RepositoryService::new(db.clone());
 
             // Try to initialize with vibe-dev - should fail because provider is unreachable
-            let result = service.initialize_repository(repo.id, "vibe-dev").await;
+            let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
 
             // Should return an error (ServiceUnavailable or similar)
             prop_assert!(result.is_err(), "Should return error for unreachable provider");
@@ -247,7 +247,7 @@ proptest! {
             let service = RepositoryService::new(db);
 
             // Try to initialize with vibe-dev - will fail due to network, but should not fail on parsing
-            let result = service.initialize_repository(repo.id, "vibe-dev").await;
+            let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
 
             // Should fail with network error, not parsing error
             prop_assert!(result.is_err(), "Should return error for unreachable provider");
@@ -316,7 +316,7 @@ proptest! {
             // Call initialize multiple times with vibe-dev
             let mut results = Vec::new();
             for _ in 0..call_count {
-                let result = service.initialize_repository(repo.id, "vibe-dev").await;
+                let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
                 results.push(result.is_err());
             }
 
@@ -356,7 +356,7 @@ proptest! {
             // Call initialize multiple times for non-existent repo with vibe-dev
             let mut error_messages = Vec::new();
             for _ in 0..call_count {
-                let result = service.initialize_repository(repo_id, "vibe-dev").await;
+                let result = service.initialize_repository(repo_id, "vibe-dev", None, None).await;
                 prop_assert!(result.is_err(), "Should return error for non-existent repository");
                 error_messages.push(result.unwrap_err().to_string());
             }
@@ -430,7 +430,7 @@ proptest! {
             let service = RepositoryService::new(db.clone());
 
             // Call batch_initialize with vibe-dev
-            let result = service.batch_initialize(provider.id, "vibe-dev").await;
+            let result = service.batch_initialize(provider.id, "vibe-dev", None, None).await;
 
             // batch_initialize should complete successfully (even if individual repos fail)
             prop_assert!(result.is_ok(), "batch_initialize should complete successfully");
@@ -505,7 +505,7 @@ proptest! {
             let service = RepositoryService::new(db.clone());
 
             // Call batch_initialize with vibe-dev
-            let result = service.batch_initialize(provider.id, "vibe-dev").await;
+            let result = service.batch_initialize(provider.id, "vibe-dev", None, None).await;
 
             // batch_initialize should complete successfully
             prop_assert!(result.is_ok(), "batch_initialize should complete successfully");
@@ -575,7 +575,7 @@ proptest! {
             let service = RepositoryService::new(db.clone());
 
             // Call batch_initialize with vibe-dev
-            let result = service.batch_initialize(provider.id, "vibe-dev").await;
+            let result = service.batch_initialize(provider.id, "vibe-dev", None, None).await;
 
             // batch_initialize should complete successfully (even though all repos fail)
             prop_assert!(result.is_ok(), "batch_initialize should complete successfully even when repos fail");
@@ -640,7 +640,7 @@ proptest! {
             let service = RepositoryService::new(db);
 
             // Call batch_initialize with vibe-dev
-            let result = service.batch_initialize(provider.id, "vibe-dev").await;
+            let result = service.batch_initialize(provider.id, "vibe-dev", None, None).await;
 
             // batch_initialize should complete successfully
             prop_assert!(result.is_ok(), "batch_initialize should complete successfully with no eligible repos");
@@ -667,7 +667,7 @@ mod unit_tests {
         let service = RepositoryService::new(db);
 
         // Try to initialize a non-existent repository with vibe-dev
-        let result = service.initialize_repository(99999, "vibe-dev").await;
+        let result = service.initialize_repository(99999, "vibe-dev", None, None).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -718,7 +718,7 @@ mod unit_tests {
         let service = RepositoryService::new(db);
 
         // Try to initialize with vibe-dev - should fail because provider doesn't exist
-        let result = service.initialize_repository(repo.id, "vibe-dev").await;
+        let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -757,7 +757,7 @@ mod unit_tests {
         let service = RepositoryService::new(db);
 
         // Try to initialize with vibe-dev - should fail because full_name is invalid
-        let result = service.initialize_repository(repo.id, "vibe-dev").await;
+        let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -788,7 +788,7 @@ mod unit_tests {
         let service = RepositoryService::new(db.clone());
 
         // Try to initialize with vibe-dev - should fail and store error message
-        let result = service.initialize_repository(repo.id, "vibe-dev").await;
+        let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
         assert!(result.is_err());
 
         // Check that validation_message was updated
@@ -1107,7 +1107,7 @@ proptest! {
             let service = RepositoryService::new(db.clone());
 
             // Try to initialize with vibe-dev - should fail because provider is unreachable
-            let result = service.initialize_repository(repo.id, "vibe-dev").await;
+            let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
 
             // Should return an error
             prop_assert!(result.is_err(), "Should return error for unreachable provider");
@@ -1178,7 +1178,7 @@ proptest! {
             let service = RepositoryService::new(db.clone());
 
             // Try to initialize with vibe-dev - should fail because full_name is invalid
-            let result = service.initialize_repository(repo.id, "vibe-dev").await;
+            let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
 
             // Should return an error
             prop_assert!(result.is_err(), "Should return error for invalid full_name");
@@ -1449,7 +1449,7 @@ proptest! {
             // Call initialize multiple times (which includes label creation)
             let mut results = Vec::new();
             for _ in 0..call_count {
-                let result = service.initialize_repository(repo.id, "vibe-dev").await;
+                let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
                 results.push(result.is_err());
             }
 
@@ -1511,7 +1511,7 @@ proptest! {
             let service = RepositoryService::new(db.clone());
 
             // Try to initialize (will fail due to unreachable provider, but tests the logic)
-            let result = service.initialize_repository(repo.id, "vibe-dev").await;
+            let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
 
             // Should return an error (provider unreachable)
             prop_assert!(result.is_err(), "Should return error for unreachable provider");

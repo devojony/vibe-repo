@@ -11,9 +11,12 @@ use sea_orm::{
 };
 use std::sync::Arc;
 
-use crate::entities::{prelude::*, repository};
+use crate::entities::{prelude::*, repository, webhook_config};
 use crate::error::{GitAutoDevError, Result};
-use crate::git_provider::{CreateBranchRequest, GitClientFactory, GitProvider, GitProviderError};
+use crate::git_provider::{
+    CreateBranchRequest, CreateWebhookRequest, GitClientFactory, GitProvider, GitProviderError,
+    WebhookEvent,
+};
 use crate::services::BackgroundService;
 use crate::state::AppState;
 
@@ -64,18 +67,135 @@ impl RepositoryService {
         Ok(())
     }
 
+    /// Create webhook for a repository
+    ///
+    /// Creates a webhook on the Git provider and stores the configuration in the database.
+    /// This method is idempotent - if a webhook already exists for this repository, it returns success.
+    ///
+    /// # Arguments
+    /// * `repo` - The repository model
+    /// * `provider` - The provider model
+    /// * `webhook_url` - The webhook endpoint URL
+    /// * `webhook_secret` - The secret for signing webhooks
+    ///
+    /// # Returns
+    /// The created or existing webhook config model
+    async fn create_webhook_for_repository(
+        &self,
+        repo: &repository::Model,
+        provider: &crate::entities::repo_provider::Model,
+        webhook_url: String,
+        webhook_secret: String,
+    ) -> Result<webhook_config::Model> {
+        // Check if webhook already exists
+        let existing = WebhookConfig::find()
+            .filter(webhook_config::Column::RepositoryId.eq(repo.id))
+            .one(&self.db)
+            .await?;
+
+        if let Some(existing_webhook) = existing {
+            tracing::info!(
+                repository_id = repo.id,
+                webhook_id = %existing_webhook.webhook_id,
+                "Webhook already exists for repository"
+            );
+            return Ok(existing_webhook);
+        }
+
+        // Create Git client
+        let client = GitClientFactory::from_provider(provider).map_err(|e| {
+            GitAutoDevError::Internal(format!("Failed to create git client: {}", e))
+        })?;
+
+        // Parse repository owner and name from full_name
+        let parts: Vec<&str> = repo.full_name.split('/').collect();
+        if parts.len() != 2 {
+            return Err(GitAutoDevError::Validation(format!(
+                "Invalid repository full_name format: {}",
+                repo.full_name
+            )));
+        }
+        let (owner, repo_name) = (parts[0], parts[1]);
+
+        // Create webhook on Git provider
+        let webhook_request = CreateWebhookRequest {
+            url: webhook_url.clone(),
+            secret: webhook_secret.clone(),
+            events: vec![WebhookEvent::IssueComment, WebhookEvent::PullRequestComment],
+            active: true,
+        };
+
+        tracing::info!(
+            repository_id = repo.id,
+            repository = %repo.full_name,
+            webhook_url = %webhook_url,
+            "Creating webhook on Git provider"
+        );
+
+        let git_webhook = client
+            .create_webhook(owner, repo_name, webhook_request)
+            .await
+            .map_err(|e| match e {
+                GitProviderError::Forbidden(_) => GitAutoDevError::Forbidden(format!(
+                    "Insufficient permissions to create webhook for repository {}",
+                    repo.full_name
+                )),
+                GitProviderError::NotFound(_) => GitAutoDevError::NotFound(format!(
+                    "Repository {} not found on Git provider",
+                    repo.full_name
+                )),
+                GitProviderError::NetworkError(_) => GitAutoDevError::ServiceUnavailable(format!(
+                    "Git provider unreachable while creating webhook for {}",
+                    repo.full_name
+                )),
+                _ => GitAutoDevError::Internal(format!(
+                    "Failed to create webhook for {}: {}",
+                    repo.full_name, e
+                )),
+            })?;
+
+        // Store webhook config in database
+        let events_json = serde_json::to_string(&git_webhook.events).map_err(|e| {
+            GitAutoDevError::Internal(format!("Failed to serialize webhook events: {}", e))
+        })?;
+
+        let webhook_config = webhook_config::ActiveModel {
+            provider_id: ActiveValue::Set(provider.id),
+            repository_id: ActiveValue::Set(repo.id),
+            webhook_id: ActiveValue::Set(git_webhook.id.clone()),
+            webhook_secret: ActiveValue::Set(webhook_secret),
+            webhook_url: ActiveValue::Set(webhook_url),
+            events: ActiveValue::Set(events_json),
+            enabled: ActiveValue::Set(git_webhook.active),
+            created_at: ActiveValue::Set(chrono::Utc::now()),
+            ..Default::default()
+        };
+
+        let saved_webhook = webhook_config.insert(&self.db).await?;
+
+        tracing::info!(
+            repository_id = repo.id,
+            webhook_id = %saved_webhook.webhook_id,
+            "Webhook created and saved to database"
+        );
+
+        Ok(saved_webhook)
+    }
+
     /// Initialize a single repository by creating work branch and required labels
     ///
     /// This method creates the specified work branch from the default branch's latest commit,
-    /// creates all required labels with vibe/ prefix, updates the database state, and
-    /// re-validates the repository.
+    /// creates all required labels with vibe/ prefix, creates a webhook for the repository,
+    /// updates the database state, and re-validates the repository.
     ///
-    /// The operation is idempotent - if the branch or labels already exist, it will update
+    /// The operation is idempotent - if the branch, labels, or webhook already exist, it will update
     /// the database state to ensure consistency and return success.
     ///
     /// # Arguments
     /// * `repo_id` - The ID of the repository to initialize
     /// * `branch_name` - The name of the work branch to create (e.g., "vibe-dev")
+    /// * `webhook_domain` - Optional webhook domain for creating webhooks (e.g., "https://gitautodev.example.com")
+    /// * `webhook_secret` - Optional webhook secret for signing webhooks
     ///
     /// # Returns
     /// The updated repository model on success
@@ -89,6 +209,8 @@ impl RepositoryService {
         &self,
         repo_id: i32,
         branch_name: &str,
+        webhook_domain: Option<String>,
+        webhook_secret: Option<String>,
     ) -> Result<repository::Model> {
         tracing::info!("Initializing repository {}", repo_id);
 
@@ -157,7 +279,36 @@ impl RepositoryService {
             // Continue - label creation failure should not block initialization
         }
 
-        // 8. Re-fetch branches and update database
+        // 8. Create webhook if domain and secret are provided
+        let mut webhook_status = repository::WebhookStatus::Pending;
+        if let (Some(domain), Some(secret)) = (webhook_domain, webhook_secret) {
+            let webhook_url = format!("{}/api/webhooks/{}", domain, provider.id);
+
+            match self
+                .create_webhook_for_repository(&repo, &provider, webhook_url, secret)
+                .await
+            {
+                Ok(webhook) => {
+                    tracing::info!(
+                        repository_id = repo.id,
+                        webhook_id = %webhook.webhook_id,
+                        "Webhook created successfully"
+                    );
+                    webhook_status = repository::WebhookStatus::Active;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        repository_id = repo.id,
+                        error = %e,
+                        "Failed to create webhook, marking as failed"
+                    );
+                    webhook_status = repository::WebhookStatus::Failed;
+                    // Don't return error - webhook creation failure shouldn't block initialization
+                }
+            }
+        }
+
+        // 9. Re-fetch branches and update database
         let updated_branches = git_client
             .list_branches(owner, repo_name)
             .await
@@ -166,12 +317,12 @@ impl RepositoryService {
         let branch_names: Vec<String> = updated_branches.iter().map(|b| b.name.clone()).collect();
         let has_work_branch = branch_names.contains(&branch_name.to_string());
 
-        // 9. Re-validate repository (check labels and permissions)
+        // 10. Re-validate repository (check labels and permissions)
         let validation = self
             .validate_repository(&git_client, &repo.full_name)
             .await?;
 
-        // 10. Calculate validation status
+        // 11. Calculate validation status
         // Valid only when all four conditions are met
         let is_valid = has_work_branch
             && validation.has_required_labels
@@ -184,7 +335,7 @@ impl RepositoryService {
             repository::ValidationStatus::Invalid
         };
 
-        // 11. Update repository in database
+        // 12. Update repository in database
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
@@ -198,6 +349,7 @@ impl RepositoryService {
         active.can_manage_issues = ActiveValue::Set(validation.can_manage_issues);
         active.validation_status = ActiveValue::Set(status);
         active.validation_message = ActiveValue::Set(None);
+        active.webhook_status = ActiveValue::Set(webhook_status);
         active.updated_at = ActiveValue::Set(chrono::Utc::now());
 
         let updated = active.update(&self.db).await?;
@@ -295,13 +447,21 @@ impl RepositoryService {
     /// # Arguments
     /// * `provider_id` - The ID of the provider whose repositories should be initialized
     /// * `branch_name` - The name of the work branch to create (e.g., "vibe-dev")
+    /// * `webhook_domain` - Optional webhook domain for creating webhooks
+    /// * `webhook_secret` - Optional webhook secret for signing webhooks
     ///
     /// # Returns
     /// Ok(()) on completion (even if some repositories failed)
     ///
     /// # Errors
     /// - Database errors when fetching repositories
-    pub async fn batch_initialize(&self, provider_id: i32, branch_name: &str) -> Result<()> {
+    pub async fn batch_initialize(
+        &self,
+        provider_id: i32,
+        branch_name: &str,
+        webhook_domain: Option<String>,
+        webhook_secret: Option<String>,
+    ) -> Result<()> {
         // 1. Fetch all repositories where has_required_branches OR has_required_labels is false
         let repos = Repository::find()
             .filter(repository::Column::ProviderId.eq(provider_id))
@@ -321,7 +481,15 @@ impl RepositoryService {
 
         // 2. Initialize each repository, continuing on errors
         for repo in repos {
-            match self.initialize_repository(repo.id, branch_name).await {
+            match self
+                .initialize_repository(
+                    repo.id,
+                    branch_name,
+                    webhook_domain.clone(),
+                    webhook_secret.clone(),
+                )
+                .await
+            {
                 Ok(_) => {
                     tracing::info!("Repository {} initialized successfully", repo.id);
                 }

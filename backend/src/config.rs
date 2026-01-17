@@ -48,6 +48,26 @@ impl Default for ServerConfig {
     }
 }
 
+/// Webhook configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookConfig {
+    /// Base domain for webhook URLs (e.g., "https://gitautodev.example.com")
+    pub domain: String,
+    /// Secret key for signing webhook payloads
+    pub secret_key: String,
+}
+
+impl Default for WebhookConfig {
+    fn default() -> Self {
+        Self {
+            domain: std::env::var("WEBHOOK_DOMAIN")
+                .unwrap_or_else(|_| "http://localhost:3000".to_string()),
+            secret_key: std::env::var("WEBHOOK_SECRET_KEY")
+                .unwrap_or_else(|_| "default-webhook-secret-change-in-production".to_string()),
+        }
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -55,6 +75,8 @@ pub struct AppConfig {
     pub database: DatabaseConfig,
     /// Server configuration
     pub server: ServerConfig,
+    /// Webhook configuration
+    pub webhook: WebhookConfig,
 }
 
 impl AppConfig {
@@ -261,9 +283,11 @@ mod tests {
                         max_connections,
                     },
                     server: ServerConfig {
+
                         host,
                         port,
                     },
+                    webhook: WebhookConfig::default(),
                 };
 
                 let result = config.validate();
@@ -288,9 +312,11 @@ mod tests {
                         max_connections,
                     },
                     server: ServerConfig {
+
                         host,
                         port,
                     },
+                    webhook: WebhookConfig::default(),
                 };
 
                 let result = config.validate();
@@ -320,9 +346,11 @@ mod tests {
                         max_connections,
                     },
                     server: ServerConfig {
+
                         host,
                         port: 0,
                     },
+                    webhook: WebhookConfig::default(),
                 };
 
                 let result = config.validate();
@@ -352,9 +380,11 @@ mod tests {
                         max_connections: 0,
                     },
                     server: ServerConfig {
+
                         host,
                         port,
                     },
+                    webhook: WebhookConfig::default(),
                 };
 
                 let result = config.validate();
@@ -385,9 +415,11 @@ mod tests {
                 max_connections: 5,
             },
             server: ServerConfig {
+
                 host: "127.0.0.1".to_string(),
                 port: 8080,
             },
+            webhook: WebhookConfig::default(),
         };
 
         assert!(
@@ -404,6 +436,7 @@ mod tests {
                 max_connections: 10,
             },
             server: ServerConfig::default(),
+            webhook: WebhookConfig::default(),
         };
 
         let result = config.validate();
@@ -427,9 +460,11 @@ mod tests {
         let config = AppConfig {
             database: DatabaseConfig::default(),
             server: ServerConfig {
+
                 host: "0.0.0.0".to_string(),
                 port: 0,
             },
+            webhook: WebhookConfig::default(),
         };
 
         let result = config.validate();
@@ -456,6 +491,7 @@ mod tests {
                 max_connections: 0,
             },
             server: ServerConfig::default(),
+            webhook: WebhookConfig::default(),
         };
 
         let result = config.validate();

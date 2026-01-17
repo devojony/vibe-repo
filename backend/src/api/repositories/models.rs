@@ -3,7 +3,7 @@
 //! Request and response DTOs for the Repository API.
 
 #[cfg(test)]
-use crate::entities::repository::RepositoryStatus;
+use crate::entities::repository::{RepositoryStatus, WebhookStatus};
 use crate::entities::repository::{Model as RepositoryModel, ValidationStatus};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -154,6 +154,7 @@ pub struct UpdateRepositoryRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entities::repository::WebhookStatus;
     use chrono::Utc;
 
     #[test]
@@ -178,7 +179,7 @@ mod tests {
             can_manage_prs: true,
             can_manage_issues: true,
             validation_message: None,
-            webhook_status: "pending".to_string(),
+            webhook_status: WebhookStatus::Pending,
             deleted_at: None,
             created_at: now.into(),
             updated_at: now.into(),
@@ -229,7 +230,7 @@ mod tests {
             can_manage_prs: false,
             can_manage_issues: false,
             validation_message: Some("Missing required branches".to_string()),
-            webhook_status: "pending".to_string(),
+            webhook_status: WebhookStatus::Pending,
             deleted_at: None,
             created_at: now.into(),
             updated_at: now.into(),
@@ -271,7 +272,7 @@ mod tests {
             can_manage_prs: false,
             can_manage_issues: false,
             validation_message: None,
-            webhook_status: "pending".to_string(),
+            webhook_status: WebhookStatus::Pending,
             deleted_at: None,
             created_at: now.into(),
             updated_at: now.into(),
@@ -308,7 +309,7 @@ mod tests {
             can_manage_prs: false,
             can_manage_issues: false,
             validation_message: None,
-            webhook_status: "pending".to_string(),
+            webhook_status: WebhookStatus::Pending,
             deleted_at: None,
             created_at: now.into(),
             updated_at: now.into(),
