@@ -21,8 +21,9 @@ async fn test_migration_repository_webhook_status_column_exists() {
     let repo = create_test_repository(&db, provider.id).await;
 
     // Verify webhook_status field is accessible
-    assert!(
-        !repo.webhook_status != repository::WebhookStatus::Pending,
+    assert_eq!(
+        repo.webhook_status,
+        repository::WebhookStatus::Pending,
         "webhook_status field should exist and be accessible"
     );
 }
@@ -181,22 +182,22 @@ async fn create_test_repository(
 async fn create_test_repository_with_webhook_status(
     db: &sea_orm::DatabaseConnection,
     provider_id: i32,
-    webhook_status: &str,
+    webhook_status: repository::WebhookStatus,
 ) -> repository::Model {
     repository::ActiveModel {
         provider_id: Set(provider_id),
         name: Set(format!(
-            "test-repo-{}-{}",
+            "test-repo-{:?}-{}",
             webhook_status,
             Utc::now().timestamp_millis()
         )),
         full_name: Set(format!(
-            "org/test-repo-{}-{}",
+            "org/test-repo-{:?}-{}",
             webhook_status,
             Utc::now().timestamp_millis()
         )),
         clone_url: Set(format!(
-            "https://gitea.example.com/org/test-repo-{}-{}.git",
+            "https://gitea.example.com/org/test-repo-{:?}-{}.git",
             webhook_status,
             Utc::now().timestamp_millis()
         )),
@@ -211,7 +212,7 @@ async fn create_test_repository_with_webhook_status(
         can_manage_issues: Set(true),
         validation_message: Set(None),
         deleted_at: Set(None),
-        webhook_status: Set(webhook_status.clone()),
+        webhook_status: Set(webhook_status),
         created_at: Set(Utc::now()),
         updated_at: Set(Utc::now()),
         ..Default::default()
