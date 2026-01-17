@@ -176,3 +176,45 @@ pub struct PullRequestFilter {
     pub state: Option<PullRequestState>,
     pub labels: Option<Vec<String>>,
 }
+
+/// Unified webhook event type across all Git platforms
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebhookEvent {
+    /// Issue comment created/edited/deleted
+    IssueComment,
+    /// Pull request comment created/edited/deleted
+    PullRequestComment,
+    /// Commit comment created/edited/deleted
+    CommitComment,
+    /// Code pushed to repository
+    Push,
+}
+
+/// Unified request to create a webhook (internal use)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CreateWebhookRequest {
+    /// Webhook endpoint URL
+    pub url: String,
+    /// Secret for signing webhook payloads
+    pub secret: String,
+    /// Events that trigger this webhook
+    pub events: Vec<WebhookEvent>,
+    /// Whether webhook is active
+    pub active: bool,
+}
+
+/// Unified webhook response from Git platforms
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GitWebhook {
+    /// Webhook ID (string to support different platforms)
+    pub id: String,
+    /// Webhook endpoint URL
+    pub url: String,
+    /// Whether webhook is active
+    pub active: bool,
+    /// Events that trigger this webhook
+    pub events: Vec<WebhookEvent>,
+    /// When webhook was created
+    pub created_at: DateTime<Utc>,
+}
