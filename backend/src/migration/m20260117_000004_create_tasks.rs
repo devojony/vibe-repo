@@ -18,21 +18,9 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(Tasks::WorkspaceId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Tasks::IssueNumber)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Tasks::IssueTitle)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Tasks::WorkspaceId).integer().not_null())
+                    .col(ColumnDef::new(Tasks::IssueNumber).integer().not_null())
+                    .col(ColumnDef::new(Tasks::IssueTitle).string().not_null())
                     .col(ColumnDef::new(Tasks::IssueBody).text())
                     .col(
                         ColumnDef::new(Tasks::TaskStatus)
@@ -51,7 +39,12 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Tasks::PrNumber).integer())
                     .col(ColumnDef::new(Tasks::PrUrl).string())
                     .col(ColumnDef::new(Tasks::ErrorMessage).text())
-                    .col(ColumnDef::new(Tasks::RetryCount).integer().not_null().default(0))
+                    .col(
+                        ColumnDef::new(Tasks::RetryCount)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
                     .col(
                         ColumnDef::new(Tasks::MaxRetries)
                             .integer()

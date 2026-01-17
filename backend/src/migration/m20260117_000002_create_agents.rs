@@ -18,32 +18,16 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(Agents::WorkspaceId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Agents::Name)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Agents::ToolType)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Agents::WorkspaceId).integer().not_null())
+                    .col(ColumnDef::new(Agents::Name).string().not_null())
+                    .col(ColumnDef::new(Agents::ToolType).string().not_null())
                     .col(
                         ColumnDef::new(Agents::Enabled)
                             .boolean()
                             .not_null()
                             .default(true),
                     )
-                    .col(
-                        ColumnDef::new(Agents::Command)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Agents::Command).string().not_null())
                     .col(
                         ColumnDef::new(Agents::EnvVars)
                             .json()

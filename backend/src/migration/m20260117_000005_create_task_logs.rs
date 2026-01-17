@@ -18,22 +18,14 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(TaskLogs::TaskId)
-                            .integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(TaskLogs::TaskId).integer().not_null())
                     .col(
                         ColumnDef::new(TaskLogs::LogLevel)
                             .string()
                             .not_null()
                             .default("Info"),
                     )
-                    .col(
-                        ColumnDef::new(TaskLogs::Message)
-                            .text()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(TaskLogs::Message).text().not_null())
                     .col(ColumnDef::new(TaskLogs::Metadata).json())
                     .col(
                         ColumnDef::new(TaskLogs::CreatedAt)
