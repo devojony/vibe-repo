@@ -5,6 +5,7 @@
 pub mod prelude;
 pub mod repo_provider;
 pub mod repository;
+pub mod webhook_config;
 
 // Future entity modules
 // pub mod workspace;

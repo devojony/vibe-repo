@@ -154,7 +154,8 @@ async fn test_migration_webhook_configs_unique_constraint() {
             DbBackend::Sqlite,
             "SELECT name FROM sqlite_master WHERE type='index' 
              AND name='idx_webhook_configs_provider_repository' 
-             AND tbl_name='webhook_configs'".to_string(),
+             AND tbl_name='webhook_configs'"
+                .to_string(),
         ))
         .await;
 
