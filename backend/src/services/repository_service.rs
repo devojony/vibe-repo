@@ -402,7 +402,7 @@ impl RepositoryService {
         // 8. Create webhook if domain and secret are provided
         let mut webhook_status = repository::WebhookStatus::Pending;
         if let (Some(domain), Some(secret)) = (webhook_domain, webhook_secret) {
-            let webhook_url = format!("{}/api/webhooks/{}", domain, provider.id);
+            let webhook_url = format!("{}/api/webhooks/{}", domain, repo.id);
 
             match self
                 .create_webhook_for_repository(&repo, &provider, webhook_url, secret)
