@@ -320,10 +320,7 @@ mod tests {
             disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
-        Workspace::insert(ws)
-            .exec_with_returning(db)
-            .await
-            .unwrap()
+        Workspace::insert(ws).exec_with_returning(db).await.unwrap()
     }
 
     async fn create_test_repository(db: &DatabaseConnection) -> repository::Model {
