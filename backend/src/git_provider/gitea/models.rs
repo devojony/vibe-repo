@@ -214,3 +214,37 @@ impl From<GiteaLabel> for GitLabel {
         }
     }
 }
+
+/// Gitea webhook request structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GiteaWebhookRequest {
+    pub r#type: String,
+    pub config: GiteaWebhookConfig,
+    pub events: Vec<String>,
+    pub active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_filter: Option<String>,
+}
+
+/// Gitea webhook configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GiteaWebhookConfig {
+    pub url: String,
+    pub content_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_method: Option<String>,
+}
+
+/// Gitea webhook response structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GiteaWebhookResponse {
+    pub id: i64,
+    pub r#type: String,
+    pub config: GiteaWebhookConfig,
+    pub events: Vec<String>,
+    pub active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}

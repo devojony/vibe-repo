@@ -13,7 +13,7 @@ use crate::git_provider::{
     traits::GitProvider,
 };
 
-use super::models::{GiteaRepository, GiteaUser};
+use super::models::{GiteaRepository, GiteaUser, GiteaWebhookRequest, GiteaWebhookConfig, GiteaWebhookResponse};
 
 /// Gitea API client implementation
 pub struct GiteaClient {
@@ -778,37 +778,137 @@ impl GitProvider for GiteaClient {
 
     async fn create_webhook(
         &self,
-        _owner: &str,
-        _repo: &str,
-        _req: CreateWebhookRequest,
+        owner: &str,
+        repo: &str,
+        req: CreateWebhookRequest,
     ) -> Result<GitWebhook, GitProviderError> {
-        // TODO: Implement in Task 2.3
-        Err(GitProviderError::UnsupportedOperation(
-            "Webhook operations not yet implemented for Gitea".to_string(),
-        ))
+        let url = self.api_url(&format!("/repos/{}/{}/hooks", owner, repo));
+
+        // Convert unified request to Gitea-specific format
+        let gitea_req = GiteaWebhookRequest {
+            r#type: "gitea".to_string(),
+            config: GiteaWebhookConfig {
+                url: req.url.clone(),
+                content_type: "json".to_string(),
+                secret: Some(req.secret),
+                http_method: Some("POST".to_string()),
+            },
+            events: req
+                .events
+                .iter()
+                .map(|e| match e {
+                    crate::git_provider::models::WebhookEvent::IssueComment => {
+                        "issue_comment".to_string()
+                    }
+                    crate::git_provider::models::WebhookEvent::PullRequestComment => {
+                        "pull_request_comment".to_string()
+                    }
+                    crate::git_provider::models::WebhookEvent::CommitComment => {
+                        "commit_comment".to_string()
+                    }
+                    crate::git_provider::models::WebhookEvent::Push => "push".to_string(),
+                })
+                .collect(),
+            active: req.active,
+            branch_filter: None,
+        };
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&gitea_req)
+            .send()
+            .await
+            .map_err(|e| GitProviderError::NetworkError(e.to_string()))?;
+
+        let gitea_webhook: GiteaWebhookResponse = self.handle_response(response).await?;
+
+        // Convert Gitea response to unified format
+        Ok(GitWebhook {
+            id: gitea_webhook.id.to_string(),
+            url: req.url,
+            active: gitea_webhook.active,
+            events: req.events,
+            created_at: gitea_webhook.created_at,
+        })
     }
 
     async fn delete_webhook(
         &self,
-        _owner: &str,
-        _repo: &str,
-        _webhook_id: &str,
+        owner: &str,
+        repo: &str,
+        webhook_id: &str,
     ) -> Result<(), GitProviderError> {
-        // TODO: Implement in Task 2.3
-        Err(GitProviderError::UnsupportedOperation(
-            "Webhook operations not yet implemented for Gitea".to_string(),
-        ))
+        let url = self.api_url(&format!("/repos/{}/{}/hooks/{}", owner, repo, webhook_id));
+
+        let response = self
+            .http_client
+            .delete(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .map_err(|e| GitProviderError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+
+        if status.is_success() {
+            Ok(())
+        } else {
+            let message = response.text().await.unwrap_or_default();
+            Err(GitProviderError::from_status(status.as_u16(), message))
+        }
     }
 
     async fn list_webhooks(
         &self,
-        _owner: &str,
-        _repo: &str,
+        owner: &str,
+        repo: &str,
     ) -> Result<Vec<GitWebhook>, GitProviderError> {
-        // TODO: Implement in Task 2.3
-        Err(GitProviderError::UnsupportedOperation(
-            "Webhook operations not yet implemented for Gitea".to_string(),
-        ))
+        let url = self.api_url(&format!("/repos/{}/{}/hooks", owner, repo));
+
+        let response = self
+            .http_client
+            .get(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .map_err(|e| GitProviderError::NetworkError(e.to_string()))?;
+
+        let gitea_webhooks: Vec<GiteaWebhookResponse> = self.handle_response(response).await?;
+
+        // Convert Gitea responses to unified format
+        Ok(gitea_webhooks
+            .into_iter()
+            .map(|w| {
+                // Convert Gitea event strings back to WebhookEvent enum
+                let events: Vec<crate::git_provider::models::WebhookEvent> = w
+                    .events
+                    .iter()
+                    .filter_map(|e| match e.as_str() {
+                        "issue_comment" => {
+                            Some(crate::git_provider::models::WebhookEvent::IssueComment)
+                        }
+                        "pull_request_comment" => {
+                            Some(crate::git_provider::models::WebhookEvent::PullRequestComment)
+                        }
+                        "commit_comment" => {
+                            Some(crate::git_provider::models::WebhookEvent::CommitComment)
+                        }
+                        "push" => Some(crate::git_provider::models::WebhookEvent::Push),
+                        _ => None, // Ignore unknown events
+                    })
+                    .collect();
+
+                GitWebhook {
+                    id: w.id.to_string(),
+                    url: w.config.url,
+                    active: w.active,
+                    events,
+                    created_at: w.created_at,
+                }
+            })
+            .collect())
     }
 
     fn provider_type(&self) -> &'static str {
