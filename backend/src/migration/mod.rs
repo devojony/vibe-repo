@@ -13,6 +13,7 @@ mod m20250117_000001_add_repository_status_and_soft_delete;
 // mod m20260117_000001_create_workspaces;
 mod m20260117_000002_create_webhook_configs;
 mod m20260117_000003_add_repository_webhook_status;
+mod m20260118_000001_add_webhook_retry_fields;
 
 pub struct Migrator;
 
@@ -29,6 +30,7 @@ impl MigratorTrait for Migrator {
             // Box::new(m20260117_000001_create_workspaces::Migration),
             Box::new(m20260117_000002_create_webhook_configs::Migration),
             Box::new(m20260117_000003_add_repository_webhook_status::Migration),
+            Box::new(m20260118_000001_add_webhook_retry_fields::Migration),
         ]
     }
 }

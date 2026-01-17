@@ -3,6 +3,8 @@
 //! Note: These tests verify error handling behavior when Git provider is unavailable.
 //! Full webhook creation testing requires mocking the Git provider (future work).
 
+use std::sync::Arc;
+
 use gitautodev::config::AppConfig;
 use gitautodev::entities::prelude::*;
 use gitautodev::entities::{repo_provider, repository, webhook_config};
@@ -50,7 +52,7 @@ async fn create_test_repository(
 async fn test_initialize_repository_fails_when_git_provider_unreachable() {
     // Arrange
     let db = create_test_database().await.unwrap();
-    let service = RepositoryService::new(db.clone());
+    let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
     let config = AppConfig::default();
     
     let provider = create_test_provider(&db).await;
@@ -98,7 +100,7 @@ async fn test_initialize_repository_fails_when_git_provider_unreachable() {
 async fn test_initialize_repository_without_webhook_config_fails_gracefully() {
     // Arrange
     let db = create_test_database().await.unwrap();
-    let service = RepositoryService::new(db.clone());
+    let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
     
     let provider = create_test_provider(&db).await;
     let repo = create_test_repository(&db, provider.id).await;

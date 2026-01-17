@@ -19,7 +19,8 @@ use super::db::create_test_database;
 pub async fn create_test_state() -> Result<Arc<AppState>> {
     let db = create_test_database().await?;
     let config = AppConfig::default();
-    let repository_service = Arc::new(RepositoryService::new(db.clone()));
+    let config_arc = Arc::new(config.clone());
+    let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
     Ok(Arc::new(AppState::new(db, config, repository_service)))
 }
 

@@ -68,7 +68,8 @@ mod tests {
             .expect("Failed to create test database");
 
         let config = AppConfig::default();
-        let repository_service = Arc::new(RepositoryService::new(test_db.clone()));
+        let config_arc = Arc::new(config.clone());
+        let repository_service = Arc::new(RepositoryService::new(test_db.clone(), config_arc));
         let state = Arc::new(AppState::new(test_db, config, repository_service));
 
         // Act: Call the health check handler

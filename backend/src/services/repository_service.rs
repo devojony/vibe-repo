@@ -38,12 +38,13 @@ struct ValidationUpdate {
 /// - Periodic background synchronization via `sync_all_providers()`
 pub struct RepositoryService {
     db: DatabaseConnection,
+    config: Arc<crate::config::AppConfig>,
 }
 
 impl RepositoryService {
     /// Create a new repository service
-    pub fn new(db: DatabaseConnection) -> Self {
-        Self { db }
+    pub fn new(db: DatabaseConnection, config: Arc<crate::config::AppConfig>) -> Self {
+        Self { db, config }
     }
 
     /// Get a clone of the database connection
@@ -182,6 +183,125 @@ impl RepositoryService {
         Ok(saved_webhook)
     }
 
+    /// Calculate retry delay in seconds using exponential backoff
+    ///
+    /// # Arguments
+    /// * `retry_count` - Current retry attempt number (0-based)
+    /// * `config` - Retry configuration
+    ///
+    /// # Returns
+    /// Delay in seconds, capped at max_delay_secs
+    fn calculate_retry_delay(
+        retry_count: i32,
+        config: &crate::config::WebhookRetryConfig,
+    ) -> u64 {
+        let delay_secs = (config.initial_delay_secs as f64
+            * config.backoff_multiplier.powi(retry_count))
+        .min(config.max_delay_secs as f64) as u64;
+        delay_secs
+    }
+
+    /// Calculate next retry time using exponential backoff
+    ///
+    /// Returns None if max retries exceeded, otherwise returns the next retry timestamp.
+    ///
+    /// # Arguments
+    /// * `retry_count` - Current retry attempt number
+    /// * `config` - Retry configuration
+    ///
+    /// # Returns
+    /// Some(DateTime) if retry should be scheduled, None if max retries exceeded
+    fn calculate_next_retry_time(
+        retry_count: i32,
+        config: &crate::config::WebhookRetryConfig,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        if retry_count >= config.max_retries as i32 {
+            return None; // Max retries exceeded
+        }
+
+        let delay_secs = Self::calculate_retry_delay(retry_count, config);
+        Some(chrono::Utc::now() + chrono::Duration::seconds(delay_secs as i64))
+    }
+
+    /// Record webhook creation failure for retry
+    ///
+    /// Updates or creates webhook config with retry tracking information.
+    /// If max retries are exceeded, the webhook status remains Failed.
+    ///
+    /// # Arguments
+    /// * `repo_id` - Repository ID
+    /// * `provider_id` - Provider ID
+    /// * `error_message` - Error message from webhook creation failure
+    /// * `config` - Retry configuration
+    ///
+    /// # Returns
+    /// Ok(()) on success
+    pub async fn record_webhook_failure(
+        &self,
+        repo_id: i32,
+        provider_id: i32,
+        error_message: String,
+        config: &crate::config::WebhookRetryConfig,
+    ) -> Result<()> {
+        // Find existing webhook config (if any)
+        let webhook = WebhookConfig::find()
+            .filter(webhook_config::Column::RepositoryId.eq(repo_id))
+            .one(&self.db)
+            .await?;
+
+        if let Some(webhook) = webhook {
+            // Update retry fields
+            let retry_count = webhook.retry_count + 1;
+            let next_retry = Self::calculate_next_retry_time(retry_count, config);
+
+            let mut webhook_active: webhook_config::ActiveModel = webhook.into();
+            webhook_active.retry_count = ActiveValue::Set(retry_count);
+            webhook_active.last_retry_at = ActiveValue::Set(Some(chrono::Utc::now()));
+            webhook_active.next_retry_at = ActiveValue::Set(next_retry);
+            webhook_active.last_error = ActiveValue::Set(Some(error_message.clone()));
+            webhook_active.updated_at = ActiveValue::Set(chrono::Utc::now());
+
+            webhook_active.update(&self.db).await?;
+
+            tracing::info!(
+                repository_id = repo_id,
+                retry_count = retry_count,
+                next_retry_at = ?next_retry,
+                "Recorded webhook failure for retry"
+            );
+        } else {
+            // Create placeholder webhook config for retry tracking
+            // This allows us to track retries even if initial webhook creation failed
+            let next_retry = Self::calculate_next_retry_time(1, config);
+
+            let webhook = webhook_config::ActiveModel {
+                provider_id: ActiveValue::Set(provider_id),
+                repository_id: ActiveValue::Set(repo_id),
+                webhook_id: ActiveValue::Set(String::new()), // Empty until webhook is created
+                webhook_secret: ActiveValue::Set(String::new()), // Will be set on successful creation
+                webhook_url: ActiveValue::Set(String::new()), // Will be set on successful creation
+                events: ActiveValue::Set("[]".to_string()),
+                enabled: ActiveValue::Set(false),
+                retry_count: ActiveValue::Set(1),
+                last_retry_at: ActiveValue::Set(Some(chrono::Utc::now())),
+                next_retry_at: ActiveValue::Set(next_retry),
+                last_error: ActiveValue::Set(Some(error_message)),
+                created_at: ActiveValue::Set(chrono::Utc::now()),
+                updated_at: ActiveValue::Set(chrono::Utc::now()),
+                ..Default::default()
+            };
+
+            webhook.insert(&self.db).await?;
+
+            tracing::info!(
+                repository_id = repo_id,
+                "Created webhook config placeholder for retry tracking"
+            );
+        }
+
+        Ok(())
+    }
+
     /// Initialize a single repository by creating work branch and required labels
     ///
     /// This method creates the specified work branch from the default branch's latest commit,
@@ -300,9 +420,27 @@ impl RepositoryService {
                     tracing::error!(
                         repository_id = repo.id,
                         error = %e,
-                        "Failed to create webhook, marking as failed"
+                        "Failed to create webhook, recording for retry"
                     );
                     webhook_status = repository::WebhookStatus::Failed;
+                    
+                    // Record failure for retry
+                    if let Err(record_err) = self
+                        .record_webhook_failure(
+                            repo.id,
+                            provider.id,
+                            e.to_string(),
+                            &self.config.webhook.retry,
+                        )
+                        .await
+                    {
+                        tracing::error!(
+                            repository_id = repo.id,
+                            error = %record_err,
+                            "Failed to record webhook failure for retry"
+                        );
+                    }
+                    
                     // Don't return error - webhook creation failure shouldn't block initialization
                 }
             }
@@ -1093,13 +1231,14 @@ impl BackgroundService for RepositoryService {
         "repository_service"
     }
 
-    async fn start(&self, _state: Arc<AppState>) -> Result<()> {
+    async fn start(&self, state: Arc<AppState>) -> Result<()> {
         tracing::info!("RepositoryService started");
 
         // Spawn a periodic sync task (runs every hour)
         let db = self.db.clone();
+        let config = Arc::new(state.config.clone());
         tokio::spawn(async move {
-            let service = RepositoryService::new(db);
+            let service = RepositoryService::new(db, config);
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
 
             // Skip the first immediate tick
@@ -1161,6 +1300,12 @@ mod tests {
     use crate::entities::repo_provider;
     use crate::test_utils::db::create_test_database;
     use sea_orm::Set;
+
+    // Helper function to create test service with default config
+    fn create_test_service(db: DatabaseConnection) -> RepositoryService {
+        let config = Arc::new(crate::config::AppConfig::default());
+        RepositoryService::new(db, config)
+    }
 
     #[test]
     fn test_required_labels_constant_has_vibe_prefix() {
@@ -1226,7 +1371,7 @@ mod tests {
     #[tokio::test]
     async fn test_archive_repository_success() {
         let db = create_test_database().await.unwrap();
-        let service = RepositoryService::new(db.clone());
+        let service = create_test_service(db.clone());
 
         // Create provider
         let provider = repo_provider::ActiveModel {
@@ -1259,7 +1404,7 @@ mod tests {
     #[tokio::test]
     async fn test_archive_repository_with_workspace_fails() {
         let db = create_test_database().await.unwrap();
-        let service = RepositoryService::new(db.clone());
+        let service = create_test_service(db.clone());
 
         // Create provider
         let provider = repo_provider::ActiveModel {
@@ -1291,7 +1436,7 @@ mod tests {
     #[tokio::test]
     async fn test_archive_already_archived_fails() {
         let db = create_test_database().await.unwrap();
-        let service = RepositoryService::new(db.clone());
+        let service = create_test_service(db.clone());
 
         // Create provider
         let provider = repo_provider::ActiveModel {
@@ -1324,7 +1469,7 @@ mod tests {
     #[tokio::test]
     async fn test_unarchive_repository_to_idle() {
         let db = create_test_database().await.unwrap();
-        let service = RepositoryService::new(db.clone());
+        let service = create_test_service(db.clone());
 
         // Create provider
         let provider = repo_provider::ActiveModel {
@@ -1357,7 +1502,7 @@ mod tests {
     #[tokio::test]
     async fn test_unarchive_non_archived_fails() {
         let db = create_test_database().await.unwrap();
-        let service = RepositoryService::new(db.clone());
+        let service = create_test_service(db.clone());
 
         // Create provider
         let provider = repo_provider::ActiveModel {
@@ -1390,7 +1535,7 @@ mod tests {
     #[tokio::test]
     async fn test_soft_delete_repository_success() {
         let db = create_test_database().await.unwrap();
-        let service = RepositoryService::new(db.clone());
+        let service = create_test_service(db.clone());
 
         // Create provider
         let provider = repo_provider::ActiveModel {
@@ -1429,7 +1574,7 @@ mod tests {
     #[tokio::test]
     async fn test_soft_delete_with_workspace_fails() {
         let db = create_test_database().await.unwrap();
-        let service = RepositoryService::new(db.clone());
+        let service = create_test_service(db.clone());
 
         // Create provider
         let provider = repo_provider::ActiveModel {
@@ -1462,7 +1607,7 @@ mod tests {
     #[tokio::test]
     async fn test_restore_repository_success() {
         let db = create_test_database().await.unwrap();
-        let service = RepositoryService::new(db.clone());
+        let service = create_test_service(db.clone());
 
         // Create provider
         let provider = repo_provider::ActiveModel {
@@ -1497,7 +1642,7 @@ mod tests {
     #[tokio::test]
     async fn test_restore_non_deleted_fails() {
         let db = create_test_database().await.unwrap();
-        let service = RepositoryService::new(db.clone());
+        let service = create_test_service(db.clone());
 
         // Create provider
         let provider = repo_provider::ActiveModel {

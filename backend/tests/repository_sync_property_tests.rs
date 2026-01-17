@@ -6,6 +6,8 @@
 //! **Property 5: Batch Initialization Processes All Eligible Repositories**
 //! **Validates: Requirements 5.5, 5.6**
 
+use std::sync::Arc;
+
 use gitautodev::entities::{prelude::*, repo_provider};
 use gitautodev::services::RepositoryService;
 use gitautodev::test_utils::db::create_test_database;
@@ -82,7 +84,7 @@ proptest! {
             prop_assert_eq!(providers.len(), provider_count, "Should have created {} providers", provider_count);
 
             // Create repository service
-            let service = RepositoryService::new(db.clone());
+            let service = RepositoryService::new(db.clone(), Arc::new(gitautodev::config::AppConfig::default()));
 
             // Call sync_all_providers - it should not panic and should return Ok
             // Note: The actual sync will fail because the Git providers are not real,
@@ -131,7 +133,7 @@ proptest! {
             provider.insert(&db).await.expect("Failed to insert provider");
 
             // Create repository service
-            let service = RepositoryService::new(db);
+            let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
             // Call sync_all_providers - should not panic even with unreachable provider
             let result = service.sync_all_providers().await;
@@ -163,7 +165,7 @@ proptest! {
             prop_assert_eq!(providers.len(), 0, "Should have no providers");
 
             // Create repository service
-            let service = RepositoryService::new(db);
+            let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
             // Call sync_all_providers - should return Ok with empty list
             let result = service.sync_all_providers().await;
@@ -190,7 +192,7 @@ mod background_service_tests {
         let db = create_test_database()
             .await
             .expect("Failed to create test database");
-        let service = RepositoryService::new(db);
+        let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
         assert_eq!(service.name(), "repository_service");
     }
@@ -200,7 +202,7 @@ mod background_service_tests {
         let db = create_test_database()
             .await
             .expect("Failed to create test database");
-        let service = RepositoryService::new(db);
+        let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
         // Health check should return true when database is connected
         assert!(service.health_check().await);
@@ -211,7 +213,7 @@ mod background_service_tests {
         let db = create_test_database()
             .await
             .expect("Failed to create test database");
-        let service = RepositoryService::new(db);
+        let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
         // Should succeed with no providers
         let result = service.sync_all_providers().await;
@@ -242,7 +244,7 @@ mod background_service_tests {
                 .expect("Failed to insert provider");
         }
 
-        let service = RepositoryService::new(db);
+        let service = RepositoryService::new(db, Arc::new(gitautodev::config::AppConfig::default()));
 
         // Should succeed even though providers are unreachable
         // (errors are logged but don't stop processing)
