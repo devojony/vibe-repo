@@ -2,7 +2,10 @@
 //!
 //! Provides Docker container lifecycle management for workspaces.
 
-use bollard::container::{Config, CreateContainerOptions, RemoveContainerOptions};
+use bollard::container::{
+    Config, CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions,
+    StartContainerOptions, StopContainerOptions,
+};
 use bollard::models::{HostConfig, Mount, MountTypeEnum};
 use bollard::Docker;
 
@@ -91,6 +94,47 @@ impl DockerService {
             .await
             .map_err(|e| GitAutoDevError::Internal(format!("Failed to remove container: {}", e)))
     }
+
+    pub async fn start_container(&self, container_id: &str) -> Result<()> {
+        self.docker
+            .start_container(container_id, None::<StartContainerOptions<String>>)
+            .await
+            .map_err(|e| GitAutoDevError::Internal(format!("Failed to start container: {}", e)))
+    }
+
+    pub async fn stop_container(&self, container_id: &str, timeout: i64) -> Result<()> {
+        let options = StopContainerOptions { t: timeout };
+
+        self.docker
+            .stop_container(container_id, Some(options))
+            .await
+            .map_err(|e| GitAutoDevError::Internal(format!("Failed to stop container: {}", e)))
+    }
+
+    pub async fn get_container_status(&self, container_id: &str) -> Result<String> {
+        let inspect = self
+            .docker
+            .inspect_container(container_id, None::<InspectContainerOptions>)
+            .await
+            .map_err(|e| {
+                GitAutoDevError::Internal(format!("Failed to inspect container: {}", e))
+            })?;
+
+        let status = inspect
+            .state
+            .and_then(|s| s.status)
+            .map(|s| format!("{:?}", s).to_lowercase())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        Ok(status)
+    }
+
+    pub async fn container_exists(&self, container_id: &str) -> bool {
+        self.docker
+            .inspect_container(container_id, None::<InspectContainerOptions>)
+            .await
+            .is_ok()
+    }
 }
 
 fn parse_memory_limit(limit: &str) -> Result<i64> {
@@ -164,6 +208,47 @@ mod tests {
 
         let container_id = result.unwrap();
         assert!(!container_id.is_empty());
+
+        // Cleanup
+        let _ = service.remove_container(&container_id, true).await;
+    }
+
+    #[tokio::test]
+    async fn test_start_stop_container() {
+        let service = match DockerService::new() {
+            Ok(s) => s,
+            Err(_) => {
+                eprintln!("Skipping test: Docker not available");
+                return;
+            }
+        };
+
+        let container_id = match service
+            .create_container("test-lifecycle", "alpine:latest", vec![], 1.0, "1GB")
+            .await
+        {
+            Ok(id) => id,
+            Err(_) => {
+                eprintln!("Skipping test: Failed to create container");
+                return;
+            }
+        };
+
+        // Start container
+        let start_result = service.start_container(&container_id).await;
+        assert!(start_result.is_ok());
+
+        // Check status
+        let status = service.get_container_status(&container_id).await.unwrap();
+        assert_eq!(status, "running");
+
+        // Stop container
+        let stop_result = service.stop_container(&container_id, 10).await;
+        assert!(stop_result.is_ok());
+
+        // Check status
+        let status = service.get_container_status(&container_id).await.unwrap();
+        assert!(status == "exited" || status == "stopped");
 
         // Cleanup
         let _ = service.remove_container(&container_id, true).await;
