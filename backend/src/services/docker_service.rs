@@ -11,6 +11,15 @@ use bollard::Docker;
 
 use crate::error::{GitAutoDevError, Result};
 
+/// Container health status
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContainerHealth {
+    pub is_running: bool,
+    pub status: String,
+    pub exit_code: Option<i64>,
+    pub error: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct DockerService {
     docker: Docker,
@@ -135,6 +144,36 @@ impl DockerService {
             .await
             .is_ok()
     }
+
+    /// Check container health status
+    pub async fn check_container_health(&self, container_id: &str) -> Result<ContainerHealth> {
+        let inspect = self
+            .docker
+            .inspect_container(container_id, None::<InspectContainerOptions>)
+            .await
+            .map_err(|e| {
+                GitAutoDevError::Internal(format!("Failed to inspect container: {}", e))
+            })?;
+
+        let state = inspect.state.ok_or_else(|| {
+            GitAutoDevError::Internal("Container state not available".to_string())
+        })?;
+
+        let is_running = state.running.unwrap_or(false);
+        let status = state
+            .status
+            .map(|s| format!("{:?}", s).to_lowercase())
+            .unwrap_or_else(|| "unknown".to_string());
+        let exit_code = state.exit_code;
+        let error = state.error.filter(|e| !e.is_empty());
+
+        Ok(ContainerHealth {
+            is_running,
+            status,
+            exit_code,
+            error,
+        })
+    }
 }
 
 fn parse_memory_limit(limit: &str) -> Result<i64> {
@@ -160,6 +199,124 @@ fn parse_memory_limit(limit: &str) -> Result<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test check_container_health returns correct health status for running container
+    /// Requirements: Task 5 - Container health checks
+    #[tokio::test]
+    async fn test_check_container_health_running_container() {
+        // Arrange: Create Docker service and container
+        let service = match DockerService::new() {
+            Ok(s) => s,
+            Err(_) => {
+                eprintln!("Skipping test: Docker not available");
+                return;
+            }
+        };
+
+        let container_id = match service
+            .create_container("test-health-check", "alpine:latest", vec![], 1.0, "1GB")
+            .await
+        {
+            Ok(id) => id,
+            Err(_) => {
+                eprintln!("Skipping test: Failed to create container");
+                return;
+            }
+        };
+
+        // Start the container
+        if service.start_container(&container_id).await.is_err() {
+            let _ = service.remove_container(&container_id, true).await;
+            eprintln!("Skipping test: Failed to start container");
+            return;
+        }
+
+        // Act: Check container health
+        let health = service.check_container_health(&container_id).await;
+
+        // Cleanup
+        let _ = service.remove_container(&container_id, true).await;
+
+        // Assert
+        assert!(health.is_ok());
+        let health = health.unwrap();
+        assert!(health.is_running);
+        assert_eq!(health.status, "running");
+        assert!(health.exit_code.is_none());
+        assert!(health.error.is_none());
+    }
+
+    /// Test check_container_health returns correct health status for stopped container
+    /// Requirements: Task 5 - Container health checks
+    #[tokio::test]
+    async fn test_check_container_health_stopped_container() {
+        // Arrange: Create and stop container
+        let service = match DockerService::new() {
+            Ok(s) => s,
+            Err(_) => {
+                eprintln!("Skipping test: Docker not available");
+                return;
+            }
+        };
+
+        let container_id = match service
+            .create_container("test-health-stopped", "alpine:latest", vec![], 1.0, "1GB")
+            .await
+        {
+            Ok(id) => id,
+            Err(_) => {
+                eprintln!("Skipping test: Failed to create container");
+                return;
+            }
+        };
+
+        // Start then stop the container
+        if service.start_container(&container_id).await.is_err() {
+            let _ = service.remove_container(&container_id, true).await;
+            eprintln!("Skipping test: Failed to start container");
+            return;
+        }
+
+        if service.stop_container(&container_id, 5).await.is_err() {
+            let _ = service.remove_container(&container_id, true).await;
+            eprintln!("Skipping test: Failed to stop container");
+            return;
+        }
+
+        // Act: Check container health
+        let health = service.check_container_health(&container_id).await;
+
+        // Cleanup
+        let _ = service.remove_container(&container_id, true).await;
+
+        // Assert
+        assert!(health.is_ok());
+        let health = health.unwrap();
+        assert!(!health.is_running);
+        assert!(health.status == "exited" || health.status == "stopped");
+        assert!(health.exit_code.is_some());
+        assert!(health.error.is_none());
+    }
+
+    /// Test check_container_health returns error for non-existent container
+    /// Requirements: Task 5 - Container health checks
+    #[tokio::test]
+    async fn test_check_container_health_nonexistent_container() {
+        // Arrange
+        let service = match DockerService::new() {
+            Ok(s) => s,
+            Err(_) => {
+                eprintln!("Skipping test: Docker not available");
+                return;
+            }
+        };
+
+        // Act: Check health of non-existent container
+        let health = service.check_container_health("nonexistent-container-id").await;
+
+        // Assert: Should return error
+        assert!(health.is_err());
+    }
 
     #[tokio::test]
     async fn test_docker_service_new_success() {
