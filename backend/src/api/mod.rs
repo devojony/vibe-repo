@@ -79,6 +79,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             settings::providers::routes::router(),
         )
         .nest("/api/repositories", repositories::routes::router())
+        .merge(workspaces::workspace_routes())
         // OpenAPI documentation
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // Attach shared state
