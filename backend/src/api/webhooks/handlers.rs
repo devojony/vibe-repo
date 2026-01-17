@@ -95,7 +95,54 @@ pub async fn handle_webhook(
 
     tracing::info!("Webhook signature verified for provider {}", provider_id);
 
-    // TODO: Process webhook payload (Task 3.3)
+    // Parse webhook payload based on event type
+    let payload_str = std::str::from_utf8(&body)
+        .map_err(|e| GitAutoDevError::Validation(format!("Invalid UTF-8 in payload: {}", e)))?;
+
+    // Detect event type from headers
+    let event_type = headers
+        .get("X-Gitea-Event")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    tracing::info!("Processing webhook event type: {}", event_type);
+
+    // Parse based on event type
+    match event_type {
+        "issue_comment" => {
+            let payload: super::models::GiteaIssueCommentPayload = serde_json::from_str(payload_str)
+                .map_err(|e| GitAutoDevError::Validation(format!("Failed to parse issue comment payload: {}", e)))?;
+            
+            let comment_info = payload.extract_comment_info()?;
+            tracing::info!(
+                "Extracted issue comment info: comment_id={}, author={}, issue={}, repo={}",
+                comment_info.comment_id,
+                comment_info.comment_author,
+                comment_info.issue_or_pr_number,
+                comment_info.repository_full_name
+            );
+            
+            // TODO: Task 3.4 - Route to event handler
+        }
+        "pull_request_comment" => {
+            let payload: super::models::GiteaPullRequestCommentPayload = serde_json::from_str(payload_str)
+                .map_err(|e| GitAutoDevError::Validation(format!("Failed to parse PR comment payload: {}", e)))?;
+            
+            let comment_info = payload.extract_comment_info()?;
+            tracing::info!(
+                "Extracted PR comment info: comment_id={}, author={}, pr={}, repo={}",
+                comment_info.comment_id,
+                comment_info.comment_author,
+                comment_info.issue_or_pr_number,
+                comment_info.repository_full_name
+            );
+            
+            // TODO: Task 3.4 - Route to event handler
+        }
+        _ => {
+            tracing::warn!("Unsupported event type: {}", event_type);
+        }
+    }
 
     Ok(Json(WebhookResponse {
         success: true,
