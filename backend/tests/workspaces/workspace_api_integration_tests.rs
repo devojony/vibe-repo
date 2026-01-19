@@ -87,6 +87,8 @@ async fn create_workspace_via_api(
 ) -> (StatusCode, WorkspaceResponse) {
     let request_body = CreateWorkspaceRequest {
         repository_id,
+        init_script: None,
+        script_timeout_seconds: 300,
         image_source: "default".to_string(),
         max_concurrent_tasks: 3,
         cpu_limit: 2.0,
@@ -166,6 +168,8 @@ async fn test_create_workspace_returns_201() {
 
     let request_body = CreateWorkspaceRequest {
         repository_id: repo.id,
+        init_script: None,
+        script_timeout_seconds: 300,
         image_source: "default".to_string(),
         max_concurrent_tasks: 3,
         cpu_limit: 2.0,
