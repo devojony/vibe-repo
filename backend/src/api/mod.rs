@@ -4,6 +4,7 @@
 
 pub mod agents;
 pub mod health;
+pub mod init_scripts;
 pub mod repositories;
 pub mod settings;
 pub mod tasks;
@@ -55,6 +56,10 @@ use crate::{logging, state::AppState};
         workspaces::handlers::list_workspaces,
         workspaces::handlers::update_workspace_status,
         workspaces::handlers::delete_workspace,
+        init_scripts::handlers::update_init_script,
+        init_scripts::handlers::get_logs,
+        init_scripts::handlers::download_full_log,
+        init_scripts::handlers::execute_script,
         agents::handlers::create_agent,
         agents::handlers::get_agent,
         agents::handlers::list_agents_by_workspace,
@@ -88,6 +93,10 @@ use crate::{logging, state::AppState};
         workspaces::WorkspaceResponse,
         workspaces::CreateWorkspaceRequest,
         workspaces::UpdateWorkspaceStatusRequest,
+        workspaces::InitScriptResponse,
+        workspaces::UpdateInitScriptRequest,
+        workspaces::ExecuteScriptRequest,
+        workspaces::InitScriptLogsResponse,
         agents::AgentResponse,
         agents::CreateAgentRequest,
         agents::UpdateAgentEnabledRequest,
@@ -110,6 +119,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .nest("/api/repositories", repositories::routes::router())
         .nest("/api/webhooks", webhooks::routes::router())
         .merge(workspaces::workspace_routes())
+        .merge(init_scripts::init_script_routes())
         .merge(agents::agent_routes())
         .merge(tasks::task_routes())
         // OpenAPI documentation
