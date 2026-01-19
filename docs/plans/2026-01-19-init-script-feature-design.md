@@ -39,7 +39,8 @@ CREATE TABLE init_scripts (
     script_content TEXT NOT NULL,
     timeout_seconds INTEGER NOT NULL DEFAULT 300,
     status VARCHAR(50) NOT NULL DEFAULT 'Pending',
-    output TEXT,
+    output_summary TEXT,
+    output_file_path VARCHAR(500),
     executed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -68,7 +69,8 @@ pub struct Model {
     pub script_content: String,
     pub timeout_seconds: i32,  // 脚本执行超时时间（秒），默认 300
     pub status: String,  // "Pending", "Running", "Success", "Failed", "Timeout"
-    pub output: Option<String>,
+    pub output_summary: Option<String>,  // 输出摘要（最后 4KB）
+    pub output_file_path: Option<String>,  // 完整输出文件路径
     pub executed_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
@@ -92,6 +94,166 @@ pub struct Model {
 | `Success` | 脚本执行成功 |
 | `Failed` | 脚本执行失败（非零退出码） |
 | `Timeout` | 脚本执行超时 |
+
+### 输出存储策略（混合存储）
+
+#### 设计原则
+
+1. **快速访问**：数据库存储输出摘要，用于快速查看和 API 响应
+2. **完整保留**：文件系统存储完整输出，用于详细调试
+3. **自动清理**：定期清理旧的输出文件，避免磁盘占用过大
+
+#### 存储规则
+
+| 输出大小 | 数据库 (output_summary) | 文件系统 (output_file_path) |
+|---------|------------------------|----------------------------|
+| ≤ 4KB | 完整输出 | 不创建文件 |
+| > 4KB | 最后 4KB + 截断提示 | 完整输出 |
+
+#### 文件存储路径
+
+```
+/data/gitautodev/init-script-logs/
+  ├── workspace-{id}/
+  │   └── script-{script_id}-{timestamp}.log
+```
+
+**路径格式**：
+- 基础目录：`/data/gitautodev/init-script-logs/`
+- 工作区目录：`workspace-{workspace_id}/`
+- 文件名：`script-{script_id}-{unix_timestamp}.log`
+
+**示例**：
+```
+/data/gitautodev/init-script-logs/workspace-123/script-456-1737283200.log
+```
+
+#### 文件清理策略
+
+1. **保留时间**：默认保留 30 天
+2. **清理触发**：
+   - 定期任务（每天凌晨 2 点）
+   - 工作区删除时立即清理
+3. **清理规则**：
+   - 删除超过保留期的日志文件
+   - 删除空的工作区目录
+
+#### 实现细节
+
+**写入流程**：
+```rust
+async fn save_script_output(
+    script_id: i32,
+    workspace_id: i32,
+    stdout: String,
+    stderr: String,
+) -> Result<(Option<String>, Option<String>)> {
+    let full_output = format!("=== STDOUT ===\n{}\n\n=== STDERR ===\n{}", stdout, stderr);
+
+    if full_output.len() <= 4096 {
+        // 小于 4KB，只存数据库
+        Ok((Some(full_output), None))
+    } else {
+        // 大于 4KB，混合存储
+        let summary = extract_last_4kb(&full_output);
+        let file_path = write_to_file(script_id, workspace_id, &full_output).await?;
+        Ok((Some(summary), Some(file_path)))
+    }
+}
+
+fn extract_last_4kb(output: &str) -> String {
+    const MAX_SIZE: usize = 4096;
+    if output.len() <= MAX_SIZE {
+        output.to_string()
+    } else {
+        let start = output.len() - MAX_SIZE;
+        format!("... [Output truncated, showing last 4KB]\n\n{}", &output[start..])
+    }
+}
+
+async fn write_to_file(
+    script_id: i32,
+    workspace_id: i32,
+    content: &str,
+) -> Result<String> {
+    let base_dir = "/data/gitautodev/init-script-logs";
+    let workspace_dir = format!("{}/workspace-{}", base_dir, workspace_id);
+
+    // 创建目录
+    tokio::fs::create_dir_all(&workspace_dir).await?;
+
+    // 生成文件名
+    let timestamp = Utc::now().timestamp();
+    let filename = format!("script-{}-{}.log", script_id, timestamp);
+    let file_path = format!("{}/{}", workspace_dir, filename);
+
+    // 写入文件
+    tokio::fs::write(&file_path, content).await?;
+
+    Ok(file_path)
+}
+```
+
+**读取流程**：
+```rust
+async fn get_full_output(script: &init_script::Model) -> Result<String> {
+    if let Some(file_path) = &script.output_file_path {
+        // 从文件读取完整输出
+        tokio::fs::read_to_string(file_path)
+            .await
+            .map_err(|e| VibeRepoError::Internal(
+                format!("Failed to read output file: {}", e)
+            ))
+    } else {
+        // 从数据库读取（小输出）
+        Ok(script.output_summary.clone().unwrap_or_default())
+    }
+}
+```
+
+**清理任务**：
+```rust
+async fn cleanup_old_logs(retention_days: i64) -> Result<()> {
+    let base_dir = "/data/gitautodev/init-script-logs";
+    let cutoff_time = Utc::now() - Duration::days(retention_days);
+
+    let mut entries = tokio::fs::read_dir(base_dir).await?;
+
+    while let Some(entry) = entries.next_entry().await? {
+        if entry.file_type().await?.is_dir() {
+            cleanup_workspace_logs(&entry.path(), cutoff_time).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn cleanup_workspace_logs(
+    workspace_dir: &Path,
+    cutoff_time: DateTime<Utc>,
+) -> Result<()> {
+    let mut entries = tokio::fs::read_dir(workspace_dir).await?;
+    let mut has_files = false;
+
+    while let Some(entry) = entries.next_entry().await? {
+        let metadata = entry.metadata().await?;
+        let modified = metadata.modified()?;
+
+        if modified < cutoff_time.into() {
+            tokio::fs::remove_file(entry.path()).await?;
+        } else {
+            has_files = true;
+        }
+    }
+
+    // 如果目录为空，删除目录
+    if !has_files {
+        tokio::fs::remove_dir(workspace_dir).await?;
+    }
+
+    Ok(())
+}
+```
 
 ## 迁移策略
 
@@ -148,20 +310,30 @@ pub struct Model {
 
 响应：`200 OK` 返回 `InitScriptResponse`
 
-**5. 获取脚本执行日志** - `GET /api/workspaces/:id/init-script/logs`
+**5. 获取脚本执行摘要** - `GET /api/workspaces/:id/init-script/logs`
 
-功能：获取脚本执行的输出和错误信息
+功能：获取脚本执行的输出摘要（最后 4KB）
 
 响应：
 ```json
 {
   "status": "Success",
-  "output": "Reading package lists...\nBuilding dependency tree...\nDone.",
+  "output_summary": "... [Output truncated, showing last 4KB]\n\nReading package lists...\nBuilding dependency tree...\nDone.",
+  "has_full_log": true,
   "executed_at": "2026-01-19T10:30:00Z"
 }
 ```
 
-**6. 重新执行脚本** - `POST /api/workspaces/:id/init-script/execute`
+**6. 下载完整日志** - `GET /api/workspaces/:id/init-script/logs/full`
+
+功能：下载完整的脚本执行日志
+
+响应：
+- Content-Type: `text/plain`
+- Content-Disposition: `attachment; filename="script-456-1737283200.log"`
+- Body: 完整日志内容
+
+**7. 重新执行脚本** - `POST /api/workspaces/:id/init-script/execute`
 
 功能：手动触发脚本重新执行（用于失败后重试）
 
@@ -228,9 +400,10 @@ pub struct InitScriptResponse {
     pub id: i32,
     pub workspace_id: i32,
     pub script_content: String,
-    pub timeout_seconds: i32,  // 新增：超时时间
+    pub timeout_seconds: i32,
     pub status: String,  // "Pending", "Running", "Success", "Failed", "Timeout"
-    pub output: Option<String>,
+    pub output_summary: Option<String>,  // 输出摘要（最后 4KB）
+    pub has_full_log: bool,  // 是否有完整日志文件
     pub executed_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -260,7 +433,8 @@ fn default_script_timeout() -> i32 {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct InitScriptLogsResponse {
     pub status: String,
-    pub output: Option<String>,
+    pub output_summary: Option<String>,  // 输出摘要
+    pub has_full_log: bool,  // 是否有完整日志
     pub executed_at: Option<String>,
 }
 ```
@@ -452,13 +626,15 @@ pub async fn create_workspace_with_container(
 
 2. **独立状态**：脚本执行失败不影响工作区状态，工作区保持 "Active"
 
-3. **输出限制**：脚本输出存储在数据库中，建议限制大小（如 64KB）
+3. **混合存储**：小输出（≤4KB）仅存数据库，大输出混合存储（数据库摘要 + 文件完整日志）
 
 4. **超时控制**：脚本执行使用配置的 `timeout_seconds`，默认 5 分钟（300 秒）
 
 5. **幂等性**：可以多次执行同一个脚本（通过 `/execute` 端点）
 
 6. **超时状态**：脚本执行超时时，状态设置为 "Timeout"，输出中包含超时信息
+
+7. **日志清理**：定期清理 30 天前的日志文件，工作区删除时立即清理
 
 ---
 
@@ -525,8 +701,8 @@ pub struct ExecOutput {
 
 4. **处理输出**
    - 流式读取标准输出和标准错误
-   - 限制输出大小为 64KB
-   - 超过限制时截断并添加提示信息
+   - 合并 stdout 和 stderr
+   - 根据大小决定存储策略（≤4KB 仅数据库，>4KB 混合存储）
 
 5. **获取退出码**
    ```rust
@@ -569,12 +745,15 @@ if let StartExecResults::Attached { mut output, .. } =
             }
             _ => {}
         }
-
-        // 限制输出大小
-        if stdout.len() + stderr.len() > 65536 {
-            break;
-        }
     }
+
+    // 保存输出（混合存储策略）
+    let (summary, file_path) = save_script_output(
+        script.id,
+        workspace_id,
+        stdout,
+        stderr
+    ).await?;
 }
 ```
 
@@ -590,38 +769,41 @@ let result = timeout(
 
 match result {
     Ok(Ok(output)) => {
-        // 执行成功
+        // 执行成功，保存输出
+        let (summary, file_path) = save_script_output(
+            script.id,
+            workspace_id,
+            output.stdout,
+            output.stderr
+        ).await?;
+
         if output.exit_code == 0 {
-            update_status("Success", Some(output.stdout)).await?;
+            update_status("Success", summary, file_path).await?;
         } else {
-            update_status("Failed", Some(output.stderr)).await?;
+            update_status("Failed", summary, file_path).await?;
         }
     }
     Ok(Err(e)) => {
         // 执行出错
-        update_status("Failed", Some(e.to_string())).await?;
+        let error_msg = format!("Execution error: {}", e);
+        update_status("Failed", Some(error_msg), None).await?;
     }
     Err(_) => {
         // 超时
-        update_status("Timeout", Some("Script execution timed out")).await?;
+        let timeout_msg = format!("Script execution timed out after {} seconds", timeout_seconds);
+        update_status("Timeout", Some(timeout_msg), None).await?;
     }
 }
 ```
 
-#### 输出限制
+#### 输出存储实现
 
-```rust
-const MAX_OUTPUT_SIZE: usize = 65536; // 64KB
+参见前面"输出存储策略（混合存储）"章节的详细实现。
 
-fn truncate_output(output: String) -> String {
-    if output.len() > MAX_OUTPUT_SIZE {
-        let truncated = &output[..MAX_OUTPUT_SIZE];
-        format!("{}\n\n[Output truncated at 64KB]", truncated)
-    } else {
-        output
-    }
-}
-```
+关键点：
+- ≤ 4KB：仅存数据库
+- > 4KB：数据库存摘要（最后 4KB），文件存完整输出
+- 文件路径：`/data/gitautodev/init-script-logs/workspace-{id}/script-{id}-{timestamp}.log`
 
 ### 错误处理
 
@@ -631,14 +813,17 @@ fn truncate_output(output: String) -> String {
 | 脚本执行失败 | 状态设为 "Failed"，记录错误输出 |
 | 脚本超时 | 状态设为 "Timeout"，记录超时信息 |
 | Docker API 错误 | 状态设为 "Failed"，记录错误信息 |
-| 输出过大 | 截断输出，添加截断提示 |
+| 文件写入失败 | 仅存数据库摘要，记录警告日志 |
+| 文件读取失败 | 返回数据库摘要，提示完整日志不可用 |
 
 ### 安全考虑
 
 1. **脚本注入防护**：脚本内容直接传递给 bash，不进行字符串拼接
 2. **资源限制**：依赖容器本身的资源限制（CPU、内存）
 3. **超时保护**：强制超时避免无限执行
-4. **输出限制**：限制输出大小避免数据库膨胀
+4. **文件权限**：日志文件仅应用可读写，设置适当的文件权限
+5. **路径安全**：使用固定的基础目录，防止路径遍历攻击
+6. **磁盘配额**：通过定期清理控制磁盘使用
 
 ---
 
@@ -845,10 +1030,10 @@ tracing::warn!(
    - 设置短超时（5 秒）
    - 验证超时错误
 
-4. **test_exec_in_container_output_limit**
-   - 执行产生大量输出的命令
-   - 验证输出被截断
-   - 验证截断提示信息
+4. **test_exec_in_container_large_output**
+   - 执行产生大量输出的命令（> 4KB）
+   - 验证输出被正确存储到文件
+   - 验证数据库只存储摘要
 
 ### 集成测试
 
@@ -887,12 +1072,21 @@ tracing::warn!(
    - 验证状态为 "Timeout"
 
 7. **test_get_init_script_logs**
-   - 获取脚本执行日志
+   - 获取脚本执行日志摘要
    - 验证输出内容
 
-8. **test_execute_script_container_not_running**
+8. **test_download_full_log**
+   - 下载完整日志文件
+   - 验证文件内容完整性
+
+9. **test_execute_script_container_not_running**
    - 容器未运行时执行脚本
    - 验证返回 400 错误
+
+10. **test_log_file_cleanup**
+    - 创建旧的日志文件
+    - 触发清理任务
+    - 验证旧文件被删除
 
 #### 端到端测试
 
@@ -1030,8 +1224,31 @@ async fn wait_for_script_completion(
 1. **独立的脚本表**：使用关联表存储脚本，避免 workspace 表膨胀
 2. **可配置超时**：每个脚本可以设置独立的超时时间
 3. **完整的状态跟踪**：记录执行状态、输出和时间戳
-4. **异步执行**：不阻塞工作区创建流程
-5. **错误隔离**：脚本失败不影响工作区状态
-6. **安全可靠**：超时保护、输出限制、错误处理
+4. **混合存储策略**：小输出存数据库，大输出存文件系统，兼顾性能和完整性
+5. **异步执行**：不阻塞工作区创建流程
+6. **错误隔离**：脚本失败不影响工作区状态
+7. **自动清理**：定期清理旧日志文件，控制磁盘使用
+8. **安全可靠**：超时保护、路径安全、错误处理
+
+### 关键改进（相比初版设计）
+
+**输出存储优化**：
+- 初版：所有输出存数据库，限制 64KB
+- 改进：混合存储，≤4KB 存数据库，>4KB 存文件 + 数据库摘要
+- 优势：
+  - 不丢失任何输出信息
+  - 数据库不会因大输出膨胀
+  - 快速访问常见场景（小输出）
+  - 完整保留调试信息（大输出）
+
+**API 增强**：
+- 新增 `/logs/full` 端点下载完整日志
+- 响应中包含 `has_full_log` 标识
+- 支持流式下载大文件
+
+**运维友好**：
+- 自动清理 30 天前的日志
+- 工作区删除时立即清理相关日志
+- 文件组织清晰，便于手动管理
 
 该设计遵循 YAGNI 原则，提供足够的功能同时保持简单性，为未来扩展留有空间。
