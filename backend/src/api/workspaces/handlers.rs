@@ -6,7 +6,10 @@ use axum::{
 use std::sync::Arc;
 
 use crate::{
-    api::workspaces::models::*, error::Result, services::WorkspaceService, state::AppState,
+    api::workspaces::models::*,
+    error::Result,
+    services::{InitScriptService, WorkspaceService},
+    state::AppState,
 };
 
 /// Create a new workspace
@@ -25,11 +28,32 @@ pub async fn create_workspace(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateWorkspaceRequest>,
 ) -> Result<(StatusCode, Json<WorkspaceResponse>)> {
-    let service = WorkspaceService::new(state.db.clone(), state.docker.clone());
+    let workspace_service = WorkspaceService::new(state.db.clone(), state.docker.clone());
+    let init_script_service = InitScriptService::new(state.db.clone(), state.docker.clone());
 
-    let workspace = service.create_workspace(req.repository_id).await?;
+    // Create workspace
+    let workspace = workspace_service.create_workspace(req.repository_id).await?;
 
-    Ok((StatusCode::CREATED, Json(workspace.into())))
+    // Create init script if provided
+    let init_script = if let Some(script_content) = req.init_script {
+        let script = init_script_service
+            .create_init_script(workspace.id, script_content, req.script_timeout_seconds)
+            .await?;
+
+        tracing::info!(
+            workspace_id = workspace.id,
+            script_id = script.id,
+            "Created init script for new workspace"
+        );
+
+        Some(script)
+    } else {
+        None
+    };
+
+    let response = WorkspaceResponse::from((workspace, init_script));
+
+    Ok((StatusCode::CREATED, Json(response)))
 }
 
 /// Get workspace by ID
@@ -50,11 +74,20 @@ pub async fn get_workspace(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
 ) -> Result<Json<WorkspaceResponse>> {
-    let service = WorkspaceService::new(state.db.clone(), state.docker.clone());
+    let workspace_service = WorkspaceService::new(state.db.clone(), state.docker.clone());
+    let init_script_service = InitScriptService::new(state.db.clone(), state.docker.clone());
 
-    let workspace = service.get_workspace_by_id(id).await?;
+    // Get workspace
+    let workspace = workspace_service.get_workspace_by_id(id).await?;
 
-    Ok(Json(workspace.into()))
+    // Get init script if exists
+    let init_script = init_script_service
+        .get_init_script_by_workspace_id(id)
+        .await?;
+
+    let response = WorkspaceResponse::from((workspace, init_script));
+
+    Ok(Json(response))
 }
 
 /// List all workspaces
@@ -70,11 +103,21 @@ pub async fn get_workspace(
 pub async fn list_workspaces(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<WorkspaceResponse>>> {
-    let service = WorkspaceService::new(state.db.clone(), state.docker.clone());
+    let workspace_service = WorkspaceService::new(state.db.clone(), state.docker.clone());
+    let init_script_service = InitScriptService::new(state.db.clone(), state.docker.clone());
 
-    let workspaces = service.list_workspaces().await?;
+    // Get all workspaces
+    let workspaces = workspace_service.list_workspaces().await?;
 
-    let responses: Vec<WorkspaceResponse> = workspaces.into_iter().map(|w| w.into()).collect();
+    // Build responses with init scripts
+    let mut responses = Vec::new();
+    for workspace in workspaces {
+        let init_script = init_script_service
+            .get_init_script_by_workspace_id(workspace.id)
+            .await?;
+
+        responses.push(WorkspaceResponse::from((workspace, init_script)));
+    }
 
     Ok(Json(responses))
 }
