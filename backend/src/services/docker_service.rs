@@ -21,7 +21,7 @@ pub struct ContainerHealth {
 }
 
 /// Output from executing a command in a container
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExecOutput {
     pub exit_code: i64,
     pub stdout: String,
@@ -184,6 +184,10 @@ impl DockerService {
     }
 
     /// Execute a command in a container with timeout support
+    ///
+    /// Returns `ExecOutput` with exit code, stdout, and stderr.
+    /// Exit code will be -1 if the command execution fails or cannot be inspected.
+    /// Returns error if command times out or execution fails.
     pub async fn exec_in_container(
         &self,
         container_id: &str,
@@ -194,9 +198,16 @@ impl DockerService {
         use futures::StreamExt;
         use tokio::time::{timeout, Duration};
 
+        tracing::info!(
+            container_id = %container_id,
+            cmd = ?cmd,
+            timeout_secs = timeout_secs,
+            "Starting command execution in container"
+        );
+
         // Create exec instance
         let exec_config = CreateExecOptions {
-            cmd: Some(cmd),
+            cmd: Some(cmd.clone()),
             attach_stdout: Some(true),
             attach_stderr: Some(true),
             ..Default::default()
@@ -206,11 +217,20 @@ impl DockerService {
             .docker
             .create_exec(container_id, exec_config)
             .await
-            .map_err(|e| VibeRepoError::Internal(format!("Failed to create exec: {}", e)))?;
+            .map_err(|e| {
+                tracing::error!(
+                    container_id = %container_id,
+                    cmd = ?cmd,
+                    error = %e,
+                    "Failed to create exec"
+                );
+                VibeRepoError::Internal(format!("Failed to create exec: {}", e))
+            })?;
 
         // Start exec with timeout
         let exec_id = exec.id.clone();
         let docker = self.docker.clone();
+        let cmd_for_log = cmd.clone();
 
         let result = timeout(Duration::from_secs(timeout_secs), async move {
             let mut stdout = String::new();
@@ -221,16 +241,27 @@ impl DockerService {
                     VibeRepoError::Internal(format!("Failed to start exec: {}", e))
                 })?
             {
-                while let Some(Ok(msg)) = output.next().await {
-                    use bollard::container::LogOutput;
+                while let Some(msg) = output.next().await {
                     match msg {
-                        LogOutput::StdOut { message } => {
-                            stdout.push_str(&String::from_utf8_lossy(&message));
+                        Ok(log_output) => {
+                            use bollard::container::LogOutput;
+                            match log_output {
+                                LogOutput::StdOut { message } => {
+                                    stdout.push_str(&String::from_utf8_lossy(&message));
+                                }
+                                LogOutput::StdErr { message } => {
+                                    stderr.push_str(&String::from_utf8_lossy(&message));
+                                }
+                                _ => {}
+                            }
                         }
-                        LogOutput::StdErr { message } => {
-                            stderr.push_str(&String::from_utf8_lossy(&message));
+                        Err(e) => {
+                            tracing::warn!(
+                                exec_id = %exec_id,
+                                error = %e,
+                                "Stream error while reading exec output"
+                            );
                         }
-                        _ => {}
                     }
                 }
             }
@@ -240,6 +271,7 @@ impl DockerService {
                 VibeRepoError::Internal(format!("Failed to inspect exec: {}", e))
             })?;
 
+            // Exit code defaults to -1 if not available (indicates execution failure or incomplete execution)
             let exit_code = inspect.exit_code.unwrap_or(-1);
 
             Ok::<ExecOutput, VibeRepoError>(ExecOutput {
@@ -251,11 +283,35 @@ impl DockerService {
         .await;
 
         match result {
-            Ok(Ok(output)) => Ok(output),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(VibeRepoError::Internal(
-                "Command execution timed out".to_string(),
-            )),
+            Ok(Ok(output)) => {
+                tracing::info!(
+                    container_id = %container_id,
+                    cmd = ?cmd_for_log,
+                    exit_code = output.exit_code,
+                    "Command execution completed successfully"
+                );
+                Ok(output)
+            }
+            Ok(Err(e)) => {
+                tracing::error!(
+                    container_id = %container_id,
+                    cmd = ?cmd_for_log,
+                    error = %e,
+                    "Command execution failed"
+                );
+                Err(e)
+            }
+            Err(_) => {
+                tracing::error!(
+                    container_id = %container_id,
+                    cmd = ?cmd_for_log,
+                    timeout_secs = timeout_secs,
+                    "Command execution timed out"
+                );
+                Err(VibeRepoError::Internal(
+                    "Command execution timed out".to_string(),
+                ))
+            }
         }
     }
 }
@@ -328,6 +384,96 @@ mod tests {
         let output = result.unwrap();
         assert_eq!(output.exit_code, 0);
         assert!(output.stdout.contains("hello"));
+    }
+
+    /// Test exec_in_container handles timeout correctly
+    /// Requirements: Task 2.1 - Execute commands in containers with timeout
+    #[tokio::test]
+    async fn test_exec_in_container_timeout() {
+        let service = match DockerService::new() {
+            Ok(s) => s,
+            Err(_) => {
+                eprintln!("Skipping test: Docker not available");
+                return;
+            }
+        };
+
+        // Create test container
+        let container_id = match service
+            .create_container("test-exec-timeout", "alpine:latest", vec![], 1.0, "1GB")
+            .await
+        {
+            Ok(id) => id,
+            Err(_) => {
+                eprintln!("Skipping test: Failed to create container");
+                return;
+            }
+        };
+
+        // Start container
+        if service.start_container(&container_id).await.is_err() {
+            let _ = service.remove_container(&container_id, true).await;
+            eprintln!("Skipping test: Failed to start container");
+            return;
+        }
+
+        // Execute command that sleeps longer than timeout
+        let result = service
+            .exec_in_container(&container_id, vec!["sleep".to_string(), "10".to_string()], 2)
+            .await;
+
+        // Cleanup
+        let _ = service.remove_container(&container_id, true).await;
+
+        // Assert - should timeout
+        assert!(result.is_err());
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("timed out"));
+    }
+
+    /// Test exec_in_container handles non-zero exit codes correctly
+    /// Requirements: Task 2.1 - Execute commands in containers with error handling
+    #[tokio::test]
+    async fn test_exec_in_container_nonzero_exit() {
+        let service = match DockerService::new() {
+            Ok(s) => s,
+            Err(_) => {
+                eprintln!("Skipping test: Docker not available");
+                return;
+            }
+        };
+
+        // Create test container
+        let container_id = match service
+            .create_container("test-exec-nonzero", "alpine:latest", vec![], 1.0, "1GB")
+            .await
+        {
+            Ok(id) => id,
+            Err(_) => {
+                eprintln!("Skipping test: Failed to create container");
+                return;
+            }
+        };
+
+        // Start container
+        if service.start_container(&container_id).await.is_err() {
+            let _ = service.remove_container(&container_id, true).await;
+            eprintln!("Skipping test: Failed to start container");
+            return;
+        }
+
+        // Execute command that exits with non-zero code
+        let result = service
+            .exec_in_container(&container_id, vec!["sh".to_string(), "-c".to_string(), "exit 1".to_string()], 10)
+            .await;
+
+        // Cleanup
+        let _ = service.remove_container(&container_id, true).await;
+
+        // Assert - should succeed but with non-zero exit code
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.exit_code, 1);
     }
 
     /// Test check_container_health returns correct health status for running container
