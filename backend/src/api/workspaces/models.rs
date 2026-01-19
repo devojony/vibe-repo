@@ -10,7 +10,6 @@ pub struct WorkspaceResponse {
     pub container_id: Option<String>,
     pub container_status: Option<String>,
     pub image_source: String,
-    pub custom_dockerfile_path: Option<String>,
     pub max_concurrent_tasks: i32,
     pub cpu_limit: f64,
     pub memory_limit: String,
@@ -29,7 +28,6 @@ pub struct CreateWorkspaceRequest {
     pub repository_id: i32,
     #[serde(default = "default_image_source")]
     pub image_source: String,
-    pub custom_dockerfile_path: Option<String>,
     #[serde(default = "default_max_concurrent_tasks")]
     pub max_concurrent_tasks: i32,
     #[serde(default = "default_cpu_limit")]
@@ -75,7 +73,6 @@ impl From<crate::entities::workspace::Model> for WorkspaceResponse {
             container_id: model.container_id,
             container_status: model.container_status,
             image_source: model.image_source,
-            custom_dockerfile_path: model.custom_dockerfile_path,
             max_concurrent_tasks: model.max_concurrent_tasks,
             cpu_limit: model.cpu_limit,
             memory_limit: model.memory_limit,

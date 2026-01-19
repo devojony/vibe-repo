@@ -14,7 +14,6 @@ pub struct Model {
     pub container_id: Option<String>,
     pub container_status: Option<String>,
     pub image_source: String,
-    pub custom_dockerfile_path: Option<String>,
     pub max_concurrent_tasks: i32,
     #[sea_orm(column_type = "Double")]
     pub cpu_limit: f64,

@@ -88,7 +88,6 @@ async fn create_workspace_via_api(
     let request_body = CreateWorkspaceRequest {
         repository_id,
         image_source: "default".to_string(),
-        custom_dockerfile_path: None,
         max_concurrent_tasks: 3,
         cpu_limit: 2.0,
         memory_limit: "4GB".to_string(),
@@ -168,7 +167,6 @@ async fn test_create_workspace_returns_201() {
     let request_body = CreateWorkspaceRequest {
         repository_id: repo.id,
         image_source: "default".to_string(),
-        custom_dockerfile_path: None,
         max_concurrent_tasks: 3,
         cpu_limit: 2.0,
         memory_limit: "4GB".to_string(),
