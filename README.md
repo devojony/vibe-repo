@@ -10,7 +10,9 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - **Automated Repository Management**: Automatic sync and validation of repositories
 - **Repository Initialization**: Automated branch and label setup for new repositories
 - **Webhook Integration**: Real-time event processing from Git providers
-- **Background Services**: Scheduled repository synchronization
+- **Workspace Management**: Docker-based isolated development environments
+- **Init Scripts**: Automated container setup with custom shell scripts
+- **Background Services**: Scheduled repository synchronization and log cleanup
 - **RESTful API**: Comprehensive API with OpenAPI documentation
 - **Database Flexibility**: Support for both SQLite (development) and PostgreSQL (production)
 
@@ -94,6 +96,73 @@ http://localhost:3000/swagger-ui
 
 ### Webhook Module
 - `POST /api/webhooks/:repository_id` - Receive webhook events from Git providers
+
+### Workspace Module
+- `POST /api/workspaces` - Create a new workspace with optional init script
+- `GET /api/workspaces/:id` - Get workspace details including init script status
+- `GET /api/workspaces` - List all workspaces
+- `PUT /api/workspaces/:id/status` - Update workspace status
+- `DELETE /api/workspaces/:id` - Delete workspace
+
+### Init Script Module
+- `PUT /api/workspaces/:id/init-script` - Create or update init script for workspace
+- `GET /api/workspaces/:id/init-script/logs` - Get init script execution logs
+- `GET /api/workspaces/:id/init-script/logs/full` - Download full log file
+- `POST /api/workspaces/:id/init-script/execute` - Execute init script manually
+
+## Init Scripts
+
+Init scripts allow you to automatically configure workspace containers after they start. This replaces the previous `custom_dockerfile_path` approach with a more flexible shell script solution.
+
+### Features
+
+- **Automatic Execution**: Scripts run automatically when a workspace container starts
+- **Hybrid Storage**: Small outputs (≤4KB) stored in database, larger outputs in files
+- **Timeout Control**: Configurable timeout (default: 300 seconds)
+- **Status Tracking**: Monitor script execution status (Pending/Running/Success/Failed)
+- **Log Management**: Automatic cleanup of logs older than 30 days
+- **Concurrency Control**: Prevents multiple simultaneous executions
+
+### Usage Example
+
+Create a workspace with an init script:
+
+```bash
+curl -X POST http://localhost:3000/api/workspaces \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repository_id": 1,
+    "init_script": "#!/bin/bash\napt-get update && apt-get install -y git curl",
+    "script_timeout_seconds": 600,
+    "image_source": "default",
+    "max_concurrent_tasks": 3,
+    "cpu_limit": 2.0,
+    "memory_limit": "4GB",
+    "disk_limit": "10GB"
+  }'
+```
+
+Update an existing init script:
+
+```bash
+curl -X PUT http://localhost:3000/api/workspaces/1/init-script \
+  -H "Content-Type: application/json" \
+  -d '{
+    "script_content": "#!/bin/bash\necho \"Updated script\"",
+    "timeout_seconds": 300,
+    "execute_immediately": false
+  }'
+```
+
+Check script execution logs:
+
+```bash
+curl http://localhost:3000/api/workspaces/1/init-script/logs
+```
+
+### Migration from custom_dockerfile_path
+
+If you were using `custom_dockerfile_path`, see [docs/migration-guide-init-scripts.md](./docs/migration-guide-init-scripts.md) for migration instructions.
 
 ## Development
 
@@ -212,6 +281,26 @@ Webhook configurations for repository event monitoring.
 - `events` - JSON array of subscribed events
 - Retry mechanism: `retry_count`, `last_retry_at`, `next_retry_at`
 
+### workspaces
+Docker-based isolated development environments for repositories.
+
+**Key Fields:**
+- `repository_id` (FK to repositories, one-to-one)
+- `workspace_status` - 'creating', 'ready', 'error', etc.
+- `container_id`, `container_status`
+- Resource limits: `cpu_limit`, `memory_limit`, `disk_limit`
+
+### init_scripts
+Custom initialization scripts for workspace containers.
+
+**Key Fields:**
+- `workspace_id` (FK to workspaces, one-to-one)
+- `script_content` - Shell script to execute
+- `timeout_seconds` - Execution timeout (default: 300)
+- `status` - 'Pending', 'Running', 'Success', 'Failed'
+- `output_summary` - Last 4KB of output (stored in DB)
+- `output_file_path` - Path to full log file (for outputs >4KB)
+
 ## Architecture
 
 ### Module Hierarchy
@@ -220,9 +309,10 @@ Webhook configurations for repository event monitoring.
 Settings (namespace)
 └── RepoProvider (entity)
     └── Repository (entity) [many-to-one]
-        └── Workspace (entity) [one-to-one] (planned)
-            ├── Agent (entity) [one-to-many] (planned)
-            └── Task (entity) [one-to-many] (planned)
+        └── Workspace (entity) [one-to-one]
+            ├── InitScript (entity) [one-to-one]
+            ├── Agent (entity) [one-to-many]
+            └── Task (entity) [one-to-many]
 ```
 
 ### Git Provider Abstraction
@@ -303,15 +393,18 @@ test(api): Add webhook integration tests
 - ✅ Git Provider Abstraction (Gitea)
 - ✅ Repository Initialization
 - ✅ Webhook Integration
+- ✅ Workspace API
+- ✅ Init Script Feature
+- ✅ Agent Management
+- ✅ Task Automation
 
 **In Progress:**
-- 🟡 Workspace API (planned next)
 - 🟡 GitHub/GitLab provider implementations
+- 🟡 Issue-to-PR Workflow
 
 **Planned:**
-- 📋 Agent Management
-- 📋 Task Automation
-- 📋 Issue-to-PR Workflow
+- 📋 Advanced Task Scheduling
+- 📋 Multi-Agent Coordination
 
 ## License
 
