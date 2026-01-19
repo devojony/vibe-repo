@@ -2,7 +2,8 @@ use crate::entities::{prelude::*, init_script};
 use crate::error::{VibeRepoError, Result};
 use crate::services::DockerService;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, QueryFilter, ColumnTrait};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, QueryFilter, ColumnTrait, TransactionTrait, QuerySelect};
+use sea_orm::sea_query::LockType;
 
 #[derive(Clone)]
 pub struct InitScriptService {
@@ -110,9 +111,16 @@ impl InitScriptService {
             VibeRepoError::ServiceUnavailable("Docker service is not available".to_string())
         })?;
 
-        let script = self
-            .get_init_script_by_workspace_id(workspace_id)
-            .await?
+        // Start transaction
+        let txn = self.db.begin().await.map_err(VibeRepoError::Database)?;
+
+        // Lock and get script
+        let script = InitScript::find()
+            .filter(init_script::Column::WorkspaceId.eq(workspace_id))
+            .lock(LockType::Update)
+            .one(&txn)
+            .await
+            .map_err(VibeRepoError::Database)?
             .ok_or_else(|| {
                 VibeRepoError::NotFound(format!(
                     "Init script for workspace {} not found",
@@ -120,11 +128,27 @@ impl InitScriptService {
                 ))
             })?;
 
+        // Check if already running
+        if script.status == "Running" {
+            txn.rollback().await.map_err(VibeRepoError::Database)?;
+            tracing::warn!(
+                workspace_id = workspace_id,
+                script_id = script.id,
+                "Rejected concurrent script execution"
+            );
+            return Err(VibeRepoError::Conflict(
+                "Script is already running".to_string(),
+            ));
+        }
+
         // Update status to Running
         let mut script_active: init_script::ActiveModel = script.clone().into();
         script_active.status = Set("Running".to_string());
         script_active.updated_at = Set(Utc::now());
-        let script = script_active.update(&self.db).await.map_err(VibeRepoError::Database)?;
+        let script = script_active.update(&txn).await.map_err(VibeRepoError::Database)?;
+
+        // Commit transaction
+        txn.commit().await.map_err(VibeRepoError::Database)?;
 
         tracing::info!(
             workspace_id = workspace_id,
@@ -467,6 +491,56 @@ mod tests {
         }
 
         workspace
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_execution_rejected() {
+        let test_db = TestDatabase::new().await.expect("Failed to create test database");
+        let db = &test_db.connection;
+        let workspace = create_test_workspace_with_container(db).await;
+
+        let docker = DockerService::new().ok();
+        if docker.is_none() {
+            eprintln!("Skipping test: Docker not available");
+            return;
+        }
+
+        // Skip test if workspace doesn't have a container
+        if workspace.container_id.is_none() {
+            eprintln!("Skipping test: Failed to create container");
+            return;
+        }
+
+        let service = InitScriptService::new(db.clone(), docker);
+
+        // Create script with long-running command
+        service
+            .create_init_script(workspace.id, "sleep 30".to_string(), 60)
+            .await
+            .unwrap();
+
+        // Start first execution (don't await)
+        let service_clone = service.clone();
+        let workspace_id = workspace.id;
+        let container_id = workspace.container_id.clone().unwrap();
+        tokio::spawn(async move {
+            let _ = service_clone.execute_script(workspace_id, &container_id).await;
+        });
+
+        // Wait a bit for first execution to start
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        // Try second execution
+        let result = service
+            .execute_script(workspace.id, workspace.container_id.as_ref().unwrap())
+            .await;
+
+        // Assert
+        assert!(result.is_err());
+        match result {
+            Err(VibeRepoError::Conflict(_)) => {}, // Expected
+            _ => panic!("Expected Conflict error"),
+        }
     }
 }
 
