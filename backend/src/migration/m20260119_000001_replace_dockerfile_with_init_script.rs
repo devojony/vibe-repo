@@ -1,5 +1,9 @@
 use sea_orm_migration::prelude::*;
 
+/// Migration to replace custom_dockerfile_path with init_scripts table.
+///
+/// WARNING: This migration will drop the custom_dockerfile_path column from the workspaces table,
+/// resulting in permanent data loss for any existing custom Dockerfile paths.
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -22,8 +26,7 @@ impl MigrationTrait for Migration {
                     .col(
                         ColumnDef::new(InitScripts::WorkspaceId)
                             .integer()
-                            .not_null()
-                            .unique_key(),
+                            .not_null(),
                     )
                     .col(
                         ColumnDef::new(InitScripts::ScriptContent)
@@ -38,9 +41,17 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(InitScripts::Status)
-                            .string()
+                            .string_len(20)
                             .not_null()
-                            .default("Pending"),
+                            .default("Pending")
+                            .check(Expr::col(InitScripts::Status).is_in([
+                                "Pending",
+                                "Running",
+                                "Success",
+                                "Failed",
+                                "Timeout",
+                                "Cancelled",
+                            ])),
                     )
                     .col(ColumnDef::new(InitScripts::OutputSummary).text())
                     .col(ColumnDef::new(InitScripts::OutputFilePath).string_len(500))
