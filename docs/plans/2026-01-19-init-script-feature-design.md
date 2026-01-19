@@ -68,7 +68,7 @@ pub struct Model {
     pub workspace_id: i32,
     pub script_content: String,
     pub timeout_seconds: i32,  // 脚本执行超时时间（秒），默认 300
-    pub status: String,  // "Pending", "Running", "Success", "Failed", "Timeout"
+    pub status: String,  // "Pending", "Running", "Success", "Failed", "Timeout", "Cancelled"
     pub output_summary: Option<String>,  // 输出摘要（最后 4KB）
     pub output_file_path: Option<String>,  // 完整输出文件路径
     pub executed_at: Option<DateTimeUtc>,
@@ -94,6 +94,7 @@ pub struct Model {
 | `Success` | 脚本执行成功 |
 | `Failed` | 脚本执行失败（非零退出码） |
 | `Timeout` | 脚本执行超时 |
+| `Cancelled` | 脚本执行被强制取消（force=true） |
 
 ### 输出存储策略（混合存储）
 
@@ -337,7 +338,23 @@ async fn cleanup_workspace_logs(
 
 功能：手动触发脚本重新执行（用于失败后重试）
 
-响应：`202 Accepted` 脚本开始执行
+请求参数：
+- `force` (可选，默认 false)：是否强制执行，即使脚本正在运行
+
+响应：
+- `202 Accepted` - 脚本开始执行
+- `409 Conflict` - 脚本正在执行中（仅当 force=false 时）
+
+错误响应示例：
+```json
+{
+  "error": "Script already running",
+  "message": "Init script is currently running. Wait for completion or use force=true to cancel and restart.",
+  "code": "SCRIPT_ALREADY_RUNNING",
+  "current_status": "Running",
+  "started_at": "2026-01-19T10:30:00Z"
+}
+```
 
 ### 请求/响应模型
 
@@ -401,7 +418,7 @@ pub struct InitScriptResponse {
     pub workspace_id: i32,
     pub script_content: String,
     pub timeout_seconds: i32,
-    pub status: String,  // "Pending", "Running", "Success", "Failed", "Timeout"
+    pub status: String,  // "Pending", "Running", "Success", "Failed", "Timeout", "Cancelled"
     pub output_summary: Option<String>,  // 输出摘要（最后 4KB）
     pub has_full_log: bool,  // 是否有完整日志文件
     pub executed_at: Option<String>,
@@ -635,6 +652,235 @@ pub async fn create_workspace_with_container(
 6. **超时状态**：脚本执行超时时，状态设置为 "Timeout"，输出中包含超时信息
 
 7. **日志清理**：定期清理 30 天前的日志文件，工作区删除时立即清理
+
+---
+
+## 并发控制策略
+
+### 设计原则
+
+**拒绝并发执行**：同一时间只允许一个脚本执行实例，避免资源竞争和状态混乱。
+
+### 并发场景处理
+
+#### 场景 1：脚本正在执行时手动触发
+
+**请求**：`POST /api/workspaces/:id/init-script/execute`
+
+**检查逻辑**：
+```rust
+let script = get_init_script_by_workspace_id(workspace_id).await?;
+
+if script.status == "Running" {
+    return Err(VibeRepoError::Conflict(
+        "Script is already running".to_string()
+    ));
+}
+
+// 继续执行...
+```
+
+**响应**：`409 Conflict`
+
+#### 场景 2：更新脚本并立即执行
+
+**请求**：`PUT /api/workspaces/:id/init-script` (execute_immediately=true)
+
+**检查逻辑**：
+```rust
+// 先更新脚本内容
+let script = update_init_script(workspace_id, new_content, timeout).await?;
+
+// 如果请求立即执行
+if request.execute_immediately {
+    if script.status == "Running" {
+        return Err(VibeRepoError::Conflict(
+            "Cannot execute: script is already running".to_string()
+        ));
+    }
+
+    // 触发执行
+    execute_script(workspace_id).await?;
+}
+```
+
+**响应**：`409 Conflict` 或 `202 Accepted`
+
+#### 场景 3：容器启动自动执行 vs 手动执行
+
+**处理方式**：使用数据库行锁确保原子性
+
+```rust
+// 在 execute_script 方法中
+pub async fn execute_script(&self, workspace_id: i32) -> Result<()> {
+    // 开始事务
+    let txn = self.db.begin().await?;
+
+    // 使用 FOR UPDATE 锁定行
+    let script = InitScript::find()
+        .filter(init_script::Column::WorkspaceId.eq(workspace_id))
+        .lock_exclusive()  // SELECT ... FOR UPDATE
+        .one(&txn)
+        .await?
+        .ok_or_else(|| VibeRepoError::NotFound("Script not found".to_string()))?;
+
+    // 检查状态
+    if script.status == "Running" {
+        txn.rollback().await?;
+        return Err(VibeRepoError::Conflict("Script already running".to_string()));
+    }
+
+    // 更新状态为 Running
+    let mut script_active: init_script::ActiveModel = script.into();
+    script_active.status = Set("Running".to_string());
+    script_active.updated_at = Set(Utc::now());
+    let script = script_active.update(&txn).await?;
+
+    // 提交事务
+    txn.commit().await?;
+
+    // 异步执行脚本（事务外）
+    let service = self.clone();
+    tokio::spawn(async move {
+        let _ = service.execute_script_internal(script).await;
+    });
+
+    Ok(())
+}
+```
+
+### 强制执行选项（可选）
+
+#### API 参数
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ExecuteScriptRequest {
+    #[serde(default)]
+    pub force: bool,  // 是否强制执行，默认 false
+}
+```
+
+#### 实现逻辑
+
+```rust
+pub async fn execute_script_with_force(
+    &self,
+    workspace_id: i32,
+    force: bool,
+) -> Result<()> {
+    let script = get_init_script_by_workspace_id(workspace_id).await?;
+
+    if script.status == "Running" {
+        if !force {
+            return Err(VibeRepoError::Conflict(
+                "Script is already running".to_string()
+            ));
+        }
+
+        // force=true: 标记当前执行为 Cancelled
+        // 注意：无法真正终止 Docker exec，只是标记状态
+        let mut script_active: init_script::ActiveModel = script.into();
+        script_active.status = Set("Cancelled".to_string());
+        script_active.output_summary = Set(Some(
+            "Execution cancelled by user".to_string()
+        ));
+        script_active.updated_at = Set(Utc::now());
+        script_active.update(&self.db).await?;
+
+        tracing::warn!(
+            workspace_id = workspace_id,
+            "Force cancelled running script"
+        );
+    }
+
+    // 开始新的执行
+    execute_script_internal(workspace_id).await
+}
+```
+
+### 状态转换规则
+
+```
+Pending → Running → Success/Failed/Timeout
+                 ↓
+              Cancelled (仅当 force=true)
+```
+
+**允许的转换**：
+- `Pending` → `Running`：开始执行
+- `Running` → `Success`：执行成功
+- `Running` → `Failed`：执行失败
+- `Running` → `Timeout`：执行超时
+- `Running` → `Cancelled`：强制取消（force=true）
+- `Success/Failed/Timeout/Cancelled` → `Pending`：更新脚本内容
+
+**禁止的转换**：
+- `Running` → `Running`：拒绝并发执行
+
+### 错误处理
+
+#### HTTP 状态码
+
+| 场景 | 状态码 | 错误码 |
+|------|--------|--------|
+| 脚本正在执行（force=false） | 409 Conflict | SCRIPT_ALREADY_RUNNING |
+| 脚本不存在 | 404 Not Found | SCRIPT_NOT_FOUND |
+| 容器未运行 | 400 Bad Request | CONTAINER_NOT_RUNNING |
+
+#### 错误响应格式
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ScriptConflictError {
+    pub error: String,
+    pub message: String,
+    pub code: String,
+    pub current_status: String,
+    pub started_at: Option<String>,
+}
+```
+
+### 日志记录
+
+```rust
+// 拒绝并发执行
+tracing::warn!(
+    workspace_id = workspace_id,
+    script_id = script.id,
+    current_status = script.status,
+    "Rejected concurrent script execution"
+);
+
+// 强制取消
+tracing::warn!(
+    workspace_id = workspace_id,
+    script_id = script.id,
+    "Force cancelled running script, starting new execution"
+);
+```
+
+### 测试用例
+
+1. **test_concurrent_execution_rejected**
+   - 启动脚本执行
+   - 在执行过程中再次触发
+   - 验证返回 409 错误
+
+2. **test_force_execution_cancels_running**
+   - 启动脚本执行
+   - 使用 force=true 触发新执行
+   - 验证旧执行被标记为 Cancelled
+   - 验证新执行开始
+
+3. **test_update_script_while_running**
+   - 启动脚本执行
+   - 尝试更新并立即执行
+   - 验证返回 409 错误
+
+4. **test_database_lock_prevents_race_condition**
+   - 并发发送多个执行请求
+   - 验证只有一个成功，其他返回 409
 
 ---
 
