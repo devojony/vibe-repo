@@ -35,6 +35,9 @@ pub enum VibeRepoError {
 
     #[error("Service unavailable: {0}")]
     ServiceUnavailable(String),
+
+    #[error("Git provider error: {0}")]
+    GitProvider(#[from] crate::git_provider::error::GitProviderError),
 }
 
 /// Error response format for API
@@ -79,6 +82,42 @@ impl IntoResponse for VibeRepoError {
                 "SERVICE_UNAVAILABLE",
                 msg.clone(),
             ),
+            VibeRepoError::GitProvider(e) => {
+                // Map Git provider errors to appropriate HTTP status codes
+                use crate::git_provider::error::GitProviderError;
+                match e {
+                    GitProviderError::Unauthorized(_) => {
+                        (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", e.to_string())
+                    }
+                    GitProviderError::Forbidden(_) => {
+                        (StatusCode::FORBIDDEN, "FORBIDDEN", e.to_string())
+                    }
+                    GitProviderError::NotFound(_) => {
+                        (StatusCode::NOT_FOUND, "NOT_FOUND", e.to_string())
+                    }
+                    GitProviderError::Conflict(_) => {
+                        (StatusCode::CONFLICT, "CONFLICT", e.to_string())
+                    }
+                    GitProviderError::ValidationError(_) => {
+                        (StatusCode::BAD_REQUEST, "VALIDATION_ERROR", e.to_string())
+                    }
+                    GitProviderError::RateLimitExceeded(_) => (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        "RATE_LIMIT_EXCEEDED",
+                        e.to_string(),
+                    ),
+                    GitProviderError::NetworkError(_) => (
+                        StatusCode::BAD_GATEWAY,
+                        "NETWORK_ERROR",
+                        e.to_string(),
+                    ),
+                    _ => (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "GIT_PROVIDER_ERROR",
+                        e.to_string(),
+                    ),
+                }
+            }
         };
 
         let body = ErrorResponse {

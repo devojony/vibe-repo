@@ -17,6 +17,7 @@ use crate::config::IssuePollingConfig;
 use crate::entities::prelude::*;
 use crate::entities::{repository, task, workspace};
 use crate::error::{Result, VibeRepoError};
+use crate::git_provider::error::GitProviderError;
 use crate::git_provider::traits::GitProvider;
 use crate::git_provider::{GitClientFactory, GitIssue, IssueFilter, IssueState};
 use crate::services::BackgroundService;
@@ -99,6 +100,42 @@ impl IssuePollingService {
         (cache.len(), cache.capacity())
     }
 
+    /// Poll a repository with exponential backoff retry for rate limiting
+    async fn poll_repository_with_retry(&self, repo: &repository::Model) -> Result<()> {
+        let max_retries = self.config.max_retries;
+        let mut retry_count = 0;
+
+        loop {
+            match self.poll_repository(repo).await {
+                Ok(_) => return Ok(()),
+                Err(VibeRepoError::GitProvider(GitProviderError::RateLimitExceeded(_))) => {
+                    if retry_count >= max_retries {
+                        tracing::error!(
+                            repository_id = repo.id,
+                            retry_count = retry_count,
+                            "Rate limit exceeded after max retries"
+                        );
+                        return Err(VibeRepoError::Internal(
+                            "Rate limit exceeded after retries".to_string(),
+                        ));
+                    }
+
+                    // Exponential backoff: 2^retry_count minutes
+                    let delay_secs = 2_u64.pow(retry_count) * 60;
+                    tracing::warn!(
+                        repository_id = repo.id,
+                        retry_count = retry_count,
+                        delay_secs = delay_secs,
+                        "Rate limited, retrying after delay"
+                    );
+
+                    tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                    retry_count += 1;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
 
     /// Poll all repositories that have polling enabled
     async fn poll_all_repositories(&self) -> Result<()> {
@@ -120,7 +157,7 @@ impl IssuePollingService {
                 let service = self.clone();
                 async move {
                     let repo_id = repo.id;
-                    match service.poll_repository(&repo).await {
+                    match service.poll_repository_with_retry(&repo).await {
                         Ok(_) => (repo_id, true, None),
                         Err(e) => (repo_id, false, Some(e.to_string())),
                     }
@@ -452,6 +489,7 @@ mod tests {
             bot_username: Some("vibe-bot".to_string()),
             max_issue_age_days: Some(30),
             max_concurrent_polls: 10,
+            max_retries: 3,
         }
     }
 
@@ -485,6 +523,7 @@ mod tests {
             bot_username: None,
             max_issue_age_days: None,
             max_concurrent_polls: 10,
+            max_retries: 3,
         };
         let db = DatabaseConnection::default();
         let service = IssuePollingService::new(db, config);
@@ -523,6 +562,7 @@ mod tests {
             bot_username: None,
             max_issue_age_days: None,
             max_concurrent_polls: 10,
+            max_retries: 3,
         };
         let db = DatabaseConnection::default();
         let service = IssuePollingService::new(db, config);
@@ -568,6 +608,7 @@ mod tests {
             bot_username: Some("vibe-bot".to_string()),
             max_issue_age_days: None,
             max_concurrent_polls: 10,
+            max_retries: 3,
         };
         let db = DatabaseConnection::default();
         let service = IssuePollingService::new(db, config);
@@ -617,6 +658,7 @@ mod tests {
             bot_username: None,
             max_issue_age_days: Some(7), // 7 days max
             max_concurrent_polls: 10,
+            max_retries: 3,
         };
         let db = DatabaseConnection::default();
         let service = IssuePollingService::new(db, config);

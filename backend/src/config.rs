@@ -75,10 +75,17 @@ pub struct IssuePollingConfig {
     /// Maximum number of concurrent repository polls
     #[serde(default = "default_max_concurrent_polls")]
     pub max_concurrent_polls: usize,
+    /// Maximum number of retry attempts for rate-limited requests
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
 }
 
 fn default_max_concurrent_polls() -> usize {
     10
+}
+
+fn default_max_retries() -> u32 {
+    3
 }
 
 /// Webhook retry configuration
@@ -160,6 +167,10 @@ impl Default for IssuePollingConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(10),
+            max_retries: std::env::var("ISSUE_POLLING_MAX_RETRIES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(3),
         }
     }
 }
@@ -665,6 +676,7 @@ mod tests {
         std::env::remove_var("ISSUE_POLLING_BOT_USERNAME");
         std::env::remove_var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS");
         std::env::remove_var("ISSUE_POLLING_MAX_CONCURRENT");
+        std::env::remove_var("ISSUE_POLLING_MAX_RETRIES");
 
         let config = IssuePollingConfig::default();
 
@@ -692,6 +704,10 @@ mod tests {
             config.max_concurrent_polls, 10,
             "Default max concurrent polls should be 10"
         );
+        assert_eq!(
+            config.max_retries, 3,
+            "Default max retries should be 3"
+        );
     }
 
     #[test]
@@ -703,6 +719,7 @@ mod tests {
         std::env::set_var("ISSUE_POLLING_BOT_USERNAME", "my-bot");
         std::env::set_var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS", "60");
         std::env::set_var("ISSUE_POLLING_MAX_CONCURRENT", "20");
+        std::env::set_var("ISSUE_POLLING_MAX_RETRIES", "5");
 
         let config = IssuePollingConfig::default();
 
@@ -730,6 +747,10 @@ mod tests {
             config.max_concurrent_polls, 20,
             "Max concurrent polls should be 20"
         );
+        assert_eq!(
+            config.max_retries, 5,
+            "Max retries should be 5"
+        );
 
         // Clean up
         std::env::remove_var("ISSUE_POLLING_ENABLED");
@@ -738,6 +759,7 @@ mod tests {
         std::env::remove_var("ISSUE_POLLING_BOT_USERNAME");
         std::env::remove_var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS");
         std::env::remove_var("ISSUE_POLLING_MAX_CONCURRENT");
+        std::env::remove_var("ISSUE_POLLING_MAX_RETRIES");
     }
 
     #[test]
@@ -753,6 +775,7 @@ mod tests {
                 bot_username: None,
                 max_issue_age_days: Some(30),
                 max_concurrent_polls: 10,
+                max_retries: 3,
             },
         };
 
@@ -788,6 +811,7 @@ mod tests {
                 bot_username: None,
                 max_issue_age_days: Some(-1), // Negative value
                 max_concurrent_polls: 10,
+                max_retries: 3,
             },
         };
 
@@ -823,6 +847,7 @@ mod tests {
                 bot_username: Some("bot".to_string()),
                 max_issue_age_days: Some(30),
                 max_concurrent_polls: 10,
+                max_retries: 3,
             },
         };
 
@@ -846,6 +871,7 @@ mod tests {
                 bot_username: None,
                 max_issue_age_days: Some(-1), // Invalid, but should be ignored
                 max_concurrent_polls: 10,
+                max_retries: 3,
             },
         };
 

@@ -39,6 +39,9 @@ pub enum GitProviderError {
     #[error("Label already exists: {0}")]
     LabelAlreadyExists(String),
 
+    #[error("Rate limit exceeded: {0}")]
+    RateLimitExceeded(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -52,6 +55,7 @@ impl GitProviderError {
             404 => Self::NotFound(message),
             409 => Self::Conflict(message),
             422 => Self::ValidationError(message),
+            429 => Self::RateLimitExceeded(message),
             _ => Self::Internal(format!("HTTP {}: {}", status, message)),
         }
     }
