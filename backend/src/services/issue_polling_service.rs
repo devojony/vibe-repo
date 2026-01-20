@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
+use futures::stream::{self, StreamExt};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,19 +44,48 @@ impl IssuePollingService {
 
         tracing::info!(
             count = repositories.len(),
-            "Polling issues for repositories"
+            "Starting concurrent polling for repositories"
         );
 
-        for repo in repositories {
-            if let Err(e) = self.poll_repository(&repo).await {
-                tracing::error!(
-                    repository_id = repo.id,
-                    repository_name = %repo.full_name,
-                    error = %e,
-                    "Failed to poll repository"
-                );
+        // Use futures::stream to poll repositories concurrently
+        let results = stream::iter(repositories)
+            .map(|repo| {
+                let service = self.clone();
+                async move {
+                    let repo_id = repo.id;
+                    match service.poll_repository(&repo).await {
+                        Ok(_) => (repo_id, true, None),
+                        Err(e) => (repo_id, false, Some(e.to_string())),
+                    }
+                }
+            })
+            .buffer_unordered(self.config.max_concurrent_polls)
+            .collect::<Vec<_>>()
+            .await;
+
+        // Log any errors that occurred
+        for (repo_id, success, error) in &results {
+            if !success {
+                if let Some(err_msg) = error {
+                    tracing::error!(
+                        repository_id = repo_id,
+                        error = %err_msg,
+                        "Failed to poll repository"
+                    );
+                }
             }
         }
+
+        // Collect statistics
+        let success_count = results.iter().filter(|(_, success, _)| *success).count();
+        let error_count = results.len() - success_count;
+
+        tracing::info!(
+            total = results.len(),
+            success = success_count,
+            errors = error_count,
+            "Completed concurrent polling"
+        );
 
         Ok(())
     }
@@ -361,6 +391,7 @@ mod tests {
             required_labels: Some(vec!["vibe/todo-ai".to_string()]),
             bot_username: Some("vibe-bot".to_string()),
             max_issue_age_days: Some(30),
+            max_concurrent_polls: 10,
         }
     }
 
@@ -393,6 +424,7 @@ mod tests {
             required_labels: None,
             bot_username: None,
             max_issue_age_days: None,
+            max_concurrent_polls: 10,
         };
         let db = DatabaseConnection::default();
         let service = IssuePollingService::new(db, config);
@@ -430,6 +462,7 @@ mod tests {
             ]),
             bot_username: None,
             max_issue_age_days: None,
+            max_concurrent_polls: 10,
         };
         let db = DatabaseConnection::default();
         let service = IssuePollingService::new(db, config);
@@ -474,6 +507,7 @@ mod tests {
             required_labels: None,
             bot_username: Some("vibe-bot".to_string()),
             max_issue_age_days: None,
+            max_concurrent_polls: 10,
         };
         let db = DatabaseConnection::default();
         let service = IssuePollingService::new(db, config);
@@ -522,6 +556,7 @@ mod tests {
             required_labels: None,
             bot_username: None,
             max_issue_age_days: Some(7), // 7 days max
+            max_concurrent_polls: 10,
         };
         let db = DatabaseConnection::default();
         let service = IssuePollingService::new(db, config);

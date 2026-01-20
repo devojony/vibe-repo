@@ -72,6 +72,13 @@ pub struct IssuePollingConfig {
     pub bot_username: Option<String>,
     /// Maximum age of issues to process (in days)
     pub max_issue_age_days: Option<i64>,
+    /// Maximum number of concurrent repository polls
+    #[serde(default = "default_max_concurrent_polls")]
+    pub max_concurrent_polls: usize,
+}
+
+fn default_max_concurrent_polls() -> usize {
+    10
 }
 
 /// Webhook retry configuration
@@ -149,6 +156,10 @@ impl Default for IssuePollingConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .or(Some(30)),
+            max_concurrent_polls: std::env::var("ISSUE_POLLING_MAX_CONCURRENT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10),
         }
     }
 }
@@ -653,6 +664,7 @@ mod tests {
         std::env::remove_var("ISSUE_POLLING_REQUIRED_LABELS");
         std::env::remove_var("ISSUE_POLLING_BOT_USERNAME");
         std::env::remove_var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS");
+        std::env::remove_var("ISSUE_POLLING_MAX_CONCURRENT");
 
         let config = IssuePollingConfig::default();
 
@@ -676,6 +688,10 @@ mod tests {
             Some(30),
             "Default max issue age should be 30 days"
         );
+        assert_eq!(
+            config.max_concurrent_polls, 10,
+            "Default max concurrent polls should be 10"
+        );
     }
 
     #[test]
@@ -686,6 +702,7 @@ mod tests {
         std::env::set_var("ISSUE_POLLING_REQUIRED_LABELS", "bug,feature");
         std::env::set_var("ISSUE_POLLING_BOT_USERNAME", "my-bot");
         std::env::set_var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS", "60");
+        std::env::set_var("ISSUE_POLLING_MAX_CONCURRENT", "20");
 
         let config = IssuePollingConfig::default();
 
@@ -709,6 +726,10 @@ mod tests {
             Some(60),
             "Max issue age should be 60 days"
         );
+        assert_eq!(
+            config.max_concurrent_polls, 20,
+            "Max concurrent polls should be 20"
+        );
 
         // Clean up
         std::env::remove_var("ISSUE_POLLING_ENABLED");
@@ -716,6 +737,7 @@ mod tests {
         std::env::remove_var("ISSUE_POLLING_REQUIRED_LABELS");
         std::env::remove_var("ISSUE_POLLING_BOT_USERNAME");
         std::env::remove_var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS");
+        std::env::remove_var("ISSUE_POLLING_MAX_CONCURRENT");
     }
 
     #[test]
@@ -730,6 +752,7 @@ mod tests {
                 required_labels: None,
                 bot_username: None,
                 max_issue_age_days: Some(30),
+                max_concurrent_polls: 10,
             },
         };
 
@@ -764,6 +787,7 @@ mod tests {
                 required_labels: None,
                 bot_username: None,
                 max_issue_age_days: Some(-1), // Negative value
+                max_concurrent_polls: 10,
             },
         };
 
@@ -798,6 +822,7 @@ mod tests {
                 required_labels: Some(vec!["vibe-auto".to_string()]),
                 bot_username: Some("bot".to_string()),
                 max_issue_age_days: Some(30),
+                max_concurrent_polls: 10,
             },
         };
 
@@ -820,6 +845,7 @@ mod tests {
                 required_labels: None,
                 bot_username: None,
                 max_issue_age_days: Some(-1), // Invalid, but should be ignored
+                max_concurrent_polls: 10,
             },
         };
 
