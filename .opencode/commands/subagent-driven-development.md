@@ -5,3 +5,5 @@ model: anthropic/claude-sonnet-4-5
 ---
 
 use use_skill tool with skill_name: "superpowers:subagent-driven-development"
+
+$ARGUMENTS
