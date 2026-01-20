@@ -5,14 +5,8 @@
 
 use crate::entities::{container, prelude::*};
 use crate::error::{Result, VibeRepoError};
-use crate::services::{BuildImageResult, DockerService, ImageInfo};
+use crate::services::{BuildImageResult, ContainerConfig, DockerService, ImageInfo};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
-
-/// Default Dockerfile path for workspace images
-const DEFAULT_WORKSPACE_DOCKERFILE: &str = "docker/workspace/Dockerfile";
-
-/// Default build context path (project root)
-const DEFAULT_BUILD_CONTEXT: &str = ".";
 
 /// Validate Docker image name format
 /// Expected format: name:tag (e.g., "vibe-repo-workspace:latest")
@@ -37,12 +31,25 @@ fn validate_image_name(name: &str) -> Result<()> {
 pub struct ImageManagementService {
     db: DatabaseConnection,
     docker: Option<DockerService>,
+    config: ContainerConfig,
 }
 
 impl ImageManagementService {
     /// Create a new ImageManagementService
     pub fn new(db: DatabaseConnection, docker: Option<DockerService>) -> Self {
-        Self { db, docker }
+        Self {
+            db,
+            docker,
+            config: ContainerConfig::default(),
+        }
+    }
+
+    pub fn with_config(
+        db: DatabaseConnection,
+        docker: Option<DockerService>,
+        config: ContainerConfig,
+    ) -> Self {
+        Self { db, docker, config }
     }
 
     /// Get Docker service reference or return error if unavailable
@@ -178,9 +185,9 @@ impl ImageManagementService {
         tracing::info!(image_name = %image_name, force = force, "Rebuilding image");
         let result = docker
             .build_image(
-                DEFAULT_WORKSPACE_DOCKERFILE,
+                self.config.workspace_dockerfile.to_str().unwrap(),
                 image_name,
-                DEFAULT_BUILD_CONTEXT,
+                self.config.build_context.to_str().unwrap(),
             )
             .await?;
 

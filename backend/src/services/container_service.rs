@@ -4,9 +4,12 @@
 
 use crate::entities::{container, prelude::*};
 use crate::error::{Result, VibeRepoError};
-use crate::services::DockerService;
+use crate::services::{ContainerConfig, DockerService};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    sea_query::Expr, ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    Set,
+};
 
 /// Container status constants
 pub mod container_status {
@@ -16,12 +19,6 @@ pub mod container_status {
     pub const EXITED: &str = "exited";
     pub const FAILED: &str = "failed";
 }
-
-/// Default timeout in seconds for stopping containers
-const CONTAINER_STOP_TIMEOUT_SECONDS: i64 = 10;
-
-/// Default maximum number of restart attempts before marking container as failed
-const DEFAULT_MAX_RESTART_ATTEMPTS: i32 = 3;
 
 /// Default workspace mount path inside containers
 const DEFAULT_WORKSPACE_MOUNT: &str = "/workspace";
@@ -36,11 +33,24 @@ fn generate_container_name(workspace_id: i32) -> String {
 pub struct ContainerService {
     db: DatabaseConnection,
     docker: Option<DockerService>,
+    config: ContainerConfig,
 }
 
 impl ContainerService {
     pub fn new(db: DatabaseConnection, docker: Option<DockerService>) -> Self {
-        Self { db, docker }
+        Self {
+            db,
+            docker,
+            config: ContainerConfig::default(),
+        }
+    }
+
+    pub fn with_config(
+        db: DatabaseConnection,
+        docker: Option<DockerService>,
+        config: ContainerConfig,
+    ) -> Self {
+        Self { db, docker, config }
     }
 
     pub async fn create_and_start_container(
@@ -85,7 +95,7 @@ impl ContainerService {
             image_name: Set(image_name.to_string()),
             status: Set(container_status::CREATING.to_string()),
             restart_count: Set(0),
-            max_restart_attempts: Set(DEFAULT_MAX_RESTART_ATTEMPTS),
+            max_restart_attempts: Set(self.config.max_restart_attempts),
             health_check_failures: Set(0),
             ..Default::default()
         };
@@ -186,7 +196,7 @@ impl ContainerService {
     }
 
     pub async fn auto_restart_container(&self, container_id: i32) -> Result<()> {
-        // Get container
+        // Get container info
         let container = Container::find_by_id(container_id)
             .one(&self.db)
             .await
@@ -195,16 +205,8 @@ impl ContainerService {
                 VibeRepoError::NotFound(format!("Container with id {} not found", container_id))
             })?;
 
-        // Check if restart_count < max_restart_attempts
+        // Check if we've already exceeded max attempts
         if container.restart_count >= container.max_restart_attempts {
-            tracing::warn!(
-                container_id = container_id,
-                restart_count = container.restart_count,
-                max_attempts = container.max_restart_attempts,
-                "Max restart attempts exceeded"
-            );
-
-            // Mark as failed
             self.mark_as_failed(
                 container_id,
                 &format!(
@@ -213,7 +215,38 @@ impl ContainerService {
                 ),
             )
             .await?;
+            return Ok(());
+        }
 
+        // Atomically increment restart_count ONLY if still below max
+        // This prevents race conditions
+        let updated_rows = container::Entity::update_many()
+            .col_expr(
+                container::Column::RestartCount,
+                Expr::col(container::Column::RestartCount).add(1),
+            )
+            .col_expr(container::Column::LastRestartAt, Expr::value(Utc::now()))
+            .col_expr(container::Column::UpdatedAt, Expr::value(Utc::now()))
+            .filter(container::Column::Id.eq(container_id))
+            .filter(container::Column::RestartCount.lt(container.max_restart_attempts))
+            .exec(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        // If no rows updated, we've hit the limit (another thread got there first)
+        if updated_rows.rows_affected == 0 {
+            tracing::warn!(
+                container_id = container_id,
+                "Restart attempt rejected: max attempts reached"
+            );
+            self.mark_as_failed(
+                container_id,
+                &format!(
+                    "Max restart attempts ({}) exceeded",
+                    container.max_restart_attempts
+                ),
+            )
+            .await?;
             return Ok(());
         }
 
@@ -232,7 +265,7 @@ impl ContainerService {
         // Restart container using Docker (stop + start)
         // First try to stop (ignore errors if already stopped)
         if let Err(e) = docker
-            .stop_container(&container.container_id, CONTAINER_STOP_TIMEOUT_SECONDS)
+            .stop_container(&container.container_id, self.config.stop_timeout_seconds)
             .await
         {
             tracing::warn!(
@@ -245,12 +278,18 @@ impl ContainerService {
         // Start the container
         docker.start_container(&container.container_id).await?;
 
-        // Increment restart count and update last_restart_at
-        let new_count = self.increment_restart_count(container_id).await?;
+        // Get updated restart count
+        let updated_container = Container::find_by_id(container_id)
+            .one(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?
+            .ok_or_else(|| {
+                VibeRepoError::NotFound(format!("Container with id {} not found", container_id))
+            })?;
 
         tracing::info!(
             container_id = container_id,
-            restart_count = new_count,
+            restart_count = updated_container.restart_count,
             "Container restarted successfully"
         );
 
@@ -282,7 +321,7 @@ impl ContainerService {
         // Restart container using Docker (stop + start)
         // First try to stop (ignore errors if already stopped)
         if let Err(e) = docker
-            .stop_container(&container.container_id, CONTAINER_STOP_TIMEOUT_SECONDS)
+            .stop_container(&container.container_id, self.config.stop_timeout_seconds)
             .await
         {
             tracing::warn!(
@@ -339,7 +378,7 @@ impl ContainerService {
 
         // Stop container (ignore errors if already stopped)
         if let Err(e) = docker
-            .stop_container(&container.container_id, CONTAINER_STOP_TIMEOUT_SECONDS)
+            .stop_container(&container.container_id, self.config.stop_timeout_seconds)
             .await
         {
             tracing::warn!(
@@ -367,30 +406,6 @@ impl ContainerService {
         );
 
         Ok(())
-    }
-
-    async fn increment_restart_count(&self, container_id: i32) -> Result<i32> {
-        let container = Container::find_by_id(container_id)
-            .one(&self.db)
-            .await
-            .map_err(VibeRepoError::Database)?
-            .ok_or_else(|| {
-                VibeRepoError::NotFound(format!("Container with id {} not found", container_id))
-            })?;
-
-        let new_count = container.restart_count + 1;
-
-        let mut active: container::ActiveModel = container.into();
-        active.restart_count = Set(new_count);
-        active.last_restart_at = Set(Some(Utc::now()));
-        active.updated_at = Set(Utc::now());
-
-        active
-            .update(&self.db)
-            .await
-            .map_err(VibeRepoError::Database)?;
-
-        Ok(new_count)
     }
 
     async fn reset_restart_count(&self, container_id: i32) -> Result<()> {
@@ -608,7 +623,7 @@ mod tests {
             image_name: Set("alpine:latest".to_string()),
             status: Set(container_status::RUNNING.to_string()),
             restart_count: Set(0),
-            max_restart_attempts: Set(DEFAULT_MAX_RESTART_ATTEMPTS),
+            max_restart_attempts: Set(3),
             health_check_failures: Set(0),
             ..Default::default()
         };
@@ -670,7 +685,7 @@ mod tests {
             image_name: Set("alpine:latest".to_string()),
             status: Set(container_status::CREATING.to_string()),
             restart_count: Set(0),
-            max_restart_attempts: Set(DEFAULT_MAX_RESTART_ATTEMPTS),
+            max_restart_attempts: Set(3),
             health_check_failures: Set(0),
             ..Default::default()
         };
@@ -741,7 +756,7 @@ mod tests {
             image_name: Set("alpine:latest".to_string()),
             status: Set(container_status::EXITED.to_string()),
             restart_count: Set(1),
-            max_restart_attempts: Set(DEFAULT_MAX_RESTART_ATTEMPTS),
+            max_restart_attempts: Set(3),
             health_check_failures: Set(0),
             ..Default::default()
         };
@@ -803,8 +818,8 @@ mod tests {
             container_name: Set(generate_container_name(workspace.id)),
             image_name: Set("alpine:latest".to_string()),
             status: Set(container_status::EXITED.to_string()),
-            restart_count: Set(DEFAULT_MAX_RESTART_ATTEMPTS),
-            max_restart_attempts: Set(DEFAULT_MAX_RESTART_ATTEMPTS),
+            restart_count: Set(3),
+            max_restart_attempts: Set(3),
             health_check_failures: Set(0),
             ..Default::default()
         };
@@ -883,7 +898,7 @@ mod tests {
             image_name: Set("alpine:latest".to_string()),
             status: Set(container_status::EXITED.to_string()),
             restart_count: Set(2),
-            max_restart_attempts: Set(DEFAULT_MAX_RESTART_ATTEMPTS),
+            max_restart_attempts: Set(3),
             health_check_failures: Set(0),
             ..Default::default()
         };
@@ -971,7 +986,7 @@ mod tests {
             image_name: Set("alpine:latest".to_string()),
             status: Set(container_status::RUNNING.to_string()),
             restart_count: Set(0),
-            max_restart_attempts: Set(DEFAULT_MAX_RESTART_ATTEMPTS),
+            max_restart_attempts: Set(3),
             health_check_failures: Set(0),
             ..Default::default()
         };
@@ -1013,5 +1028,75 @@ mod tests {
             // Docker not available - should return error
             assert!(result.is_err());
         }
+    }
+
+    /// Test 11: Concurrent restart respects max attempts (race condition test)
+    /// Requirements: Code Review - Verify atomic restart count increment
+    #[tokio::test]
+    async fn test_concurrent_restart_respects_max_attempts() {
+        // Arrange: Create test database and container
+        let test_db = TestDatabase::new_in_memory()
+            .await
+            .expect("Failed to create test database");
+        let db = test_db.connection;
+
+        let workspace = create_test_workspace(&db).await;
+
+        // Create a container record with restart_count = 0, max = 3
+        let container = container::ActiveModel {
+            workspace_id: Set(workspace.id),
+            container_id: Set("test-concurrent-restart".to_string()),
+            container_name: Set(generate_container_name(workspace.id)),
+            image_name: Set("alpine:latest".to_string()),
+            status: Set(container_status::EXITED.to_string()),
+            restart_count: Set(0),
+            max_restart_attempts: Set(3),
+            health_check_failures: Set(0),
+            ..Default::default()
+        };
+        let created_container = Container::insert(container)
+            .exec_with_returning(&db)
+            .await
+            .unwrap();
+
+        let service = ContainerService::new(db.clone(), None);
+
+        // Act: Spawn 10 concurrent restart attempts
+        let mut handles = vec![];
+        for _ in 0..10 {
+            let service_clone = service.clone();
+            let container_id = created_container.id;
+            let handle =
+                tokio::spawn(
+                    async move { service_clone.auto_restart_container(container_id).await },
+                );
+            handles.push(handle);
+        }
+
+        // Wait for all to complete
+        for handle in handles {
+            let _ = handle.await;
+        }
+
+        // Assert: restart_count should never exceed max_restart_attempts
+        let updated_container = Container::find_by_id(created_container.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            updated_container.restart_count <= 3,
+            "Restart count {} exceeded max attempts 3",
+            updated_container.restart_count
+        );
+
+        // Verify container is marked as failed (since we hit max attempts)
+        assert_eq!(updated_container.status, container_status::FAILED);
+        assert!(updated_container.error_message.is_some());
+        assert!(updated_container
+            .error_message
+            .unwrap()
+            .contains("Max restart attempts"));
     }
 }

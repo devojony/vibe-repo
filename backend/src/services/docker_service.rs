@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use tokio::time::Instant;
 
 use crate::error::{Result, VibeRepoError};
+use crate::services::ContainerConfig;
 
 /// Exit code used when actual exit code is unknown
 const EXEC_EXIT_CODE_UNKNOWN: i64 = -1;
@@ -73,6 +74,7 @@ pub struct ContainerStats {
 #[derive(Clone)]
 pub struct DockerService {
     docker: Docker,
+    config: ContainerConfig,
 }
 
 impl DockerService {
@@ -80,7 +82,17 @@ impl DockerService {
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| VibeRepoError::Internal(format!("Failed to connect to Docker: {}", e)))?;
 
-        Ok(Self { docker })
+        Ok(Self {
+            docker,
+            config: ContainerConfig::default(),
+        })
+    }
+
+    pub fn with_config(config: ContainerConfig) -> Result<Self> {
+        let docker = Docker::connect_with_local_defaults()
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to connect to Docker: {}", e)))?;
+
+        Ok(Self { docker, config })
     }
 
     pub async fn ping(&self) -> Result<bool> {
@@ -115,7 +127,13 @@ impl DockerService {
             .iter()
             .map(|v| Mount {
                 target: Some(v.clone()),
-                source: Some(format!("/tmp/gitautodev/{}", name)),
+                source: Some(
+                    self.config
+                        .workspace_base_dir
+                        .join(name)
+                        .to_string_lossy()
+                        .to_string(),
+                ),
                 typ: Some(MountTypeEnum::BIND),
                 ..Default::default()
             })

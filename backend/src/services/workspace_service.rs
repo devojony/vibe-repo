@@ -1,6 +1,6 @@
 use crate::entities::{container, prelude::*, workspace};
 use crate::error::{Result, VibeRepoError};
-use crate::services::{ContainerService, DockerService};
+use crate::services::{ContainerConfig, ContainerService, DockerService};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
 
@@ -11,21 +11,28 @@ pub mod workspace_status {
     pub const FAILED: &str = "Failed";
 }
 
-/// Default Dockerfile path for workspace images
-const DEFAULT_DOCKERFILE_PATH: &str = "docker/workspace/Dockerfile";
-
-/// Default build context path (project root)
-const DEFAULT_BUILD_CONTEXT: &str = ".";
-
 #[derive(Clone)]
 pub struct WorkspaceService {
     db: DatabaseConnection,
     docker: Option<DockerService>,
+    config: ContainerConfig,
 }
 
 impl WorkspaceService {
     pub fn new(db: DatabaseConnection, docker: Option<DockerService>) -> Self {
-        Self { db, docker }
+        Self {
+            db,
+            docker,
+            config: ContainerConfig::default(),
+        }
+    }
+
+    pub fn with_config(
+        db: DatabaseConnection,
+        docker: Option<DockerService>,
+        config: ContainerConfig,
+    ) -> Self {
+        Self { db, docker, config }
     }
 
     pub async fn create_workspace(&self, repository_id: i32) -> Result<workspace::Model> {
@@ -218,7 +225,11 @@ impl WorkspaceService {
 
         // Build image using default Dockerfile location
         docker
-            .build_image(DEFAULT_DOCKERFILE_PATH, image_name, DEFAULT_BUILD_CONTEXT)
+            .build_image(
+                self.config.workspace_dockerfile.to_str().unwrap(),
+                image_name,
+                self.config.build_context.to_str().unwrap(),
+            )
             .await?;
 
         let build_time = start_time.elapsed();
