@@ -1,6 +1,6 @@
 # Agent Guidelines for VibeRepo
 
-**Current Version:** v0.1.20 (Pre-1.0 - Breaking changes allowed)
+**Current Version:** v0.3.0 (Pre-1.0 - Breaking changes allowed)
 
 This document provides coding guidelines for AI agents working on the VibeRepo codebase.
 
@@ -8,7 +8,7 @@ This document provides coding guidelines for AI agents working on the VibeRepo c
 
 VibeRepo is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
 
-### Current Status (v0.1.20)
+### Current Status (v0.3.0)
 
 **Completed Modules:**
 - ✅ Backend Foundation (configuration, database, error handling, health check)
@@ -17,9 +17,16 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - ✅ Git Provider Abstraction (unified interface for Gitea/GitHub/GitLab)
 - ✅ Repository Initialization (branch and label setup)
 - ✅ Static Dispatch Git Client (compile-time polymorphism)
+- ✅ Webhook Integration (real-time event processing)
+- ✅ Workspace API (Docker-based isolated development environments)
+- ✅ Init Script Feature (automated container setup)
+- ✅ Container Lifecycle Management (health monitoring, auto-restart)
+- ✅ Agent Management (AI agent configurations)
+- ✅ Task Automation (automated development tasks)
+- ✅ Issue Polling (automatic issue synchronization with intelligent filtering)
 
 **In Progress:**
-- 🟡 Workspace API (planned next)
+- 🟡 Issue-to-PR Workflow (automated pull request generation)
 
 ### Technology Stack
 
@@ -375,12 +382,16 @@ backend/
 - `POST /api/repositories/:id/refresh` - Refresh repository validation status
 - `POST /api/repositories/:id/initialize` - Initialize single repository
 - `POST /api/repositories/batch-initialize` - Batch initialize repositories
+- `PATCH /api/repositories/:id/polling` - Update issue polling configuration
+- `POST /api/repositories/:id/poll-issues` - Manually trigger issue polling
 
 **Features:**
 - Automatic repository sync when provider is created/updated
 - Validation checks: required branches (vibe-dev), labels (vibe/* prefix), permissions
 - Background service for scheduled sync (hourly)
 - Repository initialization with configurable branch names and label management
+- Issue polling with intelligent filtering (labels, mentions, state, age)
+- Dual-mode issue tracking (webhook-first with automatic polling fallback)
 
 ### Webhook Module
 
@@ -435,6 +446,12 @@ SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
 RUST_LOG=debug
 LOG_FORMAT=json  # Optional: use JSON logs in production
+
+# Issue Polling Configuration
+ISSUE_POLLING_ENABLED=true
+ISSUE_POLLING_INTERVAL_SECONDS=300
+ISSUE_POLLING_BATCH_SIZE=10
+ISSUE_POLLING_MAX_ISSUE_AGE_DAYS=30
 ```
 
 ## Common Patterns
@@ -559,16 +576,16 @@ cargo test
 - **Integration Tests**: In `tests/` directory with `_integration_tests.rs` suffix
 - **Property Tests**: Use `proptest` crate, suffix with `_property_tests.rs`
 
-**Test Coverage (v0.1.20):**
-- Total tests: 181+
+**Test Coverage (v0.3.0):**
+- Total tests: 398
 - Passing: 100%
+- Unit tests: 379 (including issue polling service tests)
+- Integration tests: 19 (including polling API tests)
 - Property tests: 14
-- Integration tests: 12+
-- Unit tests: 155+
 
 ## Database Schema
 
-### Implemented Tables (v0.1.20)
+### Implemented Tables (v0.3.0)
 
 #### repo_providers
 Git provider configurations with authentication credentials.
@@ -587,7 +604,7 @@ Git provider configurations with authentication credentials.
 - UNIQUE (name, base_url, access_token)
 
 #### repositories
-Repository records with validation status.
+Repository records with validation status and polling configuration.
 
 **Fields:**
 - `id` (INTEGER, PRIMARY KEY)
@@ -603,6 +620,10 @@ Repository records with validation status.
 - `has_required_labels` (BOOLEAN) - vibe/* labels exist
 - `can_manage_prs` (BOOLEAN) - Token has PR permissions
 - `can_manage_issues` (BOOLEAN) - Token has Issue permissions
+- `polling_enabled` (BOOLEAN, DEFAULT false) - Enable issue polling
+- `polling_interval_seconds` (INTEGER, NULLABLE) - Polling interval (60-86400)
+- `polling_config` (TEXT, NULLABLE) - JSON polling configuration
+- `last_polled_at` (TIMESTAMP, NULLABLE) - Last polling timestamp
 - `created_at` (TIMESTAMP)
 - `updated_at` (TIMESTAMP)
 
@@ -649,11 +670,85 @@ direct lookup without database queries. While `provider_id` is technically redun
 (can be obtained via `repository.provider_id`), it provides significant performance
 benefits for common operations like cascade deletion and provider-level queries.
 
+### Implemented Tables (Continued)
+
+#### workspaces
+Docker-based isolated development environments for repositories.
+
+**Fields:**
+- `id` (INTEGER, PRIMARY KEY)
+- `repository_id` (INTEGER, FOREIGN KEY → repositories.id)
+- `workspace_status` (TEXT) - 'creating', 'ready', 'error', etc.
+- `container_id` (TEXT, NULLABLE)
+- `container_status` (TEXT, NULLABLE)
+- `cpu_limit` (TEXT, NULLABLE) - CPU limit (e.g., "2.0")
+- `memory_limit` (TEXT, NULLABLE) - Memory limit (e.g., "2g")
+- `disk_limit` (TEXT, NULLABLE) - Disk limit (e.g., "10g")
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
+
+**Relationships:**
+- One-to-one with repositories
+- CASCADE DELETE: Deleting a repository deletes its workspace
+
+#### init_scripts
+Custom initialization scripts for workspace containers.
+
+**Fields:**
+- `id` (INTEGER, PRIMARY KEY)
+- `workspace_id` (INTEGER, FOREIGN KEY → workspaces.id)
+- `script_content` (TEXT, NOT NULL) - Shell script to execute
+- `timeout_seconds` (INTEGER, DEFAULT 300) - Execution timeout
+- `status` (TEXT) - 'Pending', 'Running', 'Success', 'Failed'
+- `output_summary` (TEXT, NULLABLE) - Last 4KB of output
+- `output_file_path` (TEXT, NULLABLE) - Path to full log file
+- `executed_at` (TIMESTAMP, NULLABLE)
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
+
+**Relationships:**
+- One-to-one with workspaces
+- CASCADE DELETE: Deleting a workspace deletes its init script
+
+#### agents
+AI agent configurations for workspaces.
+
+**Fields:**
+- `id` (INTEGER, PRIMARY KEY)
+- `workspace_id` (INTEGER, FOREIGN KEY → workspaces.id)
+- `agent_type` (TEXT, NOT NULL) - Type of AI agent
+- `config` (TEXT, NULLABLE) - JSON configuration
+- `status` (TEXT) - 'active', 'inactive', etc.
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
+
+**Relationships:**
+- Many-to-one with workspaces
+- CASCADE DELETE: Deleting a workspace deletes its agents
+
+#### tasks
+Automated development tasks created from issues.
+
+**Fields:**
+- `id` (INTEGER, PRIMARY KEY)
+- `workspace_id` (INTEGER, FOREIGN KEY → workspaces.id)
+- `issue_number` (INTEGER, NOT NULL) - Source issue number
+- `issue_url` (TEXT, NOT NULL) - Full URL to the issue
+- `task_type` (TEXT, NOT NULL) - 'IssueToTask', 'Manual', etc.
+- `status` (TEXT) - 'Pending', 'InProgress', 'Completed', 'Failed'
+- `priority` (INTEGER, DEFAULT 0) - Task priority level
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
+
+**Constraints:**
+- UNIQUE (workspace_id, issue_number) - Prevent duplicate tasks for same issue
+
+**Relationships:**
+- Many-to-one with workspaces
+- CASCADE DELETE: Deleting a workspace deletes its tasks
+
 ### Planned Tables
 
-- `workspaces` - Development workspace records
-- `agents` - AI agent configurations
-- `tasks` - Automated task records
 - `task_logs` - Task execution logs
 
 ## Additional Notes
@@ -665,6 +760,6 @@ benefits for common operations like cascade deletion and provider-level queries.
 - **Graceful Shutdown**: Ctrl+C triggers graceful shutdown of services
 - **Database**: SQLite for development, PostgreSQL for production
 - **Migrations**: Run automatically on application startup
-- **Background Services**: Repository sync service runs hourly
+- **Background Services**: Repository sync service runs hourly, issue polling service runs every 5 minutes (configurable)
 - **Token Security**: Access tokens and API keys are masked in all API responses
 - **Version Policy**: Pre-1.0 allows breaking changes without migration

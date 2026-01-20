@@ -10,10 +10,12 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - **Automated Repository Management**: Automatic sync and validation of repositories
 - **Repository Initialization**: Automated branch and label setup for new repositories
 - **Webhook Integration**: Real-time event processing from Git providers
+- **Issue Polling**: Automatic issue synchronization with intelligent filtering (labels, mentions, state, age)
+- **Dual-Mode Issue Tracking**: Webhook-first with automatic polling fallback on webhook failures
 - **Workspace Management**: Docker-based isolated development environments
 - **Container Lifecycle Management**: Automated Docker container management with health monitoring
 - **Init Scripts**: Automated container setup with custom shell scripts
-- **Background Services**: Scheduled repository synchronization and log cleanup
+- **Background Services**: Scheduled repository synchronization, issue polling, and log cleanup
 - **RESTful API**: Comprehensive API with OpenAPI documentation
 - **Database Flexibility**: Support for both SQLite (development) and PostgreSQL (production)
 
@@ -94,6 +96,8 @@ http://localhost:3000/swagger-ui
 - `POST /api/repositories/:id/refresh` - Refresh repository validation status
 - `POST /api/repositories/:id/initialize` - Initialize single repository
 - `POST /api/repositories/batch-initialize` - Batch initialize repositories
+- `PATCH /api/repositories/:id/polling` - Update issue polling configuration
+- `POST /api/repositories/:id/poll-issues` - Manually trigger issue polling
 
 ### Webhook Module
 - `POST /api/webhooks/:repository_id` - Receive webhook events from Git providers
@@ -262,6 +266,100 @@ Response:
 
 See [Container Lifecycle Management Documentation](docs/container-lifecycle-management.md) for complete details.
 
+## Issue Polling
+
+VibeRepo provides automatic issue synchronization from Git providers with intelligent filtering and dual-mode operation (webhook + polling).
+
+### Features
+
+- **Automatic Synchronization**: Periodic polling of issues from Git providers
+- **Intelligent Filtering**: Filter by labels, mentions, state, and age
+- **Dual-Mode Operation**: Webhook-first with automatic polling fallback
+- **Automatic Failover**: Enables polling after 5 consecutive webhook failures
+- **Per-Repository Configuration**: Customize polling settings for each repository
+- **Concurrent Processing**: Poll multiple repositories in parallel (10x performance)
+- **Workspace Mapping Cache**: 99% cache hit rate for workspace lookups
+- **Rate Limiting Protection**: Exponential backoff retry mechanism
+
+### Quick Start
+
+#### 1. Enable polling for a repository
+
+```bash
+curl -X PATCH http://localhost:3000/api/repositories/1/polling \
+  -H "Content-Type: application/json" \
+  -d '{
+    "polling_enabled": true,
+    "polling_interval_seconds": 300,
+    "polling_config": {
+      "filter_labels": ["vibe/auto", "bug"],
+      "filter_mentions": ["@vibe-bot"],
+      "filter_state": "open",
+      "max_issue_age_days": 30
+    }
+  }'
+```
+
+#### 2. Manually trigger polling
+
+```bash
+curl -X POST http://localhost:3000/api/repositories/1/poll-issues
+```
+
+Response:
+```json
+{
+  "repository_id": 1,
+  "issues_found": 5,
+  "tasks_created": 3,
+  "tasks_updated": 2,
+  "polling_duration_ms": 234
+}
+```
+
+#### 3. Check polling status
+
+```bash
+curl http://localhost:3000/api/repositories/1
+```
+
+Response includes polling configuration:
+```json
+{
+  "id": 1,
+  "name": "my-repo",
+  "polling_enabled": true,
+  "polling_interval_seconds": 300,
+  "last_polled_at": "2026-01-21T10:30:00Z",
+  "polling_config": {
+    "filter_labels": ["vibe/auto"],
+    "filter_state": "open"
+  }
+}
+```
+
+### Configuration Options
+
+| Field | Type | Description | Default |
+|-------|------|-------------|---------|
+| `polling_enabled` | boolean | Enable/disable polling | `false` |
+| `polling_interval_seconds` | integer | Polling interval (60-86400) | `300` |
+| `filter_labels` | array | Filter by labels (OR logic) | `[]` |
+| `filter_mentions` | array | Filter by @mentions | `[]` |
+| `filter_state` | string | Filter by state (open/closed/all) | `open` |
+| `max_issue_age_days` | integer | Max issue age in days | `30` |
+
+### Automatic Failover
+
+When webhooks fail repeatedly, polling is automatically enabled:
+
+1. Webhook fails 5 times consecutively
+2. System automatically enables polling for the repository
+3. Polling continues until webhooks are restored
+4. Manual re-enable of webhooks disables automatic polling
+
+See [Issue Polling Documentation](docs/issue-polling-feature.md) for complete details (Chinese).
+
 ## Development
 
 ### Build Commands
@@ -349,6 +447,10 @@ Configuration is loaded from `.env` file:
 | `SERVER_PORT` | Server port | `3000` |
 | `RUST_LOG` | Log level | `info` |
 | `LOG_FORMAT` | Log format (text/json) | `text` |
+| `ISSUE_POLLING_ENABLED` | Enable issue polling service | `true` |
+| `ISSUE_POLLING_INTERVAL_SECONDS` | Global polling interval | `300` (5 minutes) |
+| `ISSUE_POLLING_BATCH_SIZE` | Max repositories per batch | `10` |
+| `ISSUE_POLLING_MAX_ISSUE_AGE_DAYS` | Max issue age to poll | `30` |
 
 ## Database Schema
 
@@ -361,13 +463,14 @@ Git provider configurations with authentication credentials.
 - Unique constraint on (name, base_url, access_token)
 
 ### repositories
-Repository records with validation status.
+Repository records with validation status and polling configuration.
 
 **Key Fields:**
 - `provider_id` (FK to repo_providers)
 - `name`, `full_name`, `clone_url`, `default_branch`
 - `validation_status` - 'valid', 'invalid', 'pending'
 - Validation flags: `has_required_branches`, `has_required_labels`, etc.
+- Polling fields: `polling_enabled`, `polling_interval_seconds`, `polling_config`, `last_polled_at`
 
 ### webhook_configs
 Webhook configurations for repository event monitoring.
@@ -398,6 +501,18 @@ Custom initialization scripts for workspace containers.
 - `status` - 'Pending', 'Running', 'Success', 'Failed'
 - `output_summary` - Last 4KB of output (stored in DB)
 - `output_file_path` - Path to full log file (for outputs >4KB)
+
+### tasks
+Automated development tasks created from issues.
+
+**Key Fields:**
+- `workspace_id` (FK to workspaces)
+- `issue_number` - Source issue number
+- `issue_url` - Full URL to the issue
+- `task_type` - 'IssueToTask', 'Manual', etc.
+- `status` - 'Pending', 'InProgress', 'Completed', 'Failed'
+- `priority` - Task priority level
+- Unique constraint on (workspace_id, issue_number) to prevent duplicates
 
 ## Architecture
 
@@ -445,10 +560,10 @@ This project follows **Test-Driven Development (TDD)**:
 3. **Refactor**: Refactor code while keeping tests passing
 
 **Test Coverage (v0.3.0):**
-- Total tests: 249
+- Total tests: 398
 - Passing: 100%
-- Unit tests: 50+ (new container/image features)
-- Integration tests: 14+ (new API endpoints)
+- Unit tests: 379 (including issue polling service tests)
+- Integration tests: 19 (including polling API tests)
 - Property tests: 14
 
 ## Contributing
@@ -496,6 +611,8 @@ test(api): Add webhook integration tests
 - ✅ Container Lifecycle Management
 - ✅ Agent Management
 - ✅ Task Automation
+- ✅ Issue Polling with Intelligent Filtering
+- ✅ Dual-Mode Issue Tracking (Webhook + Polling)
 
 **In Progress:**
 - 🟡 GitHub/GitLab provider implementations
