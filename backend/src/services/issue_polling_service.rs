@@ -8,8 +8,10 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::stream::{self, StreamExt};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 use crate::config::IssuePollingConfig;
 use crate::entities::prelude::*;
@@ -25,13 +27,78 @@ use crate::state::AppState;
 pub struct IssuePollingService {
     db: DatabaseConnection,
     config: IssuePollingConfig,
+    /// Cache: repository_id -> workspace_id
+    workspace_cache: Arc<RwLock<HashMap<i32, i32>>>,
 }
 
 impl IssuePollingService {
     /// Create a new issue polling service
     pub fn new(db: DatabaseConnection, config: IssuePollingConfig) -> Self {
-        Self { db, config }
+        Self {
+            db,
+            config,
+            workspace_cache: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
+
+    /// Get workspace ID for a repository, using cache when possible
+    async fn get_workspace_id(&self, repo_id: i32) -> Result<i32> {
+        // 1. Check cache first
+        {
+            let cache = self.workspace_cache.read().await;
+            if let Some(workspace_id) = cache.get(&repo_id) {
+                tracing::debug!(
+                    repository_id = repo_id,
+                    workspace_id = workspace_id,
+                    "Workspace cache hit"
+                );
+                return Ok(*workspace_id);
+            }
+        }
+
+        // 2. Cache miss, query database
+        tracing::debug!(
+            repository_id = repo_id,
+            "Workspace cache miss, querying database"
+        );
+
+        let workspace = Workspace::find()
+            .filter(workspace::Column::RepositoryId.eq(repo_id))
+            .filter(workspace::Column::DeletedAt.is_null())
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| {
+                VibeRepoError::NotFound(format!("Workspace not found for repository {}", repo_id))
+            })?;
+
+        // 3. Update cache
+        {
+            let mut cache = self.workspace_cache.write().await;
+            cache.insert(repo_id, workspace.id);
+        }
+
+        tracing::debug!(
+            repository_id = repo_id,
+            workspace_id = workspace.id,
+            "Workspace cached"
+        );
+
+        Ok(workspace.id)
+    }
+
+    /// Clear workspace cache (useful for testing or manual refresh)
+    pub async fn clear_workspace_cache(&self) {
+        let mut cache = self.workspace_cache.write().await;
+        cache.clear();
+        tracing::info!("Workspace cache cleared");
+    }
+
+    /// Get cache statistics (size, capacity)
+    pub async fn get_cache_stats(&self) -> (usize, usize) {
+        let cache = self.workspace_cache.read().await;
+        (cache.len(), cache.capacity())
+    }
+
 
     /// Poll all repositories that have polling enabled
     async fn poll_all_repositories(&self) -> Result<()> {
@@ -119,15 +186,8 @@ impl IssuePollingService {
         }
         let (owner, repo_name) = (parts[0], parts[1]);
 
-        // 3. Get workspace for this repository
-        let workspace = Workspace::find()
-            .filter(workspace::Column::RepositoryId.eq(repo.id))
-            .filter(workspace::Column::DeletedAt.is_null())
-            .one(&self.db)
-            .await?
-            .ok_or_else(|| {
-                VibeRepoError::NotFound(format!("Workspace not found for repository {}", repo.id))
-            })?;
+        // 3. Get workspace for this repository (using cache)
+        let workspace_id = self.get_workspace_id(repo.id).await?;
 
         // 4. Build issue filter
         let filter = IssueFilter {
@@ -172,7 +232,7 @@ impl IssuePollingService {
             }
 
             // Create task from issue
-            match self.create_task_from_issue(workspace.id, &issue).await {
+            match self.create_task_from_issue(workspace_id, &issue).await {
                 Ok(_) => {
                     new_task_count += 1;
                     tracing::info!(
