@@ -61,7 +61,7 @@ impl IssuePollingService {
     }
 
     /// Poll a single repository for new issues
-    async fn poll_repository(&self, repo: &repository::Model) -> Result<()> {
+    pub async fn poll_repository(&self, repo: &repository::Model) -> Result<()> {
         tracing::debug!(
             repository_id = repo.id,
             repository_name = %repo.full_name,

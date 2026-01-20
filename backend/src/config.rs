@@ -656,10 +656,7 @@ mod tests {
 
         let config = IssuePollingConfig::default();
 
-        assert!(
-            !config.enabled,
-            "Polling should be disabled by default"
-        );
+        assert!(!config.enabled, "Polling should be disabled by default");
         assert_eq!(
             config.interval_seconds, 300,
             "Default interval should be 300 seconds (5 minutes)"

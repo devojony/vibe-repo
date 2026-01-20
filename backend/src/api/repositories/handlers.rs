@@ -19,7 +19,8 @@ use crate::{
 
 use super::models::{
     BatchInitializeParams, BatchInitializeResponse, BatchOperationRequest, BatchOperationResponse,
-    BatchOperationResult, InitializeRepositoryRequest, RepositoryResponse, UpdateRepositoryRequest,
+    BatchOperationResult, InitializeRepositoryRequest, PollIssuesResponse, RepositoryResponse,
+    UpdatePollingRequest, UpdateRepositoryRequest,
 };
 
 /// Initialize a single repository
@@ -890,4 +891,128 @@ struct GiteaBranch {
 #[derive(Debug, Deserialize)]
 struct GiteaLabel {
     name: String,
+}
+
+/// Update repository polling configuration
+/// PATCH /api/repositories/:id/polling
+#[utoipa::path(
+    patch,
+    path = "/api/repositories/{id}/polling",
+    request_body = UpdatePollingRequest,
+    params(
+        ("id" = i32, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "Polling config updated", body = RepositoryResponse),
+        (status = 404, description = "Repository not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "repositories"
+)]
+pub async fn update_repository_polling(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+    Json(req): Json<UpdatePollingRequest>,
+) -> Result<Json<RepositoryResponse>, VibeRepoError> {
+    tracing::info!(
+        repository_id = id,
+        enabled = req.enabled,
+        interval_seconds = ?req.interval_seconds,
+        "Updating repository polling configuration"
+    );
+
+    // 1. Find repository
+    let repo = Repository::find_by_id(id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| VibeRepoError::NotFound(format!("Repository {} not found", id)))?;
+
+    // 2. Validate interval_seconds if provided
+    if let Some(interval) = req.interval_seconds {
+        if interval < 60 {
+            return Err(VibeRepoError::Validation(
+                "polling_interval_seconds must be at least 60 seconds".to_string(),
+            ));
+        }
+    }
+
+    // 3. Update polling configuration
+    use sea_orm::ActiveValue::Set;
+    let mut repo_active: repository::ActiveModel = repo.into();
+    repo_active.polling_enabled = Set(req.enabled);
+    if let Some(interval) = req.interval_seconds {
+        repo_active.polling_interval_seconds = Set(Some(interval));
+    }
+    repo_active.updated_at = Set(chrono::Utc::now());
+
+    // 4. Save to database
+    let updated_repo = repo_active.update(&state.db).await?;
+
+    tracing::info!(
+        repository_id = id,
+        polling_enabled = updated_repo.polling_enabled,
+        polling_interval_seconds = ?updated_repo.polling_interval_seconds,
+        "Repository polling configuration updated"
+    );
+
+    // 5. Return response
+    Ok(Json(RepositoryResponse::from_model(updated_repo)))
+}
+
+/// Manually trigger issue polling for a repository
+/// POST /api/repositories/:id/poll-issues
+#[utoipa::path(
+    post,
+    path = "/api/repositories/{id}/poll-issues",
+    params(
+        ("id" = i32, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "Polling triggered", body = PollIssuesResponse),
+        (status = 404, description = "Repository not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "repositories"
+)]
+pub async fn trigger_issue_polling(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<PollIssuesResponse>, VibeRepoError> {
+    tracing::info!(repository_id = id, "Manual issue polling triggered");
+
+    // 1. Find repository
+    let repo = Repository::find_by_id(id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| VibeRepoError::NotFound(format!("Repository {} not found", id)))?;
+
+    // 2. Create IssuePollingService instance
+    use crate::services::issue_polling_service::IssuePollingService;
+    let polling_service =
+        IssuePollingService::new(state.db.clone(), state.config.issue_polling.clone());
+
+    // 3. Spawn async task to poll repository
+    let repo_clone = repo.clone();
+    tokio::spawn(async move {
+        if let Err(e) = polling_service.poll_repository(&repo_clone).await {
+            tracing::error!(
+                repository_id = repo_clone.id,
+                repository_name = %repo_clone.full_name,
+                error = %e,
+                "Manual polling failed"
+            );
+        } else {
+            tracing::info!(
+                repository_id = repo_clone.id,
+                repository_name = %repo_clone.full_name,
+                "Manual polling completed successfully"
+            );
+        }
+    });
+
+    // 4. Return success response immediately
+    Ok(Json(PollIssuesResponse {
+        success: true,
+        message: "Polling triggered".to_string(),
+    }))
 }
