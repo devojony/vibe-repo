@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+- Agent configuration management
+- Task automation system
+- GitHub provider implementation
+- GitLab provider implementation
+
+---
+
+## [0.2.0] - 2026-01-20
+
 ### Added
 - **Init Scripts Feature**: Automated container setup with custom shell scripts
   - Create init scripts when creating workspaces
@@ -26,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 4 new API endpoints for script management
   - Comprehensive integration tests (12 new tests)
   - Complete documentation and migration guide
+- Docker exec integration with timeout support
+- LogCleanupService for automatic log file management
+- Comprehensive usage guide with 7 common use cases
+- Best practices and troubleshooting documentation
 
 ### Changed
 - **BREAKING**: Removed `custom_dockerfile_path` field from workspaces
@@ -35,12 +49,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced OpenAPI documentation with init script endpoints
 - Increased test coverage to 500+ tests
 
-### Planned
-- Workspace API implementation
-- Agent configuration management
-- Task automation system
-- GitHub provider implementation
-- GitLab provider implementation
+### Technical Details
+- Database: New init_scripts table with 1:1 relationship to workspaces
+- Services: InitScriptService with CRUD and execution logic
+- API: 4 new endpoints (create/update, execute, logs, download)
+- Testing: 500+ tests including unit, integration, and API tests
+- Documentation: 3 comprehensive guides totaling 1000+ lines
+
+### Development
+- Implemented using Subagent-Driven Development methodology
+- 15 commits with systematic code reviews
+- TDD approach with test-first implementation
+- Complete OpenAPI documentation
 
 ---
 

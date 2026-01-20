@@ -1,6 +1,6 @@
 # VibeRepo
 
-**Version:** 0.1.1 (Pre-1.0 - Breaking changes allowed)
+**Version:** 0.2.0 (Pre-1.0 - Breaking changes allowed)
 
 VibeRepo is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
 
