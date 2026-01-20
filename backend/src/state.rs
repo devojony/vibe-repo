@@ -60,7 +60,7 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{DatabaseConfig, ServerConfig, WebhookConfig};
+    use crate::config::{DatabaseConfig, IssuePollingConfig, ServerConfig, WebhookConfig};
     use crate::test_utils::db::create_test_database;
 
     // ============================================
@@ -84,6 +84,7 @@ mod tests {
                 port: 8080,
             },
             webhook: WebhookConfig::default(),
+            issue_polling: IssuePollingConfig::default(),
         };
         let config_arc = Arc::new(config.clone());
         let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
