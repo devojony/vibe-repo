@@ -123,41 +123,93 @@ Init scripts allow you to automatically configure workspace containers after the
 - **Log Management**: Automatic cleanup of logs older than 30 days
 - **Concurrency Control**: Prevents multiple simultaneous executions
 
-### Usage Example
+### Usage Examples
 
-Create a workspace with an init script:
+#### 1. Create a workspace with an init script
 
 ```bash
 curl -X POST http://localhost:3000/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{
     "repository_id": 1,
-    "init_script": "#!/bin/bash\napt-get update && apt-get install -y git curl",
-    "script_timeout_seconds": 600,
-    "image_source": "default",
-    "max_concurrent_tasks": 3,
-    "cpu_limit": 2.0,
-    "memory_limit": "4GB",
-    "disk_limit": "10GB"
+    "init_script": "#!/bin/bash\necho \"Setting up workspace...\"\napt-get update\napt-get install -y git curl vim\necho \"Setup complete!\"",
+    "script_timeout_seconds": 600
   }'
 ```
 
-Update an existing init script:
+Response includes the created init script:
+```json
+{
+  "id": 1,
+  "repository_id": 1,
+  "workspace_status": "Initializing",
+  "init_script": {
+    "id": 1,
+    "workspace_id": 1,
+    "script_content": "#!/bin/bash\necho \"Setting up workspace...\"\n...",
+    "timeout_seconds": 600,
+    "status": "Pending",
+    "created_at": "2026-01-19T14:20:54Z"
+  }
+}
+```
+
+#### 2. Create a workspace without init script
+
+```bash
+curl -X POST http://localhost:3000/api/workspaces \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repository_id": 2
+  }'
+```
+
+The `init_script` field will be `null` in the response.
+
+#### 3. Update an existing init script
 
 ```bash
 curl -X PUT http://localhost:3000/api/workspaces/1/init-script \
   -H "Content-Type: application/json" \
   -d '{
-    "script_content": "#!/bin/bash\necho \"Updated script\"",
+    "script_content": "#!/bin/bash\necho \"Updated script\"\ndate\nuname -a",
     "timeout_seconds": 300,
     "execute_immediately": false
   }'
 ```
 
-Check script execution logs:
+#### 4. Execute init script manually
+
+```bash
+curl -X POST http://localhost:3000/api/workspaces/1/init-script/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "force": false
+  }'
+```
+
+Note: Returns 409 Conflict if script is already running.
+
+#### 5. Check script execution logs
 
 ```bash
 curl http://localhost:3000/api/workspaces/1/init-script/logs
+```
+
+Response:
+```json
+{
+  "status": "Success",
+  "output_summary": "Setup complete!\n",
+  "has_full_log": false,
+  "executed_at": "2026-01-19T14:25:30Z"
+}
+```
+
+#### 6. Download full log file (for large outputs)
+
+```bash
+curl http://localhost:3000/api/workspaces/1/init-script/logs/full -o script.log
 ```
 
 ### Migration from custom_dockerfile_path
