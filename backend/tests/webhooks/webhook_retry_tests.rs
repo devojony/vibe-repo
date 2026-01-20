@@ -83,6 +83,7 @@ fn test_calculate_exponential_backoff() {
         initial_delay_secs: 60,
         max_delay_secs: 3600,
         backoff_multiplier: 2.0,
+        polling_fallback_threshold: 5,
     };
 
     // Test retry 0: 60s
@@ -123,6 +124,7 @@ fn test_max_retries_respected() {
         initial_delay_secs: 60,
         max_delay_secs: 3600,
         backoff_multiplier: 2.0,
+        polling_fallback_threshold: 5,
     };
 
     // Should return None when retry_count >= max_retries

@@ -99,6 +99,13 @@ pub struct WebhookRetryConfig {
     pub max_delay_secs: u64,
     /// Exponential backoff multiplier
     pub backoff_multiplier: f64,
+    /// Retry count threshold to enable polling fallback
+    #[serde(default = "default_polling_fallback_threshold")]
+    pub polling_fallback_threshold: u32,
+}
+
+fn default_polling_fallback_threshold() -> u32 {
+    5
 }
 
 impl Default for WebhookRetryConfig {
@@ -120,6 +127,10 @@ impl Default for WebhookRetryConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(2.0),
+            polling_fallback_threshold: std::env::var("WEBHOOK_RETRY_POLLING_FALLBACK_THRESHOLD")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5),
         }
     }
 }
