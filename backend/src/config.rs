@@ -59,6 +59,21 @@ pub struct WebhookConfig {
     pub retry: WebhookRetryConfig,
 }
 
+/// Issue polling configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssuePollingConfig {
+    /// Whether issue polling is enabled
+    pub enabled: bool,
+    /// Polling interval in seconds
+    pub interval_seconds: u64,
+    /// Required labels for issues to be processed (comma-separated)
+    pub required_labels: Option<Vec<String>>,
+    /// Bot username to filter out bot-created issues
+    pub bot_username: Option<String>,
+    /// Maximum age of issues to process (in days)
+    pub max_issue_age_days: Option<i64>,
+}
+
 /// Webhook retry configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookRetryConfig {
@@ -107,6 +122,37 @@ impl Default for WebhookConfig {
     }
 }
 
+impl Default for IssuePollingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: std::env::var("ISSUE_POLLING_ENABLED")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(false),
+            interval_seconds: std::env::var("ISSUE_POLLING_INTERVAL_SECONDS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(300), // 5 minutes
+            required_labels: std::env::var("ISSUE_POLLING_REQUIRED_LABELS")
+                .ok()
+                .map(|s| {
+                    s.split(',')
+                        .map(|label| label.trim().to_string())
+                        .filter(|label| !label.is_empty())
+                        .collect()
+                })
+                .or_else(|| Some(vec!["vibe-auto".to_string()])),
+            bot_username: std::env::var("ISSUE_POLLING_BOT_USERNAME")
+                .ok()
+                .or_else(|| Some("gitautodev-bot".to_string())),
+            max_issue_age_days: std::env::var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .or(Some(30)),
+        }
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -116,6 +162,8 @@ pub struct AppConfig {
     pub server: ServerConfig,
     /// Webhook configuration
     pub webhook: WebhookConfig,
+    /// Issue polling configuration
+    pub issue_polling: IssuePollingConfig,
 }
 
 impl AppConfig {
@@ -150,6 +198,29 @@ impl AppConfig {
                 field: "DATABASE_MAX_CONNECTIONS".to_string(),
                 message: "DATABASE_MAX_CONNECTIONS must be greater than 0".to_string(),
             });
+        }
+
+        // Validate issue polling configuration
+        if self.issue_polling.enabled {
+            // interval_seconds should be at least 60 (1 minute)
+            if self.issue_polling.interval_seconds < 60 {
+                return Err(ConfigError::InvalidValue {
+                    field: "ISSUE_POLLING_INTERVAL_SECONDS".to_string(),
+                    message: "ISSUE_POLLING_INTERVAL_SECONDS must be at least 60 seconds"
+                        .to_string(),
+                });
+            }
+
+            // max_issue_age_days should be positive if set
+            if let Some(max_age) = self.issue_polling.max_issue_age_days {
+                if max_age <= 0 {
+                    return Err(ConfigError::InvalidValue {
+                        field: "ISSUE_POLLING_MAX_ISSUE_AGE_DAYS".to_string(),
+                        message: "ISSUE_POLLING_MAX_ISSUE_AGE_DAYS must be greater than 0"
+                            .to_string(),
+                    });
+                }
+            }
         }
 
         Ok(())
@@ -327,6 +398,7 @@ mod tests {
                         port,
                     },
                     webhook: WebhookConfig::default(),
+                    issue_polling: IssuePollingConfig::default(),
                 };
 
                 let result = config.validate();
@@ -356,6 +428,7 @@ mod tests {
                         port,
                     },
                     webhook: WebhookConfig::default(),
+                    issue_polling: IssuePollingConfig::default(),
                 };
 
                 let result = config.validate();
@@ -390,6 +463,7 @@ mod tests {
                         port: 0,
                     },
                     webhook: WebhookConfig::default(),
+                    issue_polling: IssuePollingConfig::default(),
                 };
 
                 let result = config.validate();
@@ -424,6 +498,7 @@ mod tests {
                         port,
                     },
                     webhook: WebhookConfig::default(),
+                    issue_polling: IssuePollingConfig::default(),
                 };
 
                 let result = config.validate();
@@ -458,6 +533,7 @@ mod tests {
                 port: 8080,
             },
             webhook: WebhookConfig::default(),
+            issue_polling: IssuePollingConfig::default(),
         };
 
         assert!(
@@ -475,6 +551,7 @@ mod tests {
             },
             server: ServerConfig::default(),
             webhook: WebhookConfig::default(),
+            issue_polling: IssuePollingConfig::default(),
         };
 
         let result = config.validate();
@@ -502,6 +579,7 @@ mod tests {
                 port: 0,
             },
             webhook: WebhookConfig::default(),
+            issue_polling: IssuePollingConfig::default(),
         };
 
         let result = config.validate();
@@ -529,6 +607,7 @@ mod tests {
             },
             server: ServerConfig::default(),
             webhook: WebhookConfig::default(),
+            issue_polling: IssuePollingConfig::default(),
         };
 
         let result = config.validate();
@@ -560,5 +639,197 @@ mod tests {
 
         let result = AppConfig::from_env();
         assert!(result.is_ok(), "from_env() with defaults should succeed");
+    }
+
+    // ============================================
+    // Issue Polling Configuration Tests
+    // ============================================
+
+    #[test]
+    fn test_issue_polling_default_values() {
+        // Clear environment variables to test defaults
+        std::env::remove_var("ISSUE_POLLING_ENABLED");
+        std::env::remove_var("ISSUE_POLLING_INTERVAL_SECONDS");
+        std::env::remove_var("ISSUE_POLLING_REQUIRED_LABELS");
+        std::env::remove_var("ISSUE_POLLING_BOT_USERNAME");
+        std::env::remove_var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS");
+
+        let config = IssuePollingConfig::default();
+
+        assert!(
+            !config.enabled,
+            "Polling should be disabled by default"
+        );
+        assert_eq!(
+            config.interval_seconds, 300,
+            "Default interval should be 300 seconds (5 minutes)"
+        );
+        assert_eq!(
+            config.required_labels,
+            Some(vec!["vibe-auto".to_string()]),
+            "Default required labels should be ['vibe-auto']"
+        );
+        assert_eq!(
+            config.bot_username,
+            Some("gitautodev-bot".to_string()),
+            "Default bot username should be 'gitautodev-bot'"
+        );
+        assert_eq!(
+            config.max_issue_age_days,
+            Some(30),
+            "Default max issue age should be 30 days"
+        );
+    }
+
+    #[test]
+    fn test_issue_polling_loads_from_env() {
+        // Set environment variables
+        std::env::set_var("ISSUE_POLLING_ENABLED", "true");
+        std::env::set_var("ISSUE_POLLING_INTERVAL_SECONDS", "600");
+        std::env::set_var("ISSUE_POLLING_REQUIRED_LABELS", "bug,feature");
+        std::env::set_var("ISSUE_POLLING_BOT_USERNAME", "my-bot");
+        std::env::set_var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS", "60");
+
+        let config = IssuePollingConfig::default();
+
+        assert!(config.enabled, "Polling should be enabled");
+        assert_eq!(
+            config.interval_seconds, 600,
+            "Interval should be 600 seconds"
+        );
+        assert_eq!(
+            config.required_labels,
+            Some(vec!["bug".to_string(), "feature".to_string()]),
+            "Required labels should be parsed from comma-separated string"
+        );
+        assert_eq!(
+            config.bot_username,
+            Some("my-bot".to_string()),
+            "Bot username should be loaded from env"
+        );
+        assert_eq!(
+            config.max_issue_age_days,
+            Some(60),
+            "Max issue age should be 60 days"
+        );
+
+        // Clean up
+        std::env::remove_var("ISSUE_POLLING_ENABLED");
+        std::env::remove_var("ISSUE_POLLING_INTERVAL_SECONDS");
+        std::env::remove_var("ISSUE_POLLING_REQUIRED_LABELS");
+        std::env::remove_var("ISSUE_POLLING_BOT_USERNAME");
+        std::env::remove_var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS");
+    }
+
+    #[test]
+    fn test_issue_polling_validation_rejects_low_interval() {
+        let config = AppConfig {
+            database: DatabaseConfig::default(),
+            server: ServerConfig::default(),
+            webhook: WebhookConfig::default(),
+            issue_polling: IssuePollingConfig {
+                enabled: true,
+                interval_seconds: 30, // Less than 60
+                required_labels: None,
+                bot_username: None,
+                max_issue_age_days: Some(30),
+            },
+        };
+
+        let result = config.validate();
+        assert!(
+            result.is_err(),
+            "Validation should reject interval_seconds < 60"
+        );
+
+        let err = result.unwrap_err();
+        match err {
+            ConfigError::InvalidValue { field, message } => {
+                assert_eq!(field, "ISSUE_POLLING_INTERVAL_SECONDS");
+                assert!(
+                    message.contains("60"),
+                    "Error message should mention minimum of 60 seconds"
+                );
+            }
+            _ => panic!("Expected InvalidValue error"),
+        }
+    }
+
+    #[test]
+    fn test_issue_polling_validation_rejects_negative_max_age() {
+        let config = AppConfig {
+            database: DatabaseConfig::default(),
+            server: ServerConfig::default(),
+            webhook: WebhookConfig::default(),
+            issue_polling: IssuePollingConfig {
+                enabled: true,
+                interval_seconds: 300,
+                required_labels: None,
+                bot_username: None,
+                max_issue_age_days: Some(-1), // Negative value
+            },
+        };
+
+        let result = config.validate();
+        assert!(
+            result.is_err(),
+            "Validation should reject negative max_issue_age_days"
+        );
+
+        let err = result.unwrap_err();
+        match err {
+            ConfigError::InvalidValue { field, message } => {
+                assert_eq!(field, "ISSUE_POLLING_MAX_ISSUE_AGE_DAYS");
+                assert!(
+                    message.contains("greater than 0"),
+                    "Error message should mention greater than 0"
+                );
+            }
+            _ => panic!("Expected InvalidValue error"),
+        }
+    }
+
+    #[test]
+    fn test_issue_polling_validation_accepts_valid_config() {
+        let config = AppConfig {
+            database: DatabaseConfig::default(),
+            server: ServerConfig::default(),
+            webhook: WebhookConfig::default(),
+            issue_polling: IssuePollingConfig {
+                enabled: true,
+                interval_seconds: 300,
+                required_labels: Some(vec!["vibe-auto".to_string()]),
+                bot_username: Some("bot".to_string()),
+                max_issue_age_days: Some(30),
+            },
+        };
+
+        let result = config.validate();
+        assert!(
+            result.is_ok(),
+            "Validation should accept valid issue polling config"
+        );
+    }
+
+    #[test]
+    fn test_issue_polling_validation_skipped_when_disabled() {
+        let config = AppConfig {
+            database: DatabaseConfig::default(),
+            server: ServerConfig::default(),
+            webhook: WebhookConfig::default(),
+            issue_polling: IssuePollingConfig {
+                enabled: false,       // Disabled
+                interval_seconds: 30, // Invalid, but should be ignored
+                required_labels: None,
+                bot_username: None,
+                max_issue_age_days: Some(-1), // Invalid, but should be ignored
+            },
+        };
+
+        let result = config.validate();
+        assert!(
+            result.is_ok(),
+            "Validation should skip issue polling checks when disabled"
+        );
     }
 }
