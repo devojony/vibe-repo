@@ -96,8 +96,14 @@ Webhook   Pending   Assigned  Running  Review  Completed
 1. **Webhook触发** (主要方式)
    - Issue创建/更新时触发
    - 自动创建Task
+   - 实时性好 (秒级)
 
-2. **手动触发**
+2. **轮询触发** (备选方式)
+   - 定期轮询Git平台获取新Issue
+   - 适合本地开发和内网环境
+   - 详见: `docs/issue-polling-fallback-design.md`
+
+3. **手动触发**
    - API手动创建Task
    - 用于测试或特殊场景
 
@@ -952,6 +958,7 @@ aider --model gpt-4 --issue 456 --title "Add feature" --body "..."
 
 ### 内部文档
 - `docs/plans/2026-01-17-workspace-phase4-task-api.md` - Task API实现计划
+- `docs/issue-polling-fallback-design.md` - Issue轮询方案设计 (Webhook备选)
 - `backend/src/entities/task.rs` - Task Entity定义
 - `backend/src/migration/m20260117_000005_create_tasks.rs` - 数据库Schema
 - `backend/src/services/docker_service.rs` - Docker执行API
