@@ -3,9 +3,9 @@
 //! Tests the database migration that adds status, has_workspace, and deleted_at fields.
 //! Requirements: Phase 1.1, Phase 1.3
 
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use vibe_repo::entities::{prelude::*, repository};
 use vibe_repo::test_utils::state::create_test_state;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
 /// Test migration adds status field with default value 'uninitialized'
 /// Requirements: 1.1
@@ -90,7 +90,7 @@ async fn test_migration_adds_has_workspace_field_with_default() {
     let created = repo.insert(&state.db).await.unwrap();
 
     // Verify has_workspace field exists and has default value false
-    assert_eq!(created.has_workspace, false);
+    assert!(!created.has_workspace);
 }
 
 /// Test migration adds deleted_at field that can be null

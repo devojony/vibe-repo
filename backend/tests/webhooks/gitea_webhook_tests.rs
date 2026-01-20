@@ -1,7 +1,5 @@
-use vibe_repo::git_provider::{
-    gitea::GiteaClient, models::*, traits::GitProvider,
-};
 use serde_json::json;
+use vibe_repo::git_provider::{gitea::GiteaClient, models::*, traits::GitProvider};
 use wiremock::{
     matchers::{header, method, path},
     Mock, MockServer, ResponseTemplate,
@@ -39,10 +37,7 @@ async fn test_gitea_create_webhook() {
         active: true,
     };
 
-    let webhook = client
-        .create_webhook("owner", "repo", req)
-        .await
-        .unwrap();
+    let webhook = client.create_webhook("owner", "repo", req).await.unwrap();
 
     assert_eq!(webhook.id, "1");
     assert_eq!(webhook.url, "https://example.com/webhook");

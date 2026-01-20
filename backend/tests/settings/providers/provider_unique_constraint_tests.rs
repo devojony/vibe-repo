@@ -6,9 +6,9 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use vibe_repo::test_utils::state::create_test_app;
 use serde_json::json;
 use tower::ServiceExt;
+use vibe_repo::test_utils::state::create_test_app;
 
 #[tokio::test]
 async fn test_duplicate_provider_returns_409() {

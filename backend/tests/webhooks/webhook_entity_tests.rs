@@ -3,11 +3,11 @@
 //! Tests for the webhook_config entity model and its relationships.
 
 use chrono::Utc;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use vibe_repo::{
     entities::{prelude::*, repo_provider, repository, webhook_config},
     test_utils::db::create_test_database,
 };
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
 /// Test creating a webhook config
 #[tokio::test]

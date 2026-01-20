@@ -12,7 +12,7 @@ use sea_orm::{
 use std::sync::Arc;
 
 use crate::entities::{prelude::*, repository, webhook_config};
-use crate::error::{VibeRepoError, Result};
+use crate::error::{Result, VibeRepoError};
 use crate::git_provider::{
     CreateBranchRequest, CreateWebhookRequest, GitClientFactory, GitProvider, GitProviderError,
     WebhookEvent,
@@ -104,9 +104,8 @@ impl RepositoryService {
         }
 
         // Create Git client
-        let client = GitClientFactory::from_provider(provider).map_err(|e| {
-            VibeRepoError::Internal(format!("Failed to create git client: {}", e))
-        })?;
+        let client = GitClientFactory::from_provider(provider)
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to create git client: {}", e)))?;
 
         // Parse repository owner and name from full_name
         let parts: Vec<&str> = repo.full_name.split('/').collect();
@@ -191,14 +190,9 @@ impl RepositoryService {
     ///
     /// # Returns
     /// Delay in seconds, capped at max_delay_secs
-    fn calculate_retry_delay(
-        retry_count: i32,
-        config: &crate::config::WebhookRetryConfig,
-    ) -> u64 {
-        let delay_secs = (config.initial_delay_secs as f64
-            * config.backoff_multiplier.powi(retry_count))
-        .min(config.max_delay_secs as f64) as u64;
-        delay_secs
+    fn calculate_retry_delay(retry_count: i32, config: &crate::config::WebhookRetryConfig) -> u64 {
+        (config.initial_delay_secs as f64 * config.backoff_multiplier.powi(retry_count))
+            .min(config.max_delay_secs as f64) as u64
     }
 
     /// Calculate next retry time using exponential backoff
@@ -347,9 +341,8 @@ impl RepositoryService {
             .ok_or_else(|| VibeRepoError::NotFound("Provider not found".to_string()))?;
 
         // 3. Create GitProvider client
-        let git_client = GitClientFactory::from_provider(&provider).map_err(|e| {
-            VibeRepoError::Internal(format!("Failed to create git client: {}", e))
-        })?;
+        let git_client = GitClientFactory::from_provider(&provider)
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to create git client: {}", e)))?;
 
         // 4. Parse owner/repo from full_name
         let (owner, repo_name) = self.parse_full_name(&repo.full_name)?;
@@ -423,7 +416,7 @@ impl RepositoryService {
                         "Failed to create webhook, recording for retry"
                     );
                     webhook_status = repository::WebhookStatus::Failed;
-                    
+
                     // Record failure for retry
                     if let Err(record_err) = self
                         .record_webhook_failure(
@@ -440,7 +433,7 @@ impl RepositoryService {
                             "Failed to record webhook failure for retry"
                         );
                     }
-                    
+
                     // Don't return error - webhook creation failure shouldn't block initialization
                 }
             }
@@ -697,14 +690,14 @@ impl RepositoryService {
             })?;
 
         // Create GitProvider client
-        let git_client = GitClientFactory::from_provider(&provider).map_err(|e| {
-            VibeRepoError::Internal(format!("Failed to create git client: {}", e))
-        })?;
+        let git_client = GitClientFactory::from_provider(&provider)
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to create git client: {}", e)))?;
 
         // Fetch repositories using GitProvider
-        let repos = git_client.list_repositories().await.map_err(|e| {
-            VibeRepoError::Internal(format!("Failed to fetch repositories: {}", e))
-        })?;
+        let repos = git_client
+            .list_repositories()
+            .await
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to fetch repositories: {}", e)))?;
 
         tracing::info!(
             "Found {} repositories for provider {}",
@@ -864,9 +857,10 @@ impl RepositoryService {
         owner: &str,
         repo: &str,
     ) -> Result<PermissionInfo> {
-        let repository = git_client.get_repository(owner, repo).await.map_err(|e| {
-            VibeRepoError::Internal(format!("Failed to check permissions: {}", e))
-        })?;
+        let repository = git_client
+            .get_repository(owner, repo)
+            .await
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to check permissions: {}", e)))?;
 
         Ok(PermissionInfo {
             can_read: repository.permissions.pull,
@@ -999,9 +993,7 @@ impl RepositoryService {
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| {
-                VibeRepoError::NotFound(format!("Repository {} not found", repo_id))
-            })?;
+            .ok_or_else(|| VibeRepoError::NotFound(format!("Repository {} not found", repo_id)))?;
 
         let mut active: repository::ActiveModel = repo.into();
         active.validation_status = ActiveValue::Set(update.status);
@@ -1166,21 +1158,19 @@ impl RepositoryService {
     /// - Database cascade delete ensures webhook_config is removed
     pub async fn delete_repository(&self, repo_id: i32) -> Result<()> {
         tracing::info!(repository_id = repo_id, "Deleting repository");
-        
+
         // Get repository
         let repo = Repository::find_by_id(repo_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| VibeRepoError::NotFound(
-                format!("Repository {} not found", repo_id)
-            ))?;
-        
+            .ok_or_else(|| VibeRepoError::NotFound(format!("Repository {} not found", repo_id)))?;
+
         // Get webhook config
         let webhook = WebhookConfig::find()
             .filter(webhook_config::Column::RepositoryId.eq(repo_id))
             .one(&self.db)
             .await?;
-        
+
         // If webhook exists, delete from Git provider
         if let Some(webhook) = webhook {
             if let Err(e) = self.delete_webhook_from_provider(&repo, &webhook).await {
@@ -1193,13 +1183,13 @@ impl RepositoryService {
                 // Continue with deletion even if webhook deletion fails
             }
         }
-        
+
         // Delete repository (cascade deletes webhook_config)
         let repo_active: repository::ActiveModel = repo.into();
         repo_active.delete(&self.db).await?;
-        
+
         tracing::info!(repository_id = repo_id, "Repository deleted successfully");
-        
+
         Ok(())
     }
 
@@ -1223,15 +1213,14 @@ impl RepositoryService {
         let provider = RepoProvider::find_by_id(webhook.provider_id)
             .one(&self.db)
             .await?
-            .ok_or_else(|| VibeRepoError::NotFound(
-                format!("Provider {} not found", webhook.provider_id)
-            ))?;
-        
+            .ok_or_else(|| {
+                VibeRepoError::NotFound(format!("Provider {} not found", webhook.provider_id))
+            })?;
+
         // Create Git client
-        let client = GitClientFactory::from_provider(&provider).map_err(|e| {
-            VibeRepoError::Internal(format!("Failed to create git client: {}", e))
-        })?;
-        
+        let client = GitClientFactory::from_provider(&provider)
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to create git client: {}", e)))?;
+
         // Parse repository owner and name
         let parts: Vec<&str> = repo.full_name.split('/').collect();
         if parts.len() != 2 {
@@ -1241,7 +1230,7 @@ impl RepositoryService {
             )));
         }
         let (owner, repo_name) = (parts[0], parts[1]);
-        
+
         // Delete webhook from Git provider
         match client
             .delete_webhook(owner, repo_name, &webhook.webhook_id)

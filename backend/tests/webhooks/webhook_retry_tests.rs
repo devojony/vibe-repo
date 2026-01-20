@@ -4,10 +4,10 @@
 //! Requirements: Exponential backoff, retry tracking, max retries
 
 use chrono::Utc;
+use sea_orm::{ActiveModelTrait, ActiveValue};
 use vibe_repo::config::WebhookRetryConfig;
 use vibe_repo::entities::{repo_provider, repository, webhook_config};
 use vibe_repo::test_utils::db::create_test_database;
-use sea_orm::{ActiveModelTrait, ActiveValue};
 
 /// Test that webhook retry fields exist in database
 /// Requirements: 4.2.1 - Add retry tracking fields
@@ -271,10 +271,8 @@ async fn test_retry_count_increments() {
 
 /// Calculate retry delay in seconds using exponential backoff
 fn calculate_retry_delay(retry_count: i32, config: &WebhookRetryConfig) -> u64 {
-    let delay_secs = (config.initial_delay_secs as f64
-        * config.backoff_multiplier.powi(retry_count))
-    .min(config.max_delay_secs as f64) as u64;
-    delay_secs
+    (config.initial_delay_secs as f64 * config.backoff_multiplier.powi(retry_count))
+        .min(config.max_delay_secs as f64) as u64
 }
 
 /// Calculate next retry time, returns None if max retries exceeded

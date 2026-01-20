@@ -3,8 +3,8 @@
 //! Tests the database migration that creates the webhook_configs table.
 //! Requirements: Task 1.1 - Webhook mention monitoring feature
 
-use vibe_repo::test_utils::state::create_test_state;
 use sea_orm::{ConnectionTrait, DbBackend, Statement};
+use vibe_repo::test_utils::state::create_test_state;
 
 /// Test webhook_configs table exists after migration
 /// Requirements: 1.1

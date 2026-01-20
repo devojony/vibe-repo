@@ -8,11 +8,11 @@
 
 use std::sync::Arc;
 
+use proptest::prelude::*;
+use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 use vibe_repo::entities::{prelude::*, repo_provider};
 use vibe_repo::services::RepositoryService;
 use vibe_repo::test_utils::db::create_test_database;
-use proptest::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 
 // ============================================
 // Property 5: Periodic Sync Processes All Providers

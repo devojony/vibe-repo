@@ -1,7 +1,7 @@
 //! Tests for services module
 
 #[cfg(test)]
-mod tests {
+mod service_tests {
     use super::super::*;
     use crate::test_utils::state::create_test_state;
     use std::sync::Arc;

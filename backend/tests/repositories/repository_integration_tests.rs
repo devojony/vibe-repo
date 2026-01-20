@@ -4,12 +4,12 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use vibe_repo::api::repositories::models::RepositoryResponse;
-use vibe_repo::entities::repository::ValidationStatus;
-use vibe_repo::test_utils::state::create_test_state;
 use http_body_util::BodyExt;
 use serde_json::json;
 use tower::ServiceExt;
+use vibe_repo::api::repositories::models::RepositoryResponse;
+use vibe_repo::entities::repository::ValidationStatus;
+use vibe_repo::test_utils::state::create_test_state;
 
 /// Helper function to create a test provider and return its ID
 async fn create_test_provider(app: axum::Router, name: &str, base_url: &str, token: &str) -> i32 {
@@ -45,8 +45,8 @@ async fn create_test_repository(
     full_name: &str,
     validation_status: ValidationStatus,
 ) -> i32 {
-    use vibe_repo::entities::repository;
     use sea_orm::{ActiveModelTrait, Set};
+    use vibe_repo::entities::repository;
 
     let repo = repository::ActiveModel {
         provider_id: Set(provider_id),
@@ -188,7 +188,7 @@ async fn test_list_repositories_with_provider_filter() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/repositories?provider_id={}", provider1_id))
+                .uri(format!("/api/repositories?provider_id={}", provider1_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -201,7 +201,7 @@ async fn test_list_repositories_with_provider_filter() {
     let repositories: Vec<RepositoryResponse> = serde_json::from_slice(&body).unwrap();
 
     // Should return only repositories for provider1
-    assert!(repositories.len() >= 1);
+    assert!(!repositories.is_empty());
     for repo in repositories {
         assert_eq!(repo.provider_id, provider1_id);
     }
@@ -271,7 +271,7 @@ async fn test_list_repositories_with_status_filter() {
     let repositories: Vec<RepositoryResponse> = serde_json::from_slice(&body).unwrap();
 
     // Should return only valid repositories
-    assert!(repositories.len() >= 1);
+    assert!(!repositories.is_empty());
     for repo in repositories {
         assert_eq!(repo.validation_status, ValidationStatus::Valid);
     }
@@ -362,7 +362,7 @@ async fn test_get_repository_by_id() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/repositories/{}", repo_id))
+                .uri(format!("/api/repositories/{}", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -441,7 +441,7 @@ async fn test_refresh_repository_updates_validation() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/{}/refresh", repo_id))
+                .uri(format!("/api/repositories/{}/refresh", repo_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -541,7 +541,7 @@ async fn test_list_repositories_with_combined_filters() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!(
+                .uri(format!(
                     "/api/repositories?provider_id={}&validation_status=valid",
                     provider1_id
                 ))
@@ -557,7 +557,7 @@ async fn test_list_repositories_with_combined_filters() {
     let repositories: Vec<RepositoryResponse> = serde_json::from_slice(&body).unwrap();
 
     // Should return only valid repositories for provider1
-    assert!(repositories.len() >= 1);
+    assert!(!repositories.is_empty());
     for repo in repositories {
         assert_eq!(repo.provider_id, provider1_id);
         assert_eq!(repo.validation_status, ValidationStatus::Valid);

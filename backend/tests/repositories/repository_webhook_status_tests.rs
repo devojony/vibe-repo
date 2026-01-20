@@ -3,11 +3,11 @@
 //! Tests for the webhook_status field in the repositories table.
 
 use chrono::Utc;
+use sea_orm::{ActiveModelTrait, Set};
 use vibe_repo::{
     entities::{repo_provider, repository},
     test_utils::db::create_test_database,
 };
-use sea_orm::{ActiveModelTrait, Set};
 
 /// Test that webhook_status column exists in repositories table
 #[tokio::test]
@@ -63,7 +63,8 @@ async fn test_migration_repository_webhook_status_default_value() {
 
     let saved = repo.insert(&db).await.unwrap();
     assert_eq!(
-        saved.webhook_status, repository::WebhookStatus::Pending,
+        saved.webhook_status,
+        repository::WebhookStatus::Pending,
         "webhook_status should default to 'pending'"
     );
 }
@@ -78,22 +79,52 @@ async fn test_repository_webhook_status_valid_values() {
     let provider = create_test_provider(&db).await;
 
     // Test 'pending' status
-    let repo_pending =
-        create_test_repository_with_webhook_status(&db, provider.id, repository::WebhookStatus::Pending).await;
-    assert_eq!(repo_pending.webhook_status, repository::WebhookStatus::Pending);
+    let repo_pending = create_test_repository_with_webhook_status(
+        &db,
+        provider.id,
+        repository::WebhookStatus::Pending,
+    )
+    .await;
+    assert_eq!(
+        repo_pending.webhook_status,
+        repository::WebhookStatus::Pending
+    );
 
     // Test 'active' status
-    let repo_active = create_test_repository_with_webhook_status(&db, provider.id, repository::WebhookStatus::Active).await;
-    assert_eq!(repo_active.webhook_status, repository::WebhookStatus::Active);
+    let repo_active = create_test_repository_with_webhook_status(
+        &db,
+        provider.id,
+        repository::WebhookStatus::Active,
+    )
+    .await;
+    assert_eq!(
+        repo_active.webhook_status,
+        repository::WebhookStatus::Active
+    );
 
     // Test 'failed' status
-    let repo_failed = create_test_repository_with_webhook_status(&db, provider.id, repository::WebhookStatus::Failed).await;
-    assert_eq!(repo_failed.webhook_status, repository::WebhookStatus::Failed);
+    let repo_failed = create_test_repository_with_webhook_status(
+        &db,
+        provider.id,
+        repository::WebhookStatus::Failed,
+    )
+    .await;
+    assert_eq!(
+        repo_failed.webhook_status,
+        repository::WebhookStatus::Failed
+    );
 
     // Test 'disabled' status
-    let repo_disabled =
-        create_test_repository_with_webhook_status(&db, provider.id, repository::WebhookStatus::Disabled).await;
-    assert_eq!(repo_disabled.webhook_status, repository::WebhookStatus::Disabled);
+    let repo_disabled = create_test_repository_with_webhook_status(
+        &db,
+        provider.id,
+        repository::WebhookStatus::Disabled,
+    )
+    .await;
+    assert_eq!(
+        repo_disabled.webhook_status,
+        repository::WebhookStatus::Disabled
+    );
 }
 
 /// Test updating webhook_status

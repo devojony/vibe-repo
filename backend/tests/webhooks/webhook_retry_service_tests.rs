@@ -3,17 +3,15 @@
 //! Tests the background service that retries failed webhook creations.
 
 use chrono::Utc;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use std::sync::Arc;
 use vibe_repo::entities::prelude::*;
 use vibe_repo::entities::{repo_provider, repository, webhook_config};
 use vibe_repo::services::{BackgroundService, WebhookRetryService};
 use vibe_repo::test_utils::db::create_test_database;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
-use std::sync::Arc;
 
 /// Helper function to create test provider
-async fn create_test_provider(
-    db: &sea_orm::DatabaseConnection,
-) -> repo_provider::Model {
+async fn create_test_provider(db: &sea_orm::DatabaseConnection) -> repo_provider::Model {
     let provider = repo_provider::ActiveModel {
         name: Set("test-provider".to_string()),
         provider_type: Set(repo_provider::ProviderType::Gitea),
@@ -53,9 +51,9 @@ async fn create_test_repository(
 async fn test_webhook_retry_service_creation() {
     let db = create_test_database().await.unwrap();
     let config = Arc::new(vibe_repo::config::AppConfig::default());
-    
+
     let service = WebhookRetryService::new(db.clone(), config);
-    
+
     assert_eq!(service.name(), "webhook_retry_service");
 }
 
@@ -64,11 +62,11 @@ async fn test_webhook_retry_service_creation() {
 async fn test_webhook_retry_service_finds_due_webhooks() {
     let db = create_test_database().await.unwrap();
     let config = Arc::new(vibe_repo::config::AppConfig::default());
-    
+
     // Create test provider and repository
     let provider = create_test_provider(&db).await;
     let repo = create_test_repository(&db, provider.id).await;
-    
+
     // Create webhook config with next_retry_at in the past
     let past_time = Utc::now() - chrono::Duration::seconds(60);
     let webhook = webhook_config::ActiveModel {
@@ -86,7 +84,7 @@ async fn test_webhook_retry_service_finds_due_webhooks() {
         ..Default::default()
     };
     webhook.insert(&db).await.unwrap();
-    
+
     // Query webhooks ready for retry
     let now = Utc::now();
     let webhooks = WebhookConfig::find()
@@ -96,7 +94,7 @@ async fn test_webhook_retry_service_finds_due_webhooks() {
         .all(&db)
         .await
         .unwrap();
-    
+
     assert_eq!(webhooks.len(), 1, "Should find one webhook ready for retry");
     assert_eq!(webhooks[0].repository_id, repo.id);
 }
@@ -106,11 +104,11 @@ async fn test_webhook_retry_service_finds_due_webhooks() {
 async fn test_webhook_retry_service_respects_max_retries() {
     let db = create_test_database().await.unwrap();
     let config = Arc::new(vibe_repo::config::AppConfig::default());
-    
+
     // Create test provider and repository
     let provider = create_test_provider(&db).await;
     let repo = create_test_repository(&db, provider.id).await;
-    
+
     // Create webhook config with retry_count >= max_retries
     let past_time = Utc::now() - chrono::Duration::seconds(60);
     let webhook = webhook_config::ActiveModel {
@@ -128,7 +126,7 @@ async fn test_webhook_retry_service_respects_max_retries() {
         ..Default::default()
     };
     webhook.insert(&db).await.unwrap();
-    
+
     // Query webhooks ready for retry
     let now = Utc::now();
     let webhooks = WebhookConfig::find()
@@ -138,7 +136,7 @@ async fn test_webhook_retry_service_respects_max_retries() {
         .all(&db)
         .await
         .unwrap();
-    
+
     assert_eq!(webhooks.len(), 0, "Should not find webhooks at max retries");
 }
 
@@ -147,11 +145,11 @@ async fn test_webhook_retry_service_respects_max_retries() {
 async fn test_webhook_retry_service_only_retries_disabled_webhooks() {
     let db = create_test_database().await.unwrap();
     let config = Arc::new(vibe_repo::config::AppConfig::default());
-    
+
     // Create test provider and repository
     let provider = create_test_provider(&db).await;
     let repo = create_test_repository(&db, provider.id).await;
-    
+
     // Create enabled webhook config with next_retry_at in the past
     let past_time = Utc::now() - chrono::Duration::seconds(60);
     let webhook = webhook_config::ActiveModel {
@@ -169,7 +167,7 @@ async fn test_webhook_retry_service_only_retries_disabled_webhooks() {
         ..Default::default()
     };
     webhook.insert(&db).await.unwrap();
-    
+
     // Query webhooks ready for retry
     let now = Utc::now();
     let webhooks = WebhookConfig::find()
@@ -179,7 +177,7 @@ async fn test_webhook_retry_service_only_retries_disabled_webhooks() {
         .all(&db)
         .await
         .unwrap();
-    
+
     assert_eq!(webhooks.len(), 0, "Should not find enabled webhooks");
 }
 
@@ -188,11 +186,11 @@ async fn test_webhook_retry_service_only_retries_disabled_webhooks() {
 async fn test_webhook_retry_service_skips_future_retries() {
     let db = create_test_database().await.unwrap();
     let config = Arc::new(vibe_repo::config::AppConfig::default());
-    
+
     // Create test provider and repository
     let provider = create_test_provider(&db).await;
     let repo = create_test_repository(&db, provider.id).await;
-    
+
     // Create webhook config with next_retry_at in the future
     let future_time = Utc::now() + chrono::Duration::seconds(3600);
     let webhook = webhook_config::ActiveModel {
@@ -210,7 +208,7 @@ async fn test_webhook_retry_service_skips_future_retries() {
         ..Default::default()
     };
     webhook.insert(&db).await.unwrap();
-    
+
     // Query webhooks ready for retry
     let now = Utc::now();
     let webhooks = WebhookConfig::find()
@@ -220,6 +218,10 @@ async fn test_webhook_retry_service_skips_future_retries() {
         .all(&db)
         .await
         .unwrap();
-    
-    assert_eq!(webhooks.len(), 0, "Should not find webhooks with future retry times");
+
+    assert_eq!(
+        webhooks.len(),
+        0,
+        "Should not find webhooks with future retry times"
+    );
 }

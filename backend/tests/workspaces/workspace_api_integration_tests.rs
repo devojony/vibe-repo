@@ -5,6 +5,10 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Utc;
+use http_body_util::BodyExt;
+use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
+use std::sync::Arc;
+use tower::ServiceExt;
 use vibe_repo::api::agents::models::{
     AgentResponse, CreateAgentRequest, UpdateAgentEnabledRequest,
 };
@@ -13,11 +17,7 @@ use vibe_repo::api::workspaces::models::{
     CreateWorkspaceRequest, UpdateWorkspaceStatusRequest, WorkspaceResponse,
 };
 use vibe_repo::entities::{repo_provider, repository};
-use vibe_repo::test_utils::TestDatabase;
-use http_body_util::BodyExt;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
-use std::sync::Arc;
-use tower::ServiceExt; // for `oneshot`
+use vibe_repo::test_utils::TestDatabase; // for `oneshot`
 
 // ============================================================================
 // Helper Functions
@@ -226,7 +226,7 @@ async fn test_get_workspace_by_id_returns_200() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/workspaces/{}", workspace.id))
+                .uri(format!("/api/workspaces/{}", workspace.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -329,7 +329,7 @@ async fn test_update_workspace_status_returns_200() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(&format!("/api/workspaces/{}/status", workspace.id))
+                .uri(format!("/api/workspaces/{}/status", workspace.id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&update_request).unwrap()))
                 .unwrap(),
@@ -366,7 +366,7 @@ async fn test_delete_workspace_returns_204() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(&format!("/api/workspaces/{}", workspace.id))
+                .uri(format!("/api/workspaces/{}", workspace.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -460,7 +460,7 @@ async fn test_get_agent_by_id_returns_200() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/agents/{}", agent.id))
+                .uri(format!("/api/agents/{}", agent.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -500,7 +500,7 @@ async fn test_list_agents_by_workspace_returns_200() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/workspaces/{}/agents", workspace.id))
+                .uri(format!("/api/workspaces/{}/agents", workspace.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -539,7 +539,7 @@ async fn test_update_agent_enabled_returns_200() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(&format!("/api/agents/{}/enabled", agent.id))
+                .uri(format!("/api/agents/{}/enabled", agent.id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&update_request).unwrap()))
                 .unwrap(),
@@ -577,7 +577,7 @@ async fn test_delete_agent_returns_204() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(&format!("/api/agents/{}", agent.id))
+                .uri(format!("/api/agents/{}", agent.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -691,7 +691,7 @@ async fn test_get_task_by_id_returns_200() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/tasks/{}", task.id))
+                .uri(format!("/api/tasks/{}", task.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -754,7 +754,7 @@ async fn test_list_tasks_by_workspace_returns_200() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/tasks?workspace_id={}", workspace.id))
+                .uri(format!("/api/tasks?workspace_id={}", workspace.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -823,7 +823,7 @@ async fn test_update_task_status_returns_200() {
         .oneshot(
             Request::builder()
                 .method("PATCH")
-                .uri(&format!("/api/tasks/{}/status", task.id))
+                .uri(format!("/api/tasks/{}/status", task.id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&update_request).unwrap()))
                 .unwrap(),

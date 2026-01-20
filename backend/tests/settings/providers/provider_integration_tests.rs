@@ -4,12 +4,12 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use vibe_repo::api::settings::providers::models::{ProviderResponse, ValidationResponse};
-use vibe_repo::entities::repo_provider::ProviderType;
-use vibe_repo::test_utils::state::create_test_app;
 use http_body_util::BodyExt;
 use serde_json::json;
 use tower::ServiceExt;
+use vibe_repo::api::settings::providers::models::{ProviderResponse, ValidationResponse};
+use vibe_repo::entities::repo_provider::ProviderType;
+use vibe_repo::test_utils::state::create_test_app;
 
 /// Helper function to create a test provider
 async fn create_test_provider(
@@ -360,7 +360,7 @@ async fn test_get_provider_by_id() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/settings/providers/{}", created.id))
+                .uri(format!("/api/settings/providers/{}", created.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -421,7 +421,7 @@ async fn test_update_provider_partial_data() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(&format!("/api/settings/providers/{}", created.id))
+                .uri(format!("/api/settings/providers/{}", created.id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_vec(&update_body).unwrap()))
                 .unwrap(),
@@ -467,7 +467,7 @@ async fn test_update_provider_locked_field() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(&format!("/api/settings/providers/{}", created.id))
+                .uri(format!("/api/settings/providers/{}", created.id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_vec(&update_body).unwrap()))
                 .unwrap(),
@@ -528,7 +528,7 @@ async fn test_delete_unlocked_provider() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(&format!("/api/settings/providers/{}", created.id))
+                .uri(format!("/api/settings/providers/{}", created.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -563,7 +563,7 @@ async fn test_delete_locked_provider() {
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(&format!("/api/settings/providers/{}", created.id))
+                .uri(format!("/api/settings/providers/{}", created.id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_vec(&update_body).unwrap()))
                 .unwrap(),
@@ -576,7 +576,7 @@ async fn test_delete_locked_provider() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(&format!("/api/settings/providers/{}", created.id))
+                .uri(format!("/api/settings/providers/{}", created.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -627,7 +627,7 @@ async fn test_validate_provider_with_valid_token() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/settings/providers/{}/validate", created.id))
+                .uri(format!("/api/settings/providers/{}/validate", created.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -664,7 +664,7 @@ async fn test_validate_provider_with_invalid_token() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/settings/providers/{}/validate", created.id))
+                .uri(format!("/api/settings/providers/{}/validate", created.id))
                 .body(Body::empty())
                 .unwrap(),
         )

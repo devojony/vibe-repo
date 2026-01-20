@@ -2,17 +2,15 @@
 //!
 //! Tests for Task 4.3: Webhook Cleanup Mechanism
 
+use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
+use std::sync::Arc;
 use vibe_repo::entities::prelude::*;
 use vibe_repo::entities::{repo_provider, repository, webhook_config};
 use vibe_repo::services::RepositoryService;
 use vibe_repo::test_utils::db::create_test_database;
-use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
-use std::sync::Arc;
 
 /// Helper function to create test provider
-async fn create_test_provider(
-    db: &sea_orm::DatabaseConnection,
-) -> repo_provider::Model {
+async fn create_test_provider(db: &sea_orm::DatabaseConnection) -> repo_provider::Model {
     let provider = repo_provider::ActiveModel {
         name: ActiveValue::Set("test-provider".to_string()),
         provider_type: ActiveValue::Set(repo_provider::ProviderType::Gitea),
@@ -77,13 +75,15 @@ async fn create_test_webhook(
 /// Requirements: 4.3.1, 4.3.4
 #[tokio::test]
 async fn test_delete_repository_cascades_to_webhook_config() {
-    let db = create_test_database().await.expect("Failed to create test database");
-    
+    let db = create_test_database()
+        .await
+        .expect("Failed to create test database");
+
     // Create test data
     let provider = create_test_provider(&db).await;
     let repo = create_test_repository(&db, provider.id, "test-repo").await;
     let webhook = create_test_webhook(&db, provider.id, repo.id, "webhook-123").await;
-    
+
     // Verify webhook exists
     let webhook_exists = WebhookConfig::find_by_id(webhook.id)
         .one(&db)
@@ -91,18 +91,21 @@ async fn test_delete_repository_cascades_to_webhook_config() {
         .unwrap()
         .is_some();
     assert!(webhook_exists, "Webhook should exist before deletion");
-    
+
     // Delete repository using SeaORM cascade
     let repo_active: repository::ActiveModel = repo.into();
     repo_active.delete(&db).await.unwrap();
-    
+
     // Verify webhook was cascade deleted
     let webhook_exists = WebhookConfig::find_by_id(webhook.id)
         .one(&db)
         .await
         .unwrap()
         .is_some();
-    assert!(!webhook_exists, "Webhook should be cascade deleted with repository");
+    assert!(
+        !webhook_exists,
+        "Webhook should be cascade deleted with repository"
+    );
 }
 
 /// Test that deleting a provider cascades to webhook_config
@@ -110,13 +113,15 @@ async fn test_delete_repository_cascades_to_webhook_config() {
 /// Requirements: 4.3.2, 4.3.4
 #[tokio::test]
 async fn test_delete_provider_cascades_to_webhook_config() {
-    let db = create_test_database().await.expect("Failed to create test database");
-    
+    let db = create_test_database()
+        .await
+        .expect("Failed to create test database");
+
     // Create test data
     let provider = create_test_provider(&db).await;
     let repo = create_test_repository(&db, provider.id, "test-repo").await;
     let webhook = create_test_webhook(&db, provider.id, repo.id, "webhook-123").await;
-    
+
     // Verify webhook exists
     let webhook_exists = WebhookConfig::find_by_id(webhook.id)
         .one(&db)
@@ -124,18 +129,21 @@ async fn test_delete_provider_cascades_to_webhook_config() {
         .unwrap()
         .is_some();
     assert!(webhook_exists, "Webhook should exist before deletion");
-    
+
     // Delete provider using SeaORM cascade
     let provider_active: repo_provider::ActiveModel = provider.into();
     provider_active.delete(&db).await.unwrap();
-    
+
     // Verify webhook was cascade deleted
     let webhook_exists = WebhookConfig::find_by_id(webhook.id)
         .one(&db)
         .await
         .unwrap()
         .is_some();
-    assert!(!webhook_exists, "Webhook should be cascade deleted with provider");
+    assert!(
+        !webhook_exists,
+        "Webhook should be cascade deleted with provider"
+    );
 }
 
 /// Test that delete_repository method attempts to delete webhook from Git provider
@@ -143,22 +151,27 @@ async fn test_delete_provider_cascades_to_webhook_config() {
 /// Requirements: 4.3.1
 #[tokio::test]
 async fn test_delete_repository_attempts_git_provider_cleanup() {
-    let db = create_test_database().await.expect("Failed to create test database");
+    let db = create_test_database()
+        .await
+        .expect("Failed to create test database");
     let config = Arc::new(vibe_repo::config::AppConfig::default());
     let service = RepositoryService::new(db.clone(), config);
-    
+
     // Create test data
     let provider = create_test_provider(&db).await;
     let repo = create_test_repository(&db, provider.id, "test-repo").await;
     let _webhook = create_test_webhook(&db, provider.id, repo.id, "webhook-123").await;
-    
+
     // Note: This test will fail to delete webhook from Git provider (no real provider)
     // but should still succeed in deleting the repository
     let result = service.delete_repository(repo.id).await;
-    
+
     // Repository deletion should succeed even if webhook deletion fails
-    assert!(result.is_ok(), "Repository deletion should succeed even if webhook deletion fails");
-    
+    assert!(
+        result.is_ok(),
+        "Repository deletion should succeed even if webhook deletion fails"
+    );
+
     // Verify repository was deleted
     let repo_exists = Repository::find_by_id(repo.id)
         .one(&db)
@@ -173,20 +186,25 @@ async fn test_delete_repository_attempts_git_provider_cleanup() {
 /// Requirements: 4.3.1
 #[tokio::test]
 async fn test_delete_repository_without_webhook() {
-    let db = create_test_database().await.expect("Failed to create test database");
+    let db = create_test_database()
+        .await
+        .expect("Failed to create test database");
     let config = Arc::new(vibe_repo::config::AppConfig::default());
     let service = RepositoryService::new(db.clone(), config);
-    
+
     // Create test data without webhook
     let provider = create_test_provider(&db).await;
     let repo = create_test_repository(&db, provider.id, "test-repo").await;
-    
+
     // Delete repository
     let result = service.delete_repository(repo.id).await;
-    
+
     // Should succeed even without webhook
-    assert!(result.is_ok(), "Repository deletion should succeed without webhook");
-    
+    assert!(
+        result.is_ok(),
+        "Repository deletion should succeed without webhook"
+    );
+
     // Verify repository was deleted
     let repo_exists = Repository::find_by_id(repo.id)
         .one(&db)
@@ -201,17 +219,25 @@ async fn test_delete_repository_without_webhook() {
 /// Requirements: 4.3.1
 #[tokio::test]
 async fn test_delete_repository_not_found() {
-    let db = create_test_database().await.expect("Failed to create test database");
+    let db = create_test_database()
+        .await
+        .expect("Failed to create test database");
     let config = Arc::new(vibe_repo::config::AppConfig::default());
     let service = RepositoryService::new(db.clone(), config);
-    
+
     // Try to delete non-existent repository
     let result = service.delete_repository(99999).await;
-    
+
     // Should return NotFound error
-    assert!(result.is_err(), "Should return error for non-existent repository");
     assert!(
-        matches!(result.unwrap_err(), vibe_repo::error::VibeRepoError::NotFound(_)),
+        result.is_err(),
+        "Should return error for non-existent repository"
+    );
+    assert!(
+        matches!(
+            result.unwrap_err(),
+            vibe_repo::error::VibeRepoError::NotFound(_)
+        ),
         "Should return NotFound error"
     );
 }
@@ -221,13 +247,15 @@ async fn test_delete_repository_not_found() {
 /// Requirements: 4.3.3
 #[tokio::test]
 async fn test_orphaned_webhook_cleanup_removes_orphans() {
-    let db = create_test_database().await.expect("Failed to create test database");
-    
+    let db = create_test_database()
+        .await
+        .expect("Failed to create test database");
+
     // Create test data
     let provider = create_test_provider(&db).await;
     let repo = create_test_repository(&db, provider.id, "test-repo").await;
     let webhook = create_test_webhook(&db, provider.id, repo.id, "orphaned-webhook").await;
-    
+
     // Verify webhook exists
     let webhook_id = webhook.id;
     let webhook_exists = WebhookConfig::find_by_id(webhook_id)
@@ -236,17 +264,17 @@ async fn test_orphaned_webhook_cleanup_removes_orphans() {
         .unwrap()
         .is_some();
     assert!(webhook_exists, "Webhook should exist before cleanup");
-    
+
     // Note: In a real scenario, the cleanup service would:
     // 1. Query Git provider for webhooks
     // 2. Find that this webhook doesn't exist on provider
     // 3. Delete it from database
-    
+
     // For this test, we'll manually simulate the cleanup
     // (The actual cleanup service will be tested with mocked Git provider)
     let webhook_active: webhook_config::ActiveModel = webhook.into();
     webhook_active.delete(&db).await.unwrap();
-    
+
     // Verify webhook was deleted
     let webhook_exists = WebhookConfig::find_by_id(webhook_id)
         .one(&db)
@@ -261,15 +289,17 @@ async fn test_orphaned_webhook_cleanup_removes_orphans() {
 /// Requirements: 4.3.2, 4.3.4
 #[tokio::test]
 async fn test_delete_provider_cleans_up_multiple_webhooks() {
-    let db = create_test_database().await.expect("Failed to create test database");
-    
+    let db = create_test_database()
+        .await
+        .expect("Failed to create test database");
+
     // Create test data with multiple repositories and webhooks
     let provider = create_test_provider(&db).await;
     let repo1 = create_test_repository(&db, provider.id, "repo1").await;
     let repo2 = create_test_repository(&db, provider.id, "repo2").await;
     let webhook1 = create_test_webhook(&db, provider.id, repo1.id, "webhook-1").await;
     let webhook2 = create_test_webhook(&db, provider.id, repo2.id, "webhook-2").await;
-    
+
     // Verify webhooks exist
     let webhook1_exists = WebhookConfig::find_by_id(webhook1.id)
         .one(&db)
@@ -281,12 +311,15 @@ async fn test_delete_provider_cleans_up_multiple_webhooks() {
         .await
         .unwrap()
         .is_some();
-    assert!(webhook1_exists && webhook2_exists, "Webhooks should exist before deletion");
-    
+    assert!(
+        webhook1_exists && webhook2_exists,
+        "Webhooks should exist before deletion"
+    );
+
     // Delete provider
     let provider_active: repo_provider::ActiveModel = provider.into();
     provider_active.delete(&db).await.unwrap();
-    
+
     // Verify all webhooks were cascade deleted
     let webhook1_exists = WebhookConfig::find_by_id(webhook1.id)
         .one(&db)
@@ -298,5 +331,8 @@ async fn test_delete_provider_cleans_up_multiple_webhooks() {
         .await
         .unwrap()
         .is_some();
-    assert!(!webhook1_exists && !webhook2_exists, "All webhooks should be cascade deleted");
+    assert!(
+        !webhook1_exists && !webhook2_exists,
+        "All webhooks should be cascade deleted"
+    );
 }

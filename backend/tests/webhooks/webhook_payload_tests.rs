@@ -100,8 +100,8 @@ fn test_parse_gitea_pr_comment_payload_valid() {
         }
     }"#;
 
-    let payload: GiteaPullRequestCommentPayload = serde_json::from_str(payload_json)
-        .expect("Failed to parse valid Gitea PR comment payload");
+    let payload: GiteaPullRequestCommentPayload =
+        serde_json::from_str(payload_json).expect("Failed to parse valid Gitea PR comment payload");
 
     assert_eq!(payload.action, "created");
     assert_eq!(payload.pull_request.number, 42);
@@ -154,7 +154,9 @@ fn test_extract_comment_info_from_issue_comment() {
     }"#;
 
     let payload: GiteaIssueCommentPayload = serde_json::from_str(payload_json).unwrap();
-    let comment_info = payload.extract_comment_info().expect("Failed to extract comment info");
+    let comment_info = payload
+        .extract_comment_info()
+        .expect("Failed to extract comment info");
 
     assert_eq!(comment_info.comment_id, "456");
     assert_eq!(comment_info.comment_body, "@vibe implement this feature");
@@ -211,7 +213,9 @@ fn test_extract_comment_info_from_pr_comment() {
     }"#;
 
     let payload: GiteaPullRequestCommentPayload = serde_json::from_str(payload_json).unwrap();
-    let comment_info = payload.extract_comment_info().expect("Failed to extract comment info");
+    let comment_info = payload
+        .extract_comment_info()
+        .expect("Failed to extract comment info");
 
     assert_eq!(comment_info.comment_id, "456");
     assert_eq!(comment_info.comment_body, "@vibe review this code");
@@ -298,7 +302,8 @@ fn test_different_action_types() {
         let payload: GiteaIssueCommentPayload = serde_json::from_str(&payload_json)
             .unwrap_or_else(|_| panic!("Failed to parse payload with action: {}", action));
 
-        let comment_info = payload.extract_comment_info()
+        let comment_info = payload
+            .extract_comment_info()
             .unwrap_or_else(|_| panic!("Failed to extract comment info for action: {}", action));
 
         assert_eq!(comment_info.action, action);
@@ -398,8 +403,8 @@ fn test_optional_fields() {
         }
     }"#;
 
-    let payload: GiteaIssueCommentPayload = serde_json::from_str(payload_json)
-        .expect("Failed to parse payload with optional fields");
+    let payload: GiteaIssueCommentPayload =
+        serde_json::from_str(payload_json).expect("Failed to parse payload with optional fields");
 
     assert_eq!(payload.issue.body, None);
     assert_eq!(payload.comment.user.email, None);

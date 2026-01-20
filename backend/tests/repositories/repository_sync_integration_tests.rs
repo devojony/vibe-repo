@@ -16,14 +16,14 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use vibe_repo::api::repositories::models::RepositoryResponse;
-use vibe_repo::api::settings::providers::models::ProviderResponse;
-use vibe_repo::entities::repository::ValidationStatus;
-use vibe_repo::test_utils::{is_gitea_available, wait_for_repositories, GiteaTestConfig};
 use http_body_util::BodyExt;
 use serde_json::json;
 use std::time::Duration;
 use tower::ServiceExt;
+use vibe_repo::api::repositories::models::RepositoryResponse;
+use vibe_repo::api::settings::providers::models::ProviderResponse;
+use vibe_repo::entities::repository::ValidationStatus;
+use vibe_repo::test_utils::{is_gitea_available, wait_for_repositories, GiteaTestConfig};
 
 // ============================================
 // Test Configuration
@@ -86,7 +86,7 @@ async fn update_provider(
         .oneshot(
             Request::builder()
                 .method("PUT")
-                .uri(&format!("/api/settings/providers/{}", provider_id))
+                .uri(format!("/api/settings/providers/{}", provider_id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_vec(&update_data).unwrap()))
                 .unwrap(),
@@ -104,7 +104,7 @@ async fn list_repositories(app: axum::Router, provider_id: i32) -> Vec<Repositor
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(&format!("/api/repositories?provider_id={}", provider_id))
+                .uri(format!("/api/repositories?provider_id={}", provider_id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -121,7 +121,7 @@ async fn trigger_sync(app: axum::Router, provider_id: i32) -> StatusCode {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/settings/providers/{}/sync", provider_id))
+                .uri(format!("/api/settings/providers/{}/sync", provider_id))
                 .body(Body::empty())
                 .unwrap(),
         )

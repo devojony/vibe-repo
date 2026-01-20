@@ -3,7 +3,7 @@
 //! Request and response DTOs for the Repository API.
 
 #[cfg(test)]
-use crate::entities::repository::{RepositoryStatus, WebhookStatus};
+use crate::entities::repository::RepositoryStatus;
 use crate::entities::repository::{Model as RepositoryModel, ValidationStatus};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -181,8 +181,8 @@ mod tests {
             validation_message: None,
             webhook_status: WebhookStatus::Pending,
             deleted_at: None,
-            created_at: now.into(),
-            updated_at: now.into(),
+            created_at: now,
+            updated_at: now,
         };
 
         // Act: Convert to response DTO
@@ -232,8 +232,8 @@ mod tests {
             validation_message: Some("Missing required branches".to_string()),
             webhook_status: WebhookStatus::Pending,
             deleted_at: None,
-            created_at: now.into(),
-            updated_at: now.into(),
+            created_at: now,
+            updated_at: now,
         };
 
         // Act: Convert to response DTO
@@ -274,8 +274,8 @@ mod tests {
             validation_message: None,
             webhook_status: WebhookStatus::Pending,
             deleted_at: None,
-            created_at: now.into(),
-            updated_at: now.into(),
+            created_at: now,
+            updated_at: now,
         };
 
         // Act: Convert to response DTO
@@ -311,8 +311,8 @@ mod tests {
             validation_message: None,
             webhook_status: WebhookStatus::Pending,
             deleted_at: None,
-            created_at: now.into(),
-            updated_at: now.into(),
+            created_at: now,
+            updated_at: now,
         };
 
         // Act: Convert to response DTO

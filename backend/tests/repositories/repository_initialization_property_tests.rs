@@ -9,11 +9,11 @@
 
 use std::sync::Arc;
 
+use proptest::prelude::*;
+use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 use vibe_repo::entities::{prelude::*, repo_provider, repository};
 use vibe_repo::services::RepositoryService;
 use vibe_repo::test_utils::db::create_test_database;
-use proptest::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 
 // ============================================
 // Test Helpers
@@ -669,7 +669,9 @@ mod unit_tests {
         let service = RepositoryService::new(db, Arc::new(vibe_repo::config::AppConfig::default()));
 
         // Try to initialize a non-existent repository with vibe-dev
-        let result = service.initialize_repository(99999, "vibe-dev", None, None).await;
+        let result = service
+            .initialize_repository(99999, "vibe-dev", None, None)
+            .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -720,7 +722,9 @@ mod unit_tests {
         let service = RepositoryService::new(db, Arc::new(vibe_repo::config::AppConfig::default()));
 
         // Try to initialize with vibe-dev - should fail because provider doesn't exist
-        let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
+        let result = service
+            .initialize_repository(repo.id, "vibe-dev", None, None)
+            .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -759,7 +763,9 @@ mod unit_tests {
         let service = RepositoryService::new(db, Arc::new(vibe_repo::config::AppConfig::default()));
 
         // Try to initialize with vibe-dev - should fail because full_name is invalid
-        let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
+        let result = service
+            .initialize_repository(repo.id, "vibe-dev", None, None)
+            .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -787,10 +793,15 @@ mod unit_tests {
         )
         .await;
 
-        let service = RepositoryService::new(db.clone(), Arc::new(vibe_repo::config::AppConfig::default()));
+        let service = RepositoryService::new(
+            db.clone(),
+            Arc::new(vibe_repo::config::AppConfig::default()),
+        );
 
         // Try to initialize with vibe-dev - should fail and store error message
-        let result = service.initialize_repository(repo.id, "vibe-dev", None, None).await;
+        let result = service
+            .initialize_repository(repo.id, "vibe-dev", None, None)
+            .await;
         assert!(result.is_err());
 
         // Check that validation_message was updated
@@ -1205,6 +1216,7 @@ proptest! {
 // ============================================
 
 /// Generate arbitrary label names with vibe/ prefix
+#[allow(dead_code)]
 fn arb_vibe_label() -> impl Strategy<Value = String> {
     prop_oneof![
         Just("vibe/pending-ack".to_string()),
@@ -1253,7 +1265,7 @@ proptest! {
             let full_name = format!("{}/{}", owner, repo_name);
 
             // All required labels
-            let all_labels = vec![
+            let all_labels = [
                 "vibe/pending-ack",
                 "vibe/todo-ai",
                 "vibe/in-progress",

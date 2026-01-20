@@ -19,10 +19,10 @@ fn test_mention_detection_multiple_patterns() {
 fn test_mention_detection_edge_cases() {
     // Should not match partial usernames
     assert!(!detect_mention("@robot", "bot"));
-    
+
     // Should be case sensitive
     assert!(!detect_mention("@Bot", "bot"));
-    
+
     // Should match at end of string
     assert!(detect_mention("Help me @bot", "bot"));
 }

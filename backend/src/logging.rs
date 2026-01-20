@@ -161,6 +161,5 @@ mod tests {
         // Note: We can't test this multiple times in the same process
         // because tracing can only be initialized once
         // This test just ensures the function signature is correct
-        assert!(true);
     }
 }

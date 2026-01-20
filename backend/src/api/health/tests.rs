@@ -3,7 +3,7 @@
 //! Tests for health check handler business logic.
 
 #[cfg(test)]
-mod tests {
+mod health_tests {
     use super::super::handlers::health_check;
     use crate::test_utils::state::create_test_state;
     use axum::extract::State;
@@ -82,12 +82,10 @@ mod tests {
 
         // Since we can't easily simulate a true disconnection with SQLite,
         // we'll verify the handler returns the correct response format
-        if result.is_ok() {
-            let response = result.unwrap();
+        if let Ok(response) = result {
             assert_eq!(response.0.status, "healthy");
             assert_eq!(response.0.database, "connected");
-        } else {
-            let (status_code, response) = result.unwrap_err();
+        } else if let Err((status_code, response)) = result {
             assert_eq!(status_code, StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(response.0.status, "unhealthy");
             assert_eq!(response.0.database, "disconnected");

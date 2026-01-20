@@ -1,5 +1,5 @@
 use crate::entities::{agent, prelude::*};
-use crate::error::{VibeRepoError, Result};
+use crate::error::{Result, VibeRepoError};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use serde_json::Value as JsonValue;
@@ -126,7 +126,7 @@ mod tests {
         assert_eq!(agent.workspace_id, workspace.id);
         assert_eq!(agent.name, "OpenCode Primary");
         assert_eq!(agent.tool_type, "opencode");
-        assert_eq!(agent.enabled, true);
+        assert!(agent.enabled);
     }
 
     #[tokio::test]
@@ -178,7 +178,7 @@ mod tests {
         // Assert
         assert!(result.is_ok());
         let updated = result.unwrap();
-        assert_eq!(updated.enabled, false);
+        assert!(!updated.enabled);
     }
 
     #[tokio::test]

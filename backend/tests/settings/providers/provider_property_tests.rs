@@ -2,8 +2,8 @@
 //!
 //! Tests universal properties of the provider system using proptest.
 
-use vibe_repo::api::settings::providers::models::mask_token;
 use proptest::prelude::*;
+use vibe_repo::api::settings::providers::models::mask_token;
 
 // ============================================
 // Property 1: Token masking consistency
@@ -77,11 +77,11 @@ proptest! {
 
 use axum::body::Body;
 use axum::http::Request;
-use vibe_repo::api::settings::providers::models::ProviderResponse;
-use vibe_repo::test_utils::state::create_test_app;
 use http_body_util::BodyExt;
 use serde_json::json;
 use tower::ServiceExt;
+use vibe_repo::api::settings::providers::models::ProviderResponse;
+use vibe_repo::test_utils::state::create_test_app;
 
 /// Generate arbitrary provider names
 fn arb_provider_name() -> impl Strategy<Value = String> {
@@ -159,7 +159,7 @@ proptest! {
                 .oneshot(
                     Request::builder()
                         .method("GET")
-                        .uri(&format!("/api/settings/providers/{}", created.id))
+                        .uri(format!("/api/settings/providers/{}", created.id))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -243,7 +243,7 @@ proptest! {
                 .oneshot(
                     Request::builder()
                         .method("PUT")
-                        .uri(&format!("/api/settings/providers/{}", created.id))
+                        .uri(format!("/api/settings/providers/{}", created.id))
                         .header("content-type", "application/json")
                         .body(Body::from(serde_json::to_vec(&update_body).unwrap()))
                         .unwrap(),
@@ -317,7 +317,7 @@ proptest! {
                 .oneshot(
                     Request::builder()
                         .method("PUT")
-                        .uri(&format!("/api/settings/providers/{}", created.id))
+                        .uri(format!("/api/settings/providers/{}", created.id))
                         .header("content-type", "application/json")
                         .body(Body::from(serde_json::to_vec(&update_body).unwrap()))
                         .unwrap(),
@@ -451,7 +451,7 @@ proptest! {
                 .oneshot(
                     Request::builder()
                         .method("GET")
-                        .uri(&format!("/api/settings/providers/{}", non_existent_id))
+                        .uri(format!("/api/settings/providers/{}", non_existent_id))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -484,7 +484,7 @@ proptest! {
                 .oneshot(
                     Request::builder()
                         .method("PUT")
-                        .uri(&format!("/api/settings/providers/{}", non_existent_id))
+                        .uri(format!("/api/settings/providers/{}", non_existent_id))
                         .header("content-type", "application/json")
                         .body(Body::from(serde_json::to_vec(&update_body).unwrap()))
                         .unwrap(),
@@ -511,7 +511,7 @@ proptest! {
                 .oneshot(
                     Request::builder()
                         .method("DELETE")
-                        .uri(&format!("/api/settings/providers/{}", non_existent_id))
+                        .uri(format!("/api/settings/providers/{}", non_existent_id))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -632,7 +632,7 @@ proptest! {
                 .oneshot(
                     Request::builder()
                         .method("DELETE")
-                        .uri(&format!("/api/settings/providers/{}", created.id))
+                        .uri(format!("/api/settings/providers/{}", created.id))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -699,7 +699,7 @@ proptest! {
                 .oneshot(
                     Request::builder()
                         .method("PUT")
-                        .uri(&format!("/api/settings/providers/{}", created.id))
+                        .uri(format!("/api/settings/providers/{}", created.id))
                         .header("content-type", "application/json")
                         .body(Body::from(serde_json::to_vec(&lock_body).unwrap()))
                         .unwrap(),
@@ -712,7 +712,7 @@ proptest! {
                 .oneshot(
                     Request::builder()
                         .method("DELETE")
-                        .uri(&format!("/api/settings/providers/{}", created.id))
+                        .uri(format!("/api/settings/providers/{}", created.id))
                         .body(Body::empty())
                         .unwrap(),
                 )

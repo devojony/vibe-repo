@@ -13,7 +13,9 @@ use vibe_repo::test_utils::state::create_test_state;
 /// Requirements: 3.5
 #[tokio::test]
 async fn test_webhook_handler_logs_on_missing_repository() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
     let headers = HeaderMap::new();
     let body = Bytes::from("{}");
 
@@ -23,23 +25,22 @@ async fn test_webhook_handler_logs_on_missing_repository() {
     // Should return NotFound error
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(
-        err,
-        vibe_repo::error::VibeRepoError::NotFound(_)
-    ));
+    assert!(matches!(err, vibe_repo::error::VibeRepoError::NotFound(_)));
 }
 
 /// Test webhook handler logs error on missing signature
 /// Requirements: 3.5
 #[tokio::test]
 async fn test_webhook_handler_logs_on_missing_signature() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
 
     // Create a provider and repository first
-    use vibe_repo::entities::prelude::*;
-    use vibe_repo::entities::{repo_provider, repository};
     use sea_orm::EntityTrait;
     use sea_orm::Set;
+    use vibe_repo::entities::prelude::*;
+    use vibe_repo::entities::{repo_provider, repository};
 
     let provider = repo_provider::ActiveModel {
         name: Set("test-provider".to_string()),
@@ -66,44 +67,34 @@ async fn test_webhook_handler_logs_on_missing_signature() {
         ..Default::default()
     };
 
-    let repo = Repository::insert(repo)
-        .exec(&state.db)
-        .await
-        .unwrap();
+    let repo = Repository::insert(repo).exec(&state.db).await.unwrap();
 
     let headers = HeaderMap::new(); // No signature header
     let body = Bytes::from("{}");
 
     // This should log an error about missing signature
-    let result = handle_webhook(
-        Path(repo.last_insert_id),
-        State(state),
-        headers,
-        body,
-    )
-    .await;
+    let result = handle_webhook(Path(repo.last_insert_id), State(state), headers, body).await;
 
     // Should return NotFound error because webhook config doesn't exist
     // (The handler checks for webhook config before checking signature)
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(
-        err,
-        vibe_repo::error::VibeRepoError::NotFound(_)
-    ));
+    assert!(matches!(err, vibe_repo::error::VibeRepoError::NotFound(_)));
 }
 
 /// Test webhook handler logs error on invalid UTF-8 in body
 /// Requirements: 3.5
 #[tokio::test]
 async fn test_webhook_handler_logs_on_invalid_utf8_body() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
 
     // Create a provider and repository
-    use vibe_repo::entities::prelude::*;
-    use vibe_repo::entities::{repo_provider, repository};
     use sea_orm::EntityTrait;
     use sea_orm::Set;
+    use vibe_repo::entities::prelude::*;
+    use vibe_repo::entities::{repo_provider, repository};
 
     let provider = repo_provider::ActiveModel {
         name: Set("test-provider-utf8".to_string()),
@@ -130,10 +121,7 @@ async fn test_webhook_handler_logs_on_invalid_utf8_body() {
         ..Default::default()
     };
 
-    let repo = Repository::insert(repo)
-        .exec(&state.db)
-        .await
-        .unwrap();
+    let repo = Repository::insert(repo).exec(&state.db).await.unwrap();
 
     let mut headers = HeaderMap::new();
     headers.insert("X-Gitea-Signature", "test-signature".parse().unwrap());
@@ -143,35 +131,28 @@ async fn test_webhook_handler_logs_on_invalid_utf8_body() {
     let body = Bytes::from(invalid_utf8);
 
     // This should log an error about invalid UTF-8
-    let result = handle_webhook(
-        Path(repo.last_insert_id),
-        State(state),
-        headers,
-        body,
-    )
-    .await;
+    let result = handle_webhook(Path(repo.last_insert_id), State(state), headers, body).await;
 
     // Should return NotFound error because webhook config doesn't exist
     // (The handler checks for webhook config before checking UTF-8)
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(
-        err,
-        vibe_repo::error::VibeRepoError::NotFound(_)
-    ));
+    assert!(matches!(err, vibe_repo::error::VibeRepoError::NotFound(_)));
 }
 
 /// Test webhook handler logs info on successful verification
 /// Requirements: 3.5
 #[tokio::test]
 async fn test_webhook_handler_logs_on_successful_verification() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
 
     // Create a provider and repository
-    use vibe_repo::entities::prelude::*;
-    use vibe_repo::entities::{repo_provider, repository};
     use sea_orm::EntityTrait;
     use sea_orm::Set;
+    use vibe_repo::entities::prelude::*;
+    use vibe_repo::entities::{repo_provider, repository};
 
     let provider = repo_provider::ActiveModel {
         name: Set("test-provider-success".to_string()),
@@ -198,10 +179,7 @@ async fn test_webhook_handler_logs_on_successful_verification() {
         ..Default::default()
     };
 
-    let repo = Repository::insert(repo)
-        .exec(&state.db)
-        .await
-        .unwrap();
+    let repo = Repository::insert(repo).exec(&state.db).await.unwrap();
 
     let mut headers = HeaderMap::new();
     // Use the correct signature for "test-payload" with secret "placeholder-secret"
@@ -211,13 +189,7 @@ async fn test_webhook_handler_logs_on_successful_verification() {
     let body = Bytes::from("test-payload");
 
     // This will fail signature verification but should log the attempt
-    let result = handle_webhook(
-        Path(repo.last_insert_id),
-        State(state),
-        headers,
-        body,
-    )
-    .await;
+    let result = handle_webhook(Path(repo.last_insert_id), State(state), headers, body).await;
 
     // Should return Validation error (invalid signature)
     assert!(result.is_err());
@@ -227,13 +199,15 @@ async fn test_webhook_handler_logs_on_successful_verification() {
 /// Requirements: 3.5
 #[tokio::test]
 async fn test_webhook_handler_logs_on_unsupported_event() {
-    let state = create_test_state().await.expect("Failed to create test state");
+    let state = create_test_state()
+        .await
+        .expect("Failed to create test state");
 
     // Create a provider
-    use vibe_repo::entities::prelude::*;
-    use vibe_repo::entities::repo_provider;
     use sea_orm::EntityTrait;
     use sea_orm::Set;
+    use vibe_repo::entities::prelude::*;
+    use vibe_repo::entities::repo_provider;
 
     let provider = repo_provider::ActiveModel {
         name: Set("test-provider-unsupported".to_string()),

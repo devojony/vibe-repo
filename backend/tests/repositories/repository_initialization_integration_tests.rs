@@ -6,13 +6,13 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use vibe_repo::api::repositories::models::BatchInitializeResponse;
-use vibe_repo::entities::{prelude::*, repository};
-use vibe_repo::test_utils::state::create_test_state;
 use http_body_util::BodyExt;
 use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 use serde_json::json;
 use tower::ServiceExt;
+use vibe_repo::api::repositories::models::BatchInitializeResponse;
+use vibe_repo::entities::{prelude::*, repository};
+use vibe_repo::test_utils::state::create_test_state;
 
 // ============================================
 // Test Helpers
@@ -152,7 +152,7 @@ async fn test_initialize_repository_returns_503_for_unreachable_provider() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/{}/initialize", repo_id))
+                .uri(format!("/api/repositories/{}/initialize", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from("{}"))
                 .unwrap(),
@@ -206,7 +206,7 @@ async fn test_initialize_repository_idempotent() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(&format!("/api/repositories/{}/initialize", repo_id))
+                    .uri(format!("/api/repositories/{}/initialize", repo_id))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -304,7 +304,7 @@ async fn test_initialize_repository_with_invalid_full_name() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/{}/initialize", repo.id))
+                .uri(format!("/api/repositories/{}/initialize", repo.id))
                 .header("content-type", "application/json")
                 .body(Body::from("{}"))
                 .unwrap(),
@@ -358,7 +358,7 @@ async fn test_initialize_repository_stores_error_message() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/{}/initialize", repo_id))
+                .uri(format!("/api/repositories/{}/initialize", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from("{}"))
                 .unwrap(),
@@ -419,7 +419,7 @@ async fn test_initialize_repository_with_default_branch_name() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/{}/initialize", repo_id))
+                .uri(format!("/api/repositories/{}/initialize", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from("{}"))
                 .unwrap(),
@@ -474,7 +474,7 @@ async fn test_initialize_repository_with_custom_branch_name() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/{}/initialize", repo_id))
+                .uri(format!("/api/repositories/{}/initialize", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_vec(&request_body).unwrap()))
                 .unwrap(),
@@ -526,7 +526,7 @@ async fn test_initialize_repository_attempts_label_creation() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/repositories/{}/initialize", repo_id))
+                .uri(format!("/api/repositories/{}/initialize", repo_id))
                 .header("content-type", "application/json")
                 .body(Body::from("{}"))
                 .unwrap(),
@@ -592,7 +592,7 @@ async fn test_initialize_repository_idempotent_with_default_branch() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(&format!("/api/repositories/{}/initialize", repo_id))
+                    .uri(format!("/api/repositories/{}/initialize", repo_id))
                     .header("content-type", "application/json")
                     .body(Body::from("{}"))
                     .unwrap(),
@@ -667,7 +667,7 @@ async fn test_batch_initialize_returns_202() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!(
+                .uri(format!(
                     "/api/repositories/batch-initialize?provider_id={}",
                     provider_id
                 ))
@@ -826,7 +826,7 @@ async fn test_batch_initialize_processes_eligible_repositories() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!(
+                .uri(format!(
                     "/api/repositories/batch-initialize?provider_id={}",
                     provider_id
                 ))
@@ -906,7 +906,7 @@ async fn test_batch_initialize_with_default_branch_name() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!(
+                .uri(format!(
                     "/api/repositories/batch-initialize?provider_id={}",
                     provider_id
                 ))
@@ -966,7 +966,7 @@ async fn test_batch_initialize_with_custom_branch_name() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!(
+                .uri(format!(
                     "/api/repositories/batch-initialize?provider_id={}&branch_name=custom-dev",
                     provider_id
                 ))
