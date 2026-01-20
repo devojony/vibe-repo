@@ -36,6 +36,12 @@ bollard = "0.16"
 futures = "0.3"
 futures-util = "0.3"
 
+# Concurrent hash map for per-key locking
+dashmap = "6.0"
+
+# LRU cache for bounded memory usage
+lru = "0.12"
+
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

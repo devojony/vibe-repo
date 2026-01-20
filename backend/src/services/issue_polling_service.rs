@@ -6,12 +6,14 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
+use dashmap::DashMap;
 use futures::stream::{self, StreamExt};
+use lru::LruCache;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
-use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::RwLock;
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex, RwLock};
 
 use crate::config::IssuePollingConfig;
 use crate::entities::prelude::*;
@@ -28,8 +30,14 @@ use crate::state::AppState;
 pub struct IssuePollingService {
     db: DatabaseConnection,
     config: IssuePollingConfig,
-    /// Cache: repository_id -> workspace_id
-    workspace_cache: Arc<RwLock<HashMap<i32, i32>>>,
+    /// LRU Cache: repository_id -> workspace_id (max 1000 entries)
+    workspace_cache: Arc<RwLock<LruCache<i32, i32>>>,
+    /// Per-key locks to prevent cache stampede
+    workspace_locks: Arc<DashMap<i32, Arc<Mutex<()>>>>,
+    /// Shutdown signal sender
+    shutdown_tx: Arc<RwLock<Option<tokio::sync::broadcast::Sender<()>>>>,
+    /// Background task handle
+    task_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl IssuePollingService {
@@ -38,15 +46,24 @@ impl IssuePollingService {
         Self {
             db,
             config,
-            workspace_cache: Arc::new(RwLock::new(HashMap::new())),
+            workspace_cache: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(1000).unwrap(), // Max 1000 cached workspace mappings
+            ))),
+            workspace_locks: Arc::new(DashMap::new()),
+            shutdown_tx: Arc::new(RwLock::new(None)),
+            task_handle: Arc::new(RwLock::new(None)),
         }
     }
 
     /// Get workspace ID for a repository, using cache when possible
+    ///
+    /// Uses per-key locking to prevent cache stampede when multiple concurrent
+    /// requests try to fetch the same workspace_id. Uses LRU cache to prevent
+    /// unbounded memory growth.
     async fn get_workspace_id(&self, repo_id: i32) -> Result<i32> {
-        // 1. Check cache first
+        // Fast path: Check cache first (no lock needed)
         {
-            let cache = self.workspace_cache.read().await;
+            let mut cache = self.workspace_cache.write().await;
             if let Some(workspace_id) = cache.get(&repo_id) {
                 tracing::debug!(
                     repository_id = repo_id,
@@ -57,7 +74,29 @@ impl IssuePollingService {
             }
         }
 
-        // 2. Cache miss, query database
+        // Slow path: Acquire per-key lock to prevent duplicate queries
+        let lock = self
+            .workspace_locks
+            .entry(repo_id)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+
+        let _guard = lock.lock().await;
+
+        // Double-check cache after acquiring lock (another thread might have populated it)
+        {
+            let mut cache = self.workspace_cache.write().await;
+            if let Some(workspace_id) = cache.get(&repo_id) {
+                tracing::debug!(
+                    repository_id = repo_id,
+                    workspace_id = workspace_id,
+                    "Workspace cache hit after lock"
+                );
+                return Ok(*workspace_id);
+            }
+        }
+
+        // Cache miss, query database
         tracing::debug!(
             repository_id = repo_id,
             "Workspace cache miss, querying database"
@@ -72,10 +111,10 @@ impl IssuePollingService {
                 VibeRepoError::NotFound(format!("Workspace not found for repository {}", repo_id))
             })?;
 
-        // 3. Update cache
+        // Update cache (LRU will automatically evict oldest entry if full)
         {
             let mut cache = self.workspace_cache.write().await;
-            cache.insert(repo_id, workspace.id);
+            cache.put(repo_id, workspace.id);
         }
 
         tracing::debug!(
@@ -97,15 +136,36 @@ impl IssuePollingService {
     /// Get cache statistics (size, capacity)
     pub async fn get_cache_stats(&self) -> (usize, usize) {
         let cache = self.workspace_cache.read().await;
-        (cache.len(), cache.capacity())
+        (cache.len(), cache.cap().get())
     }
 
     /// Poll a repository with exponential backoff retry for rate limiting
+    ///
+    /// Implements exponential backoff with:
+    /// - Maximum retry attempts (from config)
+    /// - Maximum total retry time (10 minutes)
+    /// - Overflow protection for exponential calculation
     async fn poll_repository_with_retry(&self, repo: &repository::Model) -> Result<()> {
+        const MAX_TOTAL_RETRY_TIME: Duration = Duration::from_secs(600); // 10 minutes
+        const MAX_RETRY_EXPONENT: u32 = 10; // Cap at 2^10 = 1024 minutes
+
         let max_retries = self.config.max_retries;
         let mut retry_count = 0;
+        let start_time = Instant::now();
 
         loop {
+            // Check total time limit
+            if start_time.elapsed() > MAX_TOTAL_RETRY_TIME {
+                tracing::error!(
+                    repository_id = repo.id,
+                    elapsed_secs = start_time.elapsed().as_secs(),
+                    "Exceeded maximum retry time"
+                );
+                return Err(VibeRepoError::Internal(
+                    "Exceeded maximum retry time".to_string(),
+                ));
+            }
+
             match self.poll_repository(repo).await {
                 Ok(_) => return Ok(()),
                 Err(VibeRepoError::GitProvider(GitProviderError::RateLimitExceeded(_))) => {
@@ -120,12 +180,15 @@ impl IssuePollingService {
                         ));
                     }
 
-                    // Exponential backoff: 2^retry_count minutes
-                    let delay_secs = 2_u64.pow(retry_count) * 60;
+                    // Exponential backoff with overflow protection: 2^min(retry_count, 10) minutes
+                    let capped_retry = retry_count.min(MAX_RETRY_EXPONENT);
+                    let delay_secs = 2_u64.saturating_pow(capped_retry).saturating_mul(60);
+
                     tracing::warn!(
                         repository_id = repo.id,
                         retry_count = retry_count,
                         delay_secs = delay_secs,
+                        elapsed_secs = start_time.elapsed().as_secs(),
                         "Rate limited, retrying after delay"
                     );
 
@@ -444,26 +507,78 @@ impl BackgroundService for IssuePollingService {
             "Starting issue polling service"
         );
 
+        // Create shutdown channel
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel(1);
+
+        // Store shutdown sender
+        {
+            let mut tx_guard = self.shutdown_tx.write().await;
+            *tx_guard = Some(shutdown_tx);
+        }
+
         let db = self.db.clone();
         let config = self.config.clone();
 
-        tokio::spawn(async move {
+        // Spawn background task and store handle
+        let handle = tokio::spawn(async move {
             let service = IssuePollingService::new(db, config.clone());
             let mut interval = tokio::time::interval(Duration::from_secs(config.interval_seconds));
 
             loop {
-                interval.tick().await;
-
-                if let Err(e) = service.poll_all_repositories().await {
-                    tracing::error!(error = %e, "Error in issue polling service");
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(e) = service.poll_all_repositories().await {
+                            tracing::error!(error = %e, "Error in issue polling service");
+                        }
+                    }
+                    _ = shutdown_rx.recv() => {
+                        tracing::info!("Received shutdown signal, stopping issue polling");
+                        break;
+                    }
                 }
             }
+
+            tracing::info!("Issue polling background task exited");
         });
+
+        // Store task handle
+        {
+            let mut handle_guard = self.task_handle.write().await;
+            *handle_guard = Some(handle);
+        }
 
         Ok(())
     }
 
     async fn stop(&self) -> Result<()> {
+        tracing::info!("Stopping issue polling service");
+
+        // Send shutdown signal
+        {
+            let tx_guard = self.shutdown_tx.read().await;
+            if let Some(tx) = tx_guard.as_ref() {
+                let _ = tx.send(()); // Ignore error if no receivers
+            }
+        }
+
+        // Wait for task to complete
+        {
+            let mut handle_guard = self.task_handle.write().await;
+            if let Some(handle) = handle_guard.take() {
+                match handle.await {
+                    Ok(_) => {
+                        tracing::info!("Issue polling task stopped gracefully");
+                    }
+                    Err(e) => {
+                        tracing::error!(error = ?e, "Issue polling task panicked");
+                        return Err(VibeRepoError::Internal(
+                            "Issue polling task panicked".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
         tracing::info!("Issue polling service stopped");
         Ok(())
     }
