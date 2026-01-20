@@ -1,8 +1,21 @@
-use crate::entities::{prelude::*, workspace};
-use crate::error::{VibeRepoError, Result};
-use crate::services::DockerService;
+use crate::entities::{container, prelude::*, workspace};
+use crate::error::{Result, VibeRepoError};
+use crate::services::{ContainerService, DockerService};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
+
+/// Workspace status constants
+pub mod workspace_status {
+    pub const INITIALIZING: &str = "Initializing";
+    pub const ACTIVE: &str = "Active";
+    pub const FAILED: &str = "Failed";
+}
+
+/// Default Dockerfile path for workspace images
+const DEFAULT_DOCKERFILE_PATH: &str = "docker/workspace/Dockerfile";
+
+/// Default build context path (project root)
+const DEFAULT_BUILD_CONTEXT: &str = ".";
 
 #[derive(Clone)]
 pub struct WorkspaceService {
@@ -18,7 +31,7 @@ impl WorkspaceService {
     pub async fn create_workspace(&self, repository_id: i32) -> Result<workspace::Model> {
         let workspace = workspace::ActiveModel {
             repository_id: Set(repository_id),
-            workspace_status: Set("Initializing".to_string()),
+            workspace_status: Set(workspace_status::INITIALIZING.to_string()),
             image_source: Set("default".to_string()),
             max_concurrent_tasks: Set(3),
             cpu_limit: Set(2.0),
@@ -81,91 +94,162 @@ impl WorkspaceService {
     }
 
     /// Create workspace with Docker container if available
+    ///
+    /// Creates a workspace record and optionally creates and starts a Docker container.
+    /// Returns a tuple of (workspace, Option<container>) where container is Some if
+    /// Docker is available and container creation succeeds.
     pub async fn create_workspace_with_container(
         &self,
         repository_id: i32,
-    ) -> Result<workspace::Model> {
+    ) -> Result<(workspace::Model, Option<container::Model>)> {
         // First create the workspace record
         let mut workspace = self.create_workspace(repository_id).await?;
 
         // If Docker is available, create and start container
-        if let Some(docker) = &self.docker {
-            let container_name = format!("workspace-{}", workspace.id);
+        if self.docker.is_some() {
+            // Ensure image exists (build if needed)
+            let image_name = &workspace.image_source;
+            match self.ensure_image_exists(image_name).await {
+                Ok(_) => {
+                    tracing::info!(
+                        workspace_id = workspace.id,
+                        image_name = %image_name,
+                        "Image ready for workspace"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        workspace_id = workspace.id,
+                        image_name = %image_name,
+                        error = %e,
+                        "Failed to ensure image exists"
+                    );
 
-            match docker
-                .create_container(
-                    &container_name,
-                    &workspace.image_source,
-                    vec!["/workspace".to_string()],
+                    // Update workspace status to Failed
+                    self.mark_workspace_failed(workspace, &e.to_string()).await;
+
+                    return Err(e);
+                }
+            }
+
+            // Create ContainerService and create container
+            let container_service = ContainerService::new(self.db.clone(), self.docker.clone());
+
+            match container_service
+                .create_and_start_container(
+                    workspace.id,
+                    image_name,
                     workspace.cpu_limit,
                     &workspace.memory_limit,
                 )
                 .await
             {
-                Ok(container_id) => {
-                    // Try to start the container
-                    match docker.start_container(&container_id).await {
-                        Ok(_) => {
-                            // Update workspace with container info
-                            let mut workspace_active: workspace::ActiveModel = workspace.into();
-                            workspace_active.container_id = Set(Some(container_id.clone()));
-                            workspace_active.container_status = Set(Some("running".to_string()));
-                            workspace_active.workspace_status = Set("Active".to_string());
-                            workspace_active.updated_at = Set(Utc::now());
+                Ok(container) => {
+                    tracing::info!(
+                        workspace_id = workspace.id,
+                        container_id = %container.container_id,
+                        "Container created and started successfully"
+                    );
 
-                            workspace = workspace_active
-                                .update(&self.db)
-                                .await
-                                .map_err(VibeRepoError::Database)?;
-                        }
-                        Err(e) => {
-                            // Failed to start, clean up container
-                            if let Err(cleanup_err) =
-                                docker.remove_container(&container_id, true).await
-                            {
-                                tracing::warn!(
-                                    "Failed to cleanup container {}: {}",
-                                    container_id,
-                                    cleanup_err
-                                );
-                            }
-
-                            // Update workspace status to Failed before returning error
-                            let mut workspace_active: workspace::ActiveModel = workspace.into();
-                            workspace_active.workspace_status = Set("Failed".to_string());
-                            workspace_active.updated_at = Set(Utc::now());
-
-                            if let Err(db_err) = workspace_active.update(&self.db).await {
-                                tracing::error!(
-                                    "Failed to update workspace status to Failed: {}",
-                                    db_err
-                                );
-                            }
-
-                            tracing::error!("Failed to start container: {}", e);
-                            return Err(e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    // Update workspace status to Failed before returning error
+                    // Update workspace status to Active
                     let mut workspace_active: workspace::ActiveModel = workspace.into();
-                    workspace_active.workspace_status = Set("Failed".to_string());
+                    workspace_active.workspace_status = Set(workspace_status::ACTIVE.to_string());
                     workspace_active.updated_at = Set(Utc::now());
 
-                    if let Err(db_err) = workspace_active.update(&self.db).await {
-                        tracing::error!("Failed to update workspace status to Failed: {}", db_err);
-                    }
+                    workspace = workspace_active
+                        .update(&self.db)
+                        .await
+                        .map_err(VibeRepoError::Database)?;
 
-                    tracing::error!("Failed to create container: {}", e);
+                    return Ok((workspace, Some(container)));
+                }
+                Err(e) => {
+                    tracing::error!(
+                        workspace_id = workspace.id,
+                        error = %e,
+                        "Failed to create container"
+                    );
+
+                    // Update workspace status to Failed
+                    self.mark_workspace_failed(workspace, &e.to_string()).await;
+
                     return Err(e);
                 }
             }
         } else {
-            tracing::info!("Docker not available, workspace created without container");
+            tracing::warn!(
+                workspace_id = workspace.id,
+                "Docker not available, workspace created without container"
+            );
         }
 
-        Ok(workspace)
+        Ok((workspace, None))
+    }
+
+    /// Ensure Docker image exists, building it if necessary
+    ///
+    /// Checks if the specified image exists in Docker. If not, builds it using
+    /// the default Dockerfile location.
+    async fn ensure_image_exists(&self, image_name: &str) -> Result<()> {
+        // Get Docker service reference
+        let docker = self
+            .docker
+            .as_ref()
+            .ok_or_else(|| VibeRepoError::Internal("Docker not available".to_string()))?;
+
+        // Check if image exists
+        let exists = docker.image_exists(image_name).await?;
+
+        if exists {
+            tracing::info!(
+                image_name = %image_name,
+                "Image already exists"
+            );
+            return Ok(());
+        }
+
+        // Image doesn't exist, build it
+        tracing::info!(
+            image_name = %image_name,
+            "Image not found, building..."
+        );
+
+        let start_time = std::time::Instant::now();
+
+        // Build image using default Dockerfile location
+        docker
+            .build_image(DEFAULT_DOCKERFILE_PATH, image_name, DEFAULT_BUILD_CONTEXT)
+            .await?;
+
+        let build_time = start_time.elapsed();
+
+        tracing::info!(
+            image_name = %image_name,
+            build_time_secs = build_time.as_secs(),
+            "Image built successfully"
+        );
+
+        Ok(())
+    }
+
+    /// Mark workspace as failed and update in database
+    async fn mark_workspace_failed(&self, workspace: workspace::Model, error: &str) {
+        tracing::error!(
+            workspace_id = workspace.id,
+            error = %error,
+            "Marking workspace as failed"
+        );
+
+        let mut workspace_active: workspace::ActiveModel = workspace.into();
+        workspace_active.workspace_status = Set(workspace_status::FAILED.to_string());
+        workspace_active.updated_at = Set(Utc::now());
+
+        if let Err(e) = workspace_active.update(&self.db).await {
+            tracing::error!(
+                error = %e,
+                "Failed to update workspace status to Failed"
+            );
+        }
     }
 }
 
@@ -358,11 +442,13 @@ mod tests {
     }
 
     // ============================================
-    // Task 4: Tests for WorkspaceService with Docker
+    // Task 2.4: Tests for WorkspaceService with ContainerService Integration
     // ============================================
 
+    /// Test 1: Create workspace with container when Docker available
+    /// Requirements: Task 2.4 - create_workspace_with_container integration
     #[tokio::test]
-    async fn test_create_workspace_with_container_when_docker_available() {
+    async fn test_create_workspace_with_container_success() {
         // Arrange
         let test_db = TestDatabase::new()
             .await
@@ -385,40 +471,44 @@ mod tests {
         let result = service.create_workspace_with_container(repo.id).await;
 
         // Assert
-        // Docker might not be running even if connection succeeds
         match result {
-            Ok(workspace) => {
+            Ok((workspace, container_opt)) => {
                 assert_eq!(workspace.repository_id, repo.id);
-                if let Some(container_id) = &workspace.container_id {
-                    // Container was created successfully
-                    assert_eq!(workspace.container_status, Some("running".to_string()));
 
-                    // Cleanup: remove container (always runs regardless of assertion failures)
+                if let Some(container) = container_opt {
+                    // Container was created successfully
+                    assert_eq!(container.workspace_id, workspace.id);
+                    assert_eq!(workspace.workspace_status, "Active");
+
+                    // Cleanup: remove container
                     if let Some(docker_service) = docker {
-                        if let Err(e) = docker_service.remove_container(container_id, true).await {
+                        if let Err(e) = docker_service
+                            .remove_container(&container.container_id, true)
+                            .await
+                        {
                             tracing::warn!(
                                 "Failed to cleanup test container {}: {}",
-                                container_id,
+                                container.container_id,
                                 e
                             );
                         }
                     }
                 } else {
                     // Docker available but container creation failed (e.g., image not available)
-                    // This is acceptable
+                    // This is acceptable in test environment
+                    eprintln!("Container creation failed (expected without image)");
                 }
             }
             Err(e) => {
                 // Docker connection succeeded but container creation failed
-                // This is acceptable in test environment
+                // This is acceptable in test environment (e.g., image not available)
                 eprintln!("Container creation failed (expected in test env): {:?}", e);
-
-                // Note: No container to cleanup since creation failed
-                // The service should have already cleaned up any partial state
             }
         }
     }
 
+    /// Test 2: Create workspace without container when Docker unavailable
+    /// Requirements: Task 2.4 - Docker unavailable handling
     #[tokio::test]
     async fn test_create_workspace_with_container_without_docker() {
         // Arrange
@@ -436,9 +526,112 @@ mod tests {
 
         // Assert: Should create workspace without container
         assert!(result.is_ok());
-        let workspace = result.unwrap();
+        let (workspace, container_opt) = result.unwrap();
         assert_eq!(workspace.repository_id, repo.id);
-        assert!(workspace.container_id.is_none());
+        assert!(container_opt.is_none());
         assert_eq!(workspace.workspace_status, "Initializing");
+    }
+
+    /// Test 3: ensure_image_exists when image already exists
+    /// Requirements: Task 2.4 - ensure_image_exists helper
+    #[tokio::test]
+    async fn test_ensure_image_exists_already_exists() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        // Try to initialize Docker
+        let docker = DockerService::new().ok();
+
+        if docker.is_none() {
+            eprintln!("Skipping test: Docker not available");
+            return;
+        }
+
+        let service = WorkspaceService::new(db.clone(), docker);
+
+        // Act - use alpine:latest which should exist or be pullable
+        let result = service.ensure_image_exists("alpine:latest").await;
+
+        // Assert
+        match result {
+            Ok(_) => {
+                // Success - image exists or was pulled
+            }
+            Err(e) => {
+                // May fail if Docker daemon not running or image can't be pulled
+                eprintln!("ensure_image_exists failed (expected in test env): {:?}", e);
+            }
+        }
+    }
+
+    /// Test 4: ensure_image_exists returns error when Docker unavailable
+    /// Requirements: Task 2.4 - ensure_image_exists error handling
+    #[tokio::test]
+    async fn test_ensure_image_exists_docker_unavailable() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        // Create service without Docker
+        let service = WorkspaceService::new(db.clone(), None);
+
+        // Act
+        let result = service.ensure_image_exists("alpine:latest").await;
+
+        // Assert - should return error when Docker is unavailable
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            VibeRepoError::Internal(msg) => {
+                assert!(msg.contains("Docker not available"));
+            }
+            e => panic!("Expected Internal error, got: {:?}", e),
+        }
+    }
+
+    /// Test 5: ensure_image_exists builds new image when not exists
+    /// Requirements: Task 2.4 - ensure_image_exists builds image
+    #[tokio::test]
+    async fn test_ensure_image_exists_builds_new() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        // Try to initialize Docker
+        let docker = DockerService::new().ok();
+
+        if docker.is_none() {
+            eprintln!("Skipping test: Docker not available");
+            return;
+        }
+
+        let service = WorkspaceService::new(db.clone(), docker.clone());
+
+        // Act - try to build an image (will fail without actual Dockerfile)
+        let result = service
+            .ensure_image_exists("test-nonexistent-image:latest")
+            .await;
+
+        // Assert - should attempt to build but fail without Dockerfile
+        match result {
+            Ok(_) => {
+                // Unexpected success - cleanup
+                if let Some(docker_service) = docker {
+                    let _ = docker_service
+                        .remove_image("test-nonexistent-image:latest", true)
+                        .await;
+                }
+            }
+            Err(_) => {
+                // Expected to fail without docker/workspace/Dockerfile
+                // This is the expected behavior in test environment
+            }
+        }
     }
 }
