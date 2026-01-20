@@ -4,10 +4,10 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use vibe_repo::api::health::handlers::HealthResponse;
-use vibe_repo::test_utils::state::create_test_app;
 use http_body_util::BodyExt;
-use tower::ServiceExt; // for `oneshot`
+use tower::ServiceExt;
+use vibe_repo::api::health::handlers::HealthResponse;
+use vibe_repo::test_utils::state::create_test_app; // for `oneshot`
 
 /// Test GET /health returns 200 when healthy
 /// Requirements: 7.1, 7.2

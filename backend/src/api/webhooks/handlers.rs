@@ -24,7 +24,7 @@ async fn verify_webhook_request(
     // Get repository, webhook config, and provider from database
     use crate::entities::prelude::*;
     use crate::entities::webhook_config;
-    use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
     // Get repository first
     let repo = Repository::find_by_id(repository_id)
@@ -48,7 +48,10 @@ async fn verify_webhook_request(
                 repository_id = repository_id,
                 "Webhook config not found for repository"
             );
-            VibeRepoError::NotFound(format!("Webhook config not found for repository {}", repository_id))
+            VibeRepoError::NotFound(format!(
+                "Webhook config not found for repository {}",
+                repository_id
+            ))
         })?;
 
     // Get provider for signature verification algorithm
@@ -99,10 +102,7 @@ async fn verify_webhook_request(
     )?;
 
     if !is_valid {
-        tracing::error!(
-            repository_id = repository_id,
-            "Invalid webhook signature"
-        );
+        tracing::error!(repository_id = repository_id, "Invalid webhook signature");
         return Err(VibeRepoError::Validation(
             "Invalid webhook signature".to_string(),
         ));
@@ -136,18 +136,12 @@ pub async fn handle_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<WebhookResponse>, VibeRepoError> {
-    tracing::info!(
-        repository_id = repository_id,
-        "Received webhook request"
-    );
+    tracing::info!(repository_id = repository_id, "Received webhook request");
 
     // Verify webhook signature
     verify_webhook_request(repository_id, &headers, &body, &state).await?;
 
-    tracing::info!(
-        repository_id = repository_id,
-        "Webhook signature verified"
-    );
+    tracing::info!(repository_id = repository_id, "Webhook signature verified");
 
     // Parse webhook payload based on event type
     let payload_str = std::str::from_utf8(&body).map_err(|e| {
@@ -187,7 +181,7 @@ pub async fn handle_webhook(
                         e
                     ))
                 })?;
-            
+
             let comment_info = payload.extract_comment_info()?;
             tracing::info!(
                 comment_id = %comment_info.comment_id,
@@ -196,11 +190,12 @@ pub async fn handle_webhook(
                 repository = %comment_info.repository_full_name,
                 "Extracted issue comment info"
             );
-            
+
             // Spawn async task to handle event
             let comment_info_clone = comment_info.clone();
             tokio::spawn(async move {
-                if let Err(e) = super::event_handler::handle_comment_event(comment_info_clone).await {
+                if let Err(e) = super::event_handler::handle_comment_event(comment_info_clone).await
+                {
                     tracing::error!(error = %e, "Failed to handle comment event");
                 }
             });
@@ -216,7 +211,7 @@ pub async fn handle_webhook(
                     );
                     VibeRepoError::Validation(format!("Failed to parse PR comment payload: {}", e))
                 })?;
-            
+
             let comment_info = payload.extract_comment_info()?;
             tracing::info!(
                 comment_id = %comment_info.comment_id,
@@ -225,11 +220,12 @@ pub async fn handle_webhook(
                 repository = %comment_info.repository_full_name,
                 "Extracted PR comment info"
             );
-            
+
             // Spawn async task to handle event
             let comment_info_clone = comment_info.clone();
             tokio::spawn(async move {
-                if let Err(e) = super::event_handler::handle_comment_event(comment_info_clone).await {
+                if let Err(e) = super::event_handler::handle_comment_event(comment_info_clone).await
+                {
                     tracing::error!(error = %e, "Failed to handle comment event");
                 }
             });

@@ -6,7 +6,7 @@ use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use std::time::Duration;
 
 use crate::config::DatabaseConfig;
-use crate::error::{VibeRepoError, Result};
+use crate::error::{Result, VibeRepoError};
 
 /// Initialize database connection from configuration
 ///

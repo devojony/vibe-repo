@@ -28,11 +28,7 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(InitScripts::ScriptContent)
-                            .text()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(InitScripts::ScriptContent).text().not_null())
                     .col(
                         ColumnDef::new(InitScripts::TimeoutSeconds)
                             .integer()

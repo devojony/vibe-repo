@@ -4,9 +4,9 @@
 
 use axum::extract::State;
 use axum::http::StatusCode;
+use proptest::prelude::*;
 use vibe_repo::api::health::handlers::health_check;
 use vibe_repo::test_utils::state::create_test_state;
-use proptest::prelude::*;
 
 // ============================================
 // Task 9.3: Property test for health check database state reflection

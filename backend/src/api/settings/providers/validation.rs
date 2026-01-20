@@ -2,7 +2,7 @@
 //!
 //! Logic for validating provider tokens against Git provider APIs.
 
-use crate::error::{VibeRepoError, Result};
+use crate::error::{Result, VibeRepoError};
 use crate::git_provider::{GitClientFactory, GitProvider, GitUser};
 
 /// Validate a provider token

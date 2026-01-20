@@ -30,7 +30,11 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(WebhookConfigs::Table)
-                    .add_column(ColumnDef::new(WebhookConfigs::LastRetryAt).timestamp().null())
+                    .add_column(
+                        ColumnDef::new(WebhookConfigs::LastRetryAt)
+                            .timestamp()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -39,7 +43,11 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(WebhookConfigs::Table)
-                    .add_column(ColumnDef::new(WebhookConfigs::NextRetryAt).timestamp().null())
+                    .add_column(
+                        ColumnDef::new(WebhookConfigs::NextRetryAt)
+                            .timestamp()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;

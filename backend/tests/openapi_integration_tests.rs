@@ -4,9 +4,9 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use tower::ServiceExt;
 use vibe_repo::api::create_router;
-use vibe_repo::test_utils::state::create_test_state;
-use tower::ServiceExt; // for `oneshot`
+use vibe_repo::test_utils::state::create_test_state; // for `oneshot`
 
 /// Test /api-docs/openapi.json returns valid JSON
 /// Requirements: 8.1
@@ -496,7 +496,9 @@ async fn test_openapi_spec_documents_webhook_endpoint() {
         .expect("POST method should have parameters");
 
     // Verify repository_id parameter exists
-    let params_array = parameters.as_array().expect("Parameters should be an array");
+    let params_array = parameters
+        .as_array()
+        .expect("Parameters should be an array");
     let has_repository_id = params_array.iter().any(|param| {
         param
             .get("name")

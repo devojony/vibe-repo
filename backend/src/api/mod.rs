@@ -36,6 +36,9 @@ use crate::{logging, state::AppState};
         settings::providers::handlers::delete_provider,
         settings::providers::handlers::validate_provider,
         settings::providers::handlers::sync_provider,
+        settings::workspace::handlers::get_image_info,
+        settings::workspace::handlers::delete_image,
+        settings::workspace::handlers::rebuild_image,
         repositories::handlers::list_repositories,
         repositories::handlers::get_repository,
         repositories::handlers::update_repository,
@@ -56,6 +59,8 @@ use crate::{logging, state::AppState};
         workspaces::handlers::list_workspaces,
         workspaces::handlers::update_workspace_status,
         workspaces::handlers::delete_workspace,
+        workspaces::lifecycle_handlers::restart_workspace,
+        workspaces::lifecycle_handlers::get_workspace_stats,
         init_scripts::handlers::update_init_script,
         init_scripts::handlers::get_logs,
         init_scripts::handlers::download_full_log,
@@ -77,6 +82,10 @@ use crate::{logging, state::AppState};
         settings::providers::models::ProviderResponse,
         settings::providers::models::ValidationResponse,
         settings::providers::models::UserInfo,
+        settings::workspace::models::ImageInfoResponse,
+        settings::workspace::models::DeleteImageResponse,
+        settings::workspace::models::RebuildImageRequest,
+        settings::workspace::models::RebuildImageResponse,
         repositories::models::RepositoryResponse,
         repositories::models::InitializeRepositoryRequest,
         repositories::models::UpdateRepositoryRequest,
@@ -97,6 +106,10 @@ use crate::{logging, state::AppState};
         workspaces::UpdateInitScriptRequest,
         workspaces::ExecuteScriptRequest,
         workspaces::InitScriptLogsResponse,
+        workspaces::RestartWorkspaceResponse,
+        workspaces::WorkspaceStatsResponse,
+        workspaces::ContainerInfo,
+        workspaces::ContainerStatsInfo,
         agents::AgentResponse,
         agents::CreateAgentRequest,
         agents::UpdateAgentEnabledRequest,
@@ -115,6 +128,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .nest(
             "/api/settings/providers",
             settings::providers::routes::router(),
+        )
+        .nest(
+            "/api/settings/workspace",
+            settings::workspace::routes::workspace_routes(),
         )
         .nest("/api/repositories", repositories::routes::router())
         .nest("/api/webhooks", webhooks::routes::router())

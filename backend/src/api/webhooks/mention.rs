@@ -7,16 +7,16 @@
 /// Does not match: @username followed by alphanumeric characters (e.g., @bot123)
 pub fn detect_mention(comment_body: &str, username: &str) -> bool {
     let mention = format!("@{}", username);
-    
+
     // Check if mention exists in the comment
     if !comment_body.contains(&mention) {
         return false;
     }
-    
+
     // Find all occurrences and check if they are valid mentions
     comment_body.match_indices(&mention).any(|(idx, _)| {
         let after_idx = idx + mention.len();
-        
+
         // Check if there's a character after the mention
         if after_idx < comment_body.len() {
             let next_char = comment_body.chars().nth(after_idx).unwrap();

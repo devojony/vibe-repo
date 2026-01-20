@@ -5,6 +5,7 @@
 pub mod prelude;
 
 pub mod agent;
+pub mod container;
 pub mod init_script;
 pub mod repo_provider;
 pub mod repository;

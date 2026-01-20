@@ -2,8 +2,8 @@
 //!
 //! Tests universal properties of the error handling system using proptest.
 
-use vibe_repo::git_provider::GitProviderError;
 use proptest::prelude::*;
+use vibe_repo::git_provider::GitProviderError;
 
 // ============================================
 // Property 1: HTTP Status Code to Error Mapping

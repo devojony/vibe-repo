@@ -369,9 +369,10 @@ async fn validate_permissions(
         )));
     }
 
-    let repo_info: GiteaRepoInfo = response.json().await.map_err(|e| {
-        VibeRepoError::Internal(format!("Failed to parse repository info: {}", e))
-    })?;
+    let repo_info: GiteaRepoInfo = response
+        .json()
+        .await
+        .map_err(|e| VibeRepoError::Internal(format!("Failed to parse repository info: {}", e)))?;
 
     Ok(PermissionInfo {
         can_read: repo_info.permissions.pull,

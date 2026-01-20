@@ -3,6 +3,7 @@
 //! Tests that conversion from Gitea models to unified models preserves data.
 
 use chrono::Utc;
+use proptest::prelude::*;
 use vibe_repo::git_provider::gitea::models::{
     GiteaBranch, GiteaCommit, GiteaIssue, GiteaLabel, GiteaPRBranch, GiteaPermissions,
     GiteaPullRequest, GiteaRepository, GiteaUser,
@@ -11,7 +12,6 @@ use vibe_repo::git_provider::models::{
     GitBranch, GitIssue, GitLabel, GitPullRequest, GitRepository, GitUser, IssueState,
     PullRequestState, RepositoryPermissions,
 };
-use proptest::prelude::*;
 
 // ============================================
 // Property 2: Model Conversion Preserves Data

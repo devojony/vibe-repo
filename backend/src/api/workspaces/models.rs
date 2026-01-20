@@ -181,3 +181,45 @@ impl From<(workspace::Model, Option<init_script::Model>)> for WorkspaceResponse 
         }
     }
 }
+
+// ============================================================================
+// Lifecycle API Models
+// ============================================================================
+
+/// Response model for restart workspace operation
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RestartWorkspaceResponse {
+    pub message: String,
+    pub workspace_id: i32,
+    pub container: ContainerInfo,
+}
+
+/// Container information for lifecycle operations
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ContainerInfo {
+    pub id: i32,
+    pub container_id: String,
+    pub status: String,
+    pub restart_count: i32,
+    pub last_restart_at: Option<String>,
+}
+
+/// Response model for workspace stats operation
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct WorkspaceStatsResponse {
+    pub workspace_id: i32,
+    pub container_id: String,
+    pub stats: ContainerStatsInfo,
+    pub collected_at: String,
+}
+
+/// Container resource usage statistics
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ContainerStatsInfo {
+    pub cpu_percent: f64,
+    pub memory_usage_mb: f64,
+    pub memory_limit_mb: f64,
+    pub memory_percent: f64,
+    pub network_rx_bytes: u64,
+    pub network_tx_bytes: u64,
+}

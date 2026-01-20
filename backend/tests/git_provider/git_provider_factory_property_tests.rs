@@ -4,10 +4,10 @@
 
 // GitClient, GitHubClient, and GitLabClient are exported from git_provider module
 // and can be imported when needed for direct enum variant construction
+use proptest::prelude::*;
 #[allow(unused_imports)]
 use vibe_repo::git_provider::{GitClient, GitHubClient, GitLabClient};
 use vibe_repo::git_provider::{GitClientFactory, GitProvider, GitProviderError};
-use proptest::prelude::*;
 
 // ============================================
 // Property 3: Factory Creates Correct Provider Type

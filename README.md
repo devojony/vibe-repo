@@ -1,6 +1,6 @@
 # VibeRepo
 
-**Version:** 0.2.0 (Pre-1.0 - Breaking changes allowed)
+**Version:** 0.3.0 (Pre-1.0 - Breaking changes allowed)
 
 VibeRepo is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
 
@@ -11,6 +11,7 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - **Repository Initialization**: Automated branch and label setup for new repositories
 - **Webhook Integration**: Real-time event processing from Git providers
 - **Workspace Management**: Docker-based isolated development environments
+- **Container Lifecycle Management**: Automated Docker container management with health monitoring
 - **Init Scripts**: Automated container setup with custom shell scripts
 - **Background Services**: Scheduled repository synchronization and log cleanup
 - **RESTful API**: Comprehensive API with OpenAPI documentation
@@ -216,6 +217,51 @@ curl http://localhost:3000/api/workspaces/1/init-script/logs/full -o script.log
 
 If you were using `custom_dockerfile_path`, see [docs/migration-guide-init-scripts.md](./docs/migration-guide-init-scripts.md) for migration instructions.
 
+## Container Lifecycle Management
+
+VibeRepo automatically manages Docker containers for isolated development environments:
+
+- **Automatic Container Creation**: Containers are created and started automatically when workspaces are initialized
+- **Health Monitoring**: Continuous health checks with automatic restart on failure (every 30 seconds)
+- **Resource Monitoring**: Real-time CPU, memory, and network usage statistics via API
+- **Image Management**: Build, rebuild, and manage workspace Docker images
+- **Manual Control**: API endpoints for manual restart and monitoring
+- **Restart Policies**: Configurable restart limits (default: 3 attempts) with automatic failure detection
+- **Graceful Degradation**: Containers marked as failed after exceeding restart limits
+
+### Container Management Endpoints
+
+- `POST /api/workspaces/:id/restart` - Manually restart workspace container
+- `GET /api/workspaces/:id/stats` - Get real-time container resource statistics
+- `GET /api/settings/workspace/image` - Query workspace image information
+- `DELETE /api/settings/workspace/image` - Delete workspace image (with conflict detection)
+- `POST /api/settings/workspace/image/rebuild` - Rebuild workspace image from Dockerfile
+
+### Example: Get Container Statistics
+
+```bash
+curl http://localhost:3000/api/workspaces/1/stats
+```
+
+Response:
+```json
+{
+  "workspace_id": 1,
+  "container_id": "abc123def456",
+  "stats": {
+    "cpu_percent": 15.5,
+    "memory_usage_mb": 256.8,
+    "memory_limit_mb": 512.0,
+    "memory_percent": 50.16,
+    "network_rx_bytes": 1048576,
+    "network_tx_bytes": 524288
+  },
+  "collected_at": "2026-01-20T10:35:00Z"
+}
+```
+
+See [Container Lifecycle Management Documentation](docs/container-lifecycle-management.md) for complete details.
+
 ## Development
 
 ### Build Commands
@@ -398,12 +444,12 @@ This project follows **Test-Driven Development (TDD)**:
 2. **Green**: Write minimal code to make the test pass
 3. **Refactor**: Refactor code while keeping tests passing
 
-**Test Coverage (v0.1.1):**
-- Total tests: 181+
+**Test Coverage (v0.3.0):**
+- Total tests: 249
 - Passing: 100%
+- Unit tests: 50+ (new container/image features)
+- Integration tests: 14+ (new API endpoints)
 - Property tests: 14
-- Integration tests: 12+
-- Unit tests: 155+
 
 ## Contributing
 
@@ -436,7 +482,7 @@ test(api): Add webhook integration tests
 
 ## Roadmap
 
-### Current Status (v0.1.1)
+### Current Status (v0.3.0)
 
 **Completed:**
 - ✅ Backend Foundation
@@ -447,6 +493,7 @@ test(api): Add webhook integration tests
 - ✅ Webhook Integration
 - ✅ Workspace API
 - ✅ Init Script Feature
+- ✅ Container Lifecycle Management
 - ✅ Agent Management
 - ✅ Task Automation
 

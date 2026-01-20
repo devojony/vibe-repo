@@ -1,5 +1,5 @@
 use crate::entities::{prelude::*, task};
-use crate::error::{VibeRepoError, Result};
+use crate::error::{Result, VibeRepoError};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 

@@ -7,7 +7,7 @@ use crate::{
         prelude::{RepoProvider, Repository},
         repo_provider::{ActiveModel, Entity as RepoProviderEntity, ProviderType},
     },
-    error::{VibeRepoError, Result},
+    error::{Result, VibeRepoError},
     state::AppState,
 };
 use axum::{

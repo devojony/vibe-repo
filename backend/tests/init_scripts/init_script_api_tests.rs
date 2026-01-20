@@ -5,16 +5,16 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Utc;
+use http_body_util::BodyExt;
+use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
+use std::sync::Arc;
+use tower::ServiceExt;
 use vibe_repo::api::workspaces::models::{
     CreateWorkspaceRequest, ExecuteScriptRequest, InitScriptLogsResponse, InitScriptResponse,
     UpdateInitScriptRequest, WorkspaceResponse,
 };
 use vibe_repo::entities::{repo_provider, repository};
-use vibe_repo::test_utils::TestDatabase;
-use http_body_util::BodyExt;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
-use std::sync::Arc;
-use tower::ServiceExt; // for `oneshot`
+use vibe_repo::test_utils::TestDatabase; // for `oneshot`
 
 // ============================================================================
 // Helper Functions
@@ -132,7 +132,8 @@ async fn test_create_workspace_with_init_script() {
 
     // Act: Create workspace with init script
     let init_script = "#!/bin/bash\necho 'Hello from init script'".to_string();
-    let (status, workspace) = create_workspace_via_api(app, repository.id, Some(init_script.clone())).await;
+    let (status, workspace) =
+        create_workspace_via_api(app, repository.id, Some(init_script.clone())).await;
 
     // Assert
     assert_eq!(status, StatusCode::CREATED);
@@ -228,7 +229,8 @@ async fn test_update_init_script_updates_existing() {
 
     // Create workspace with init script
     let init_script = "#!/bin/bash\necho 'Original'".to_string();
-    let (_, workspace) = create_workspace_via_api(app.clone(), repository.id, Some(init_script)).await;
+    let (_, workspace) =
+        create_workspace_via_api(app.clone(), repository.id, Some(init_script)).await;
 
     // Act: Update existing init script
     let update_request = UpdateInitScriptRequest {
@@ -310,7 +312,8 @@ async fn test_get_init_script_logs_success() {
 
     // Create workspace with init script
     let init_script = "#!/bin/bash\necho 'Test'".to_string();
-    let (_, workspace) = create_workspace_via_api(app.clone(), repository.id, Some(init_script)).await;
+    let (_, workspace) =
+        create_workspace_via_api(app.clone(), repository.id, Some(init_script)).await;
 
     // Act: Get logs
     let response = app
@@ -351,7 +354,8 @@ async fn test_execute_script_without_container() {
 
     // Create workspace with init script
     let init_script = "#!/bin/bash\necho 'Test'".to_string();
-    let (_, workspace) = create_workspace_via_api(app.clone(), repository.id, Some(init_script)).await;
+    let (_, workspace) =
+        create_workspace_via_api(app.clone(), repository.id, Some(init_script)).await;
 
     // Act: Try to execute script without container
     let execute_request = ExecuteScriptRequest { force: false };
@@ -360,7 +364,10 @@ async fn test_execute_script_without_container() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/workspaces/{}/init-script/execute", workspace.id))
+                .uri(format!(
+                    "/api/workspaces/{}/init-script/execute",
+                    workspace.id
+                ))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&execute_request).unwrap()))
                 .unwrap(),
@@ -397,7 +404,10 @@ async fn test_execute_script_not_found() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/workspaces/{}/init-script/execute", workspace.id))
+                .uri(format!(
+                    "/api/workspaces/{}/init-script/execute",
+                    workspace.id
+                ))
                 .header("content-type", "application/json")
                 .body(Body::from(serde_json::to_string(&execute_request).unwrap()))
                 .unwrap(),
@@ -426,14 +436,18 @@ async fn test_download_full_log_not_found() {
 
     // Create workspace with init script (but no execution, so no log file)
     let init_script = "#!/bin/bash\necho 'Test'".to_string();
-    let (_, workspace) = create_workspace_via_api(app.clone(), repository.id, Some(init_script)).await;
+    let (_, workspace) =
+        create_workspace_via_api(app.clone(), repository.id, Some(init_script)).await;
 
     // Act: Try to download full log when none exists
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/api/workspaces/{}/init-script/logs/full", workspace.id))
+                .uri(format!(
+                    "/api/workspaces/{}/init-script/logs/full",
+                    workspace.id
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -496,7 +510,8 @@ async fn test_init_script_response_fields() {
 
     // Act: Create workspace with init script
     let init_script = "#!/bin/bash\necho 'Test'".to_string();
-    let (_, workspace) = create_workspace_via_api(app, repository.id, Some(init_script.clone())).await;
+    let (_, workspace) =
+        create_workspace_via_api(app, repository.id, Some(init_script.clone())).await;
 
     // Assert: Verify all fields in init_script response
     let script = workspace.init_script.unwrap();

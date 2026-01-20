@@ -9,8 +9,8 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use vibe_repo::test_utils::state::create_test_app;
 use tower::ServiceExt;
+use vibe_repo::test_utils::state::create_test_app;
 
 /// Test that request ID is added to response headers
 /// Requirements: 9.3

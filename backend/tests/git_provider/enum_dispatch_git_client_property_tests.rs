@@ -3,12 +3,12 @@
 //! Feature: enum-dispatch-git-client
 //! Tests universal properties of the GitClient enum dispatch system using proptest.
 
+use proptest::prelude::*;
 use std::sync::Arc;
 use vibe_repo::git_provider::gitea::GiteaClient;
 use vibe_repo::git_provider::{
     GitClient, GitClientFactory, GitHubClient, GitLabClient, GitProvider, GitProviderError,
 };
-use proptest::prelude::*;
 
 // ============================================
 // Generators for property tests

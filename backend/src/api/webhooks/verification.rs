@@ -39,14 +39,14 @@ pub fn verify_webhook_signature(
 fn verify_hmac_sha256(signature: &str, body: &str, secret: &str) -> Result<bool> {
     // Strip "sha256=" prefix if present (GitHub format)
     let signature = signature.strip_prefix("sha256=").unwrap_or(signature);
-    
+
     // Calculate expected signature
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
         .map_err(|e| crate::error::VibeRepoError::Internal(format!("Invalid secret: {}", e)))?;
-    
+
     mac.update(body.as_bytes());
     let expected = format!("{:x}", mac.finalize().into_bytes());
-    
+
     // Constant-time comparison
     Ok(signature == expected)
 }
@@ -59,12 +59,12 @@ mod tests {
     fn test_hmac_sha256_verification() {
         let body = "test body";
         let secret = "test-secret";
-        
+
         // Calculate signature
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(body.as_bytes());
         let signature = format!("{:x}", mac.finalize().into_bytes());
-        
+
         // Verify
         let result = verify_hmac_sha256(&signature, body, secret).unwrap();
         assert!(result);
@@ -74,11 +74,11 @@ mod tests {
     fn test_hmac_sha256_with_github_prefix() {
         let body = "test body";
         let secret = "test-secret";
-        
+
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(body.as_bytes());
         let signature = format!("sha256={:x}", mac.finalize().into_bytes());
-        
+
         let result = verify_hmac_sha256(&signature, body, secret).unwrap();
         assert!(result);
     }
@@ -88,7 +88,7 @@ mod tests {
         let body = "test body";
         let secret = "test-secret";
         let wrong_sig = "wrong_signature";
-        
+
         let result = verify_hmac_sha256(wrong_sig, body, secret).unwrap();
         assert!(!result);
     }

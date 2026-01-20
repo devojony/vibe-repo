@@ -2,9 +2,9 @@
 //!
 //! Tests Requirements 6.1, 6.4
 
-use vibe_repo::{api::create_router, test_utils::state::create_test_state};
 use std::time::Duration;
 use tokio::time::timeout;
+use vibe_repo::{api::create_router, test_utils::state::create_test_state};
 
 /// Test that server binds to configured address
 /// Requirements: 6.1

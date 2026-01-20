@@ -454,7 +454,6 @@ mod tests {
                 max_connections: 5,
             },
             server: ServerConfig {
-
                 host: "127.0.0.1".to_string(),
                 port: 8080,
             },
@@ -499,7 +498,6 @@ mod tests {
         let config = AppConfig {
             database: DatabaseConfig::default(),
             server: ServerConfig {
-
                 host: "0.0.0.0".to_string(),
                 port: 0,
             },

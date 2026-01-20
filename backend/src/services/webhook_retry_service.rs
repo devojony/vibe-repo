@@ -43,10 +43,7 @@ impl WebhookRetryService {
             .all(&self.db)
             .await?;
 
-        tracing::info!(
-            count = webhooks.len(),
-            "Found webhooks ready for retry"
-        );
+        tracing::info!(count = webhooks.len(), "Found webhooks ready for retry");
 
         for webhook in webhooks {
             if let Err(e) = self.retry_single_webhook(&webhook).await {
@@ -113,10 +110,7 @@ impl WebhookRetryService {
         let webhook_request = CreateWebhookRequest {
             url: webhook.webhook_url.clone(),
             secret: webhook.webhook_secret.clone(),
-            events: vec![
-                WebhookEvent::IssueComment,
-                WebhookEvent::PullRequestComment,
-            ],
+            events: vec![WebhookEvent::IssueComment, WebhookEvent::PullRequestComment],
             active: true,
         };
 

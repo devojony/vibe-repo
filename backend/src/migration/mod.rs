@@ -17,6 +17,7 @@ mod m20260117_000005_create_tasks;
 mod m20260117_000006_create_task_logs;
 mod m20260118_000001_add_webhook_retry_fields;
 mod m20260119_000001_replace_dockerfile_with_init_script;
+mod m20260120_000001_create_containers_table;
 
 pub struct Migrator;
 
@@ -37,6 +38,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260117_000006_create_task_logs::Migration),
             Box::new(m20260118_000001_add_webhook_retry_fields::Migration),
             Box::new(m20260119_000001_replace_dockerfile_with_init_script::Migration),
+            Box::new(m20260120_000001_create_containers_table::Migration),
         ]
     }
 }

@@ -32,7 +32,9 @@ pub async fn create_workspace(
     let init_script_service = InitScriptService::new(state.db.clone(), state.docker.clone());
 
     // Create workspace
-    let workspace = workspace_service.create_workspace(req.repository_id).await?;
+    let workspace = workspace_service
+        .create_workspace(req.repository_id)
+        .await?;
 
     // Create init script if provided
     let init_script = if let Some(script_content) = req.init_script {

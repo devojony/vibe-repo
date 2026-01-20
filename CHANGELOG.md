@@ -23,6 +23,181 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-01-20
+
+### Added
+
+#### Container Lifecycle Management
+- **ContainerService**: New service for container CRUD and lifecycle management
+  - Automatic container creation and startup
+  - Manual and automatic restart capabilities
+  - Restart count tracking with configurable limits (default: 3 attempts)
+  - Container status management (creating, running, stopped, exited, failed)
+  - Container naming convention: `workspace-{workspace_id}`
+  - Default workspace mount at `/workspace`
+- **ImageManagementService**: New service for workspace image management
+  - Image information queries (size, creation time, usage)
+  - Safe image deletion with conflict detection
+  - Image rebuild with force option
+  - Workspace usage tracking per image
+- **DockerService Enhancements**: 7 new methods for image and container operations
+  - `image_exists()` - Check if image exists
+  - `build_image()` - Build Docker image from Dockerfile
+  - `remove_image()` - Remove Docker image
+  - `inspect_image()` - Get image metadata (size, creation time, ID)
+  - `list_containers_using_image()` - List containers by image
+  - `restart_container()` - Restart container with timeout (default: 10s)
+  - `get_container_stats()` - Get real-time resource usage (CPU, memory, network)
+- **WorkspaceService Updates**: Container integration
+  - `create_workspace_with_container()` - Create workspace with container
+  - `ensure_image_exists()` - Auto-build images when needed
+  - Returns tuple `(workspace, Option<container>)` from creation
+- **HealthCheckService Enhancements**: Automatic container recovery
+  - Auto-restart unhealthy containers
+  - Respect max restart attempts (default: 3)
+  - Mark containers as failed after limit exceeded
+  - Health check interval: 30 seconds
+
+#### API Endpoints
+- `POST /api/workspaces/:id/restart` - Manually restart workspace container
+  - Returns restart count and last restart timestamp
+  - Increments restart counter
+- `GET /api/workspaces/:id/stats` - Get container resource statistics
+  - CPU usage percentage
+  - Memory usage and limits
+  - Network RX/TX bytes
+  - Real-time data collection
+- `GET /api/settings/workspace/image` - Query workspace image information
+  - Image existence check
+  - Size and creation time
+  - List of workspaces using the image
+- `DELETE /api/settings/workspace/image` - Delete workspace image
+  - Conflict detection (prevents deletion if in use)
+  - Helpful error messages with workspace IDs
+- `POST /api/settings/workspace/image/rebuild` - Rebuild workspace image
+  - Force option to rebuild even if in use
+  - Build time tracking
+  - Warning when workspaces need restart
+
+#### Database
+- New `containers` table for container metadata
+  - Fields: workspace_id, container_id, container_name, image_name, status
+  - Restart tracking: restart_count, max_restart_attempts, last_restart_at
+  - Health monitoring: health_check_failures, last_health_check_at
+  - Timestamps: created_at, updated_at
+- Migration from workspace.container_id to separate containers table
+- Cascade delete support (deleting workspace deletes container)
+- One-to-one relationship: workspace ↔ container
+
+#### Infrastructure
+- Default workspace Dockerfile (Ubuntu 22.04 based)
+  - Pre-installed tools: git, curl, wget, vim, nano, build-essential, jq
+  - Size: ~200MB compressed
+  - Location: `docker/workspace/Dockerfile`
+- Workspace image build system
+  - Automatic build on first workspace creation
+  - Manual rebuild via API
+  - Force rebuild option for updates
+- Container resource monitoring
+  - Real-time CPU and memory tracking
+  - Network usage statistics
+  - Resource limit enforcement
+
+### Changed
+- **BREAKING**: `WorkspaceService::create_workspace_with_container()` return type changed
+  - Old: `Result<workspace::Model>`
+  - New: `Result<(workspace::Model, Option<container::Model>)>`
+- Workspace status management improved with "Active" and "Failed" states
+  - "Active" - Container running normally
+  - "Failed" - Container exceeded restart limits
+- Enhanced error messages with workspace IDs and suggestions
+  - Conflict errors include affected workspace IDs
+  - Suggestions for resolution (e.g., "stop these workspaces first")
+- Container lifecycle now fully managed by ContainerService
+  - Centralized restart logic (manual and automatic)
+  - Consistent status tracking
+  - Unified error handling
+
+### Technical Details
+- **Tests**: 249 total (100% passing)
+  - 50 new unit tests for container and image services
+  - 14 new integration tests for API endpoints
+  - Property-based tests for edge cases
+- **Documentation**: Full OpenAPI documentation for all endpoints
+  - Request/response schemas
+  - Error codes and descriptions
+  - Example requests and responses
+- **Error Handling**: Comprehensive error handling with conflict detection
+  - `ServiceUnavailable` - Docker not available
+  - `NotFound` - Workspace/container not found
+  - `Conflict` - Image in use, container not running
+- **Logging**: Structured logging with tracing
+  - Container lifecycle events
+  - Restart operations (manual and automatic)
+  - Health check results
+  - Image build operations
+- **TDD Approach**: Test-first implementation throughout
+  - Red-Green-Refactor cycle
+  - High test coverage
+  - Integration tests for all endpoints
+
+### Breaking Changes
+1. **WorkspaceService API Change**:
+   ```rust
+   // Old (v0.2.0)
+   let workspace = workspace_service.create_workspace_with_container(...).await?;
+   
+   // New (v0.3.0)
+   let (workspace, container) = workspace_service.create_workspace_with_container(...).await?;
+   ```
+
+2. **Database Schema**:
+   - New required `containers` table (migration runs automatically)
+   - Workspace model no longer has direct container_id field
+   - Container information accessed via ContainerService
+
+### Migration Guide
+
+**For API Users**:
+- No changes required - API endpoints remain backward compatible
+- New endpoints available for container management
+
+**For Service Layer Users**:
+- Update calls to `create_workspace_with_container()` to handle tuple return
+- Use `ContainerService` for container operations instead of direct Docker calls
+
+**For Database**:
+- Migration runs automatically on startup
+- Existing workspace data preserved
+- New containers table created
+
+### Documentation
+- Added `docs/container-lifecycle-management.md` (comprehensive guide)
+  - Architecture overview
+  - Component descriptions
+  - API endpoint documentation with examples
+  - Configuration reference
+  - 7 usage examples
+  - Troubleshooting guide
+  - Development guide
+- Updated `docker/workspace/README.md` with API integration details
+- Updated `README.md` with Container Lifecycle Management section
+- All documentation includes version numbers and timestamps
+
+### Performance
+- Efficient container status queries (indexed by workspace_id)
+- Minimal Docker API calls (cached image checks)
+- Background health checks run every 30 seconds
+- Restart operations complete in <5 seconds
+
+### Security
+- Container isolation via Docker
+- Resource limits enforced (CPU, memory)
+- No privileged containers
+- Workspace mount at `/workspace` only
+
+---
+
 ## [0.2.0] - 2026-01-20
 
 ### Added

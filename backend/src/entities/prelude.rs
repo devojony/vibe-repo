@@ -3,6 +3,7 @@
 //! Re-exports all entity types for convenient importing.
 
 pub use super::agent::Entity as Agent;
+pub use super::container::Entity as Container;
 pub use super::init_script::Entity as InitScript;
 pub use super::repo_provider::Entity as RepoProvider;
 pub use super::repository::Entity as Repository;

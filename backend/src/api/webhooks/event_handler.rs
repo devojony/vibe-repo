@@ -7,9 +7,7 @@ use crate::error::VibeRepoError;
 ///
 /// This function is called asynchronously to process comment events.
 /// Future implementation will trigger AI agent workflows.
-pub async fn handle_comment_event(
-    comment_info: CommentInfo,
-) -> Result<(), VibeRepoError> {
+pub async fn handle_comment_event(comment_info: CommentInfo) -> Result<(), VibeRepoError> {
     tracing::info!(
         comment_id = %comment_info.comment_id,
         author = %comment_info.comment_author,

@@ -10,7 +10,10 @@ use vibe_repo::{
     config::AppConfig,
     db::database::DatabasePool,
     logging,
-    services::{LogCleanupService, RepositoryService, ServiceManager, WebhookCleanupService, WebhookRetryService},
+    services::{
+        LogCleanupService, RepositoryService, ServiceManager, WebhookCleanupService,
+        WebhookRetryService,
+    },
     state::AppState,
 };
 
@@ -62,15 +65,18 @@ async fn main() -> Result<()> {
     let mut service_manager = ServiceManager::new();
 
     // Register RepositoryService for background periodic sync
-    let background_service = RepositoryService::new(db_pool.connection().clone(), config_arc.clone());
+    let background_service =
+        RepositoryService::new(db_pool.connection().clone(), config_arc.clone());
     service_manager.register(background_service);
 
     // Register WebhookRetryService for background webhook retry
-    let webhook_retry_service = WebhookRetryService::new(db_pool.connection().clone(), config_arc.clone());
+    let webhook_retry_service =
+        WebhookRetryService::new(db_pool.connection().clone(), config_arc.clone());
     service_manager.register(webhook_retry_service);
 
     // Register WebhookCleanupService for orphaned webhook cleanup
-    let webhook_cleanup_service = WebhookCleanupService::new(db_pool.connection().clone(), config_arc.clone());
+    let webhook_cleanup_service =
+        WebhookCleanupService::new(db_pool.connection().clone(), config_arc.clone());
     service_manager.register(webhook_cleanup_service);
 
     // Register LogCleanupService for init script log cleanup

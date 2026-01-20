@@ -199,23 +199,17 @@ pub async fn download_full_log(
     })?;
 
     // Read file contents
-    let contents = tokio::fs::read_to_string(&file_path)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                workspace_id = workspace_id,
-                file_path = %file_path,
-                error = %e,
-                "Failed to read log file"
-            );
-            VibeRepoError::Internal(format!("Failed to read log file: {}", e))
-        })?;
+    let contents = tokio::fs::read_to_string(&file_path).await.map_err(|e| {
+        tracing::error!(
+            workspace_id = workspace_id,
+            file_path = %file_path,
+            error = %e,
+            "Failed to read log file"
+        );
+        VibeRepoError::Internal(format!("Failed to read log file: {}", e))
+    })?;
 
-    Ok((
-        StatusCode::OK,
-        [("Content-Type", "text/plain")],
-        contents,
-    ))
+    Ok((StatusCode::OK, [("Content-Type", "text/plain")], contents))
 }
 
 /// Execute init script for a workspace

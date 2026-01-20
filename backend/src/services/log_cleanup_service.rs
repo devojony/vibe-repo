@@ -12,8 +12,8 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::fs;
 
-use crate::entities::prelude::*;
 use crate::entities::init_script;
+use crate::entities::prelude::*;
 use crate::error::Result;
 use crate::services::BackgroundService;
 use crate::state::AppState;
@@ -34,10 +34,15 @@ impl LogCleanupService {
     /// * `db` - Database connection
     /// * `log_base_dir` - Base directory for log files (default: /data/gitautodev/init-script-logs)
     /// * `retention_days` - Number of days to retain logs (default: 30)
-    pub fn new(db: DatabaseConnection, log_base_dir: Option<String>, retention_days: Option<i64>) -> Self {
+    pub fn new(
+        db: DatabaseConnection,
+        log_base_dir: Option<String>,
+        retention_days: Option<i64>,
+    ) -> Self {
         Self {
             db,
-            log_base_dir: log_base_dir.unwrap_or_else(|| "/data/gitautodev/init-script-logs".to_string()),
+            log_base_dir: log_base_dir
+                .unwrap_or_else(|| "/data/gitautodev/init-script-logs".to_string()),
             retention_days: retention_days.unwrap_or(30),
         }
     }
@@ -167,9 +172,17 @@ impl LogCleanupService {
                 // Check if directory is empty
                 match fs::read_dir(&path).await {
                     Ok(mut dir_entries) => {
-                        if dir_entries.next_entry().await.map_err(|e| {
-                            crate::error::VibeRepoError::Internal(format!("Failed to check directory: {}", e))
-                        })?.is_none() {
+                        if dir_entries
+                            .next_entry()
+                            .await
+                            .map_err(|e| {
+                                crate::error::VibeRepoError::Internal(format!(
+                                    "Failed to check directory: {}",
+                                    e
+                                ))
+                            })?
+                            .is_none()
+                        {
                             // Directory is empty, remove it
                             if let Err(e) = fs::remove_dir(&path).await {
                                 tracing::warn!(

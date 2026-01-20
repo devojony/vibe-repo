@@ -29,7 +29,7 @@ pub mod test_utils;
 
 // Re-export commonly used types
 pub use config::AppConfig;
-pub use error::{VibeRepoError, Result};
+pub use error::{Result, VibeRepoError};
 pub use state::AppState;
 
 // Re-export database types

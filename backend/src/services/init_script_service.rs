@@ -1,9 +1,12 @@
-use crate::entities::{prelude::*, init_script};
-use crate::error::{VibeRepoError, Result};
+use crate::entities::{init_script, prelude::*};
+use crate::error::{Result, VibeRepoError};
 use crate::services::DockerService;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, QueryFilter, ColumnTrait, TransactionTrait, QuerySelect};
 use sea_orm::sea_query::LockType;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, Set,
+    TransactionTrait,
+};
 
 #[derive(Clone)]
 pub struct InitScriptService {
@@ -91,7 +94,10 @@ impl InitScriptService {
         script.status = Set("Pending".to_string()); // Reset status
         script.updated_at = Set(Utc::now());
 
-        let script = script.update(&self.db).await.map_err(VibeRepoError::Database)?;
+        let script = script
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
 
         tracing::info!(
             workspace_id = workspace_id,
@@ -145,7 +151,10 @@ impl InitScriptService {
         let mut script_active: init_script::ActiveModel = script.clone().into();
         script_active.status = Set("Running".to_string());
         script_active.updated_at = Set(Utc::now());
-        let script = script_active.update(&txn).await.map_err(VibeRepoError::Database)?;
+        let script = script_active
+            .update(&txn)
+            .await
+            .map_err(VibeRepoError::Database)?;
 
         // Commit transaction
         txn.commit().await.map_err(VibeRepoError::Database)?;
@@ -158,7 +167,11 @@ impl InitScriptService {
         );
 
         // Execute script in container
-        let cmd = vec!["/bin/bash".to_string(), "-c".to_string(), script.script_content.clone()];
+        let cmd = vec![
+            "/bin/bash".to_string(),
+            "-c".to_string(),
+            script.script_content.clone(),
+        ];
         let timeout = script.timeout_seconds as u64;
 
         let result = docker.exec_in_container(container_id, cmd, timeout).await;
@@ -166,13 +179,9 @@ impl InitScriptService {
         // Process result and update script
         match result {
             Ok(output) => {
-                let (summary, file_path) = Self::save_script_output(
-                    script.id,
-                    workspace_id,
-                    output.stdout,
-                    output.stderr,
-                )
-                .await?;
+                let (summary, file_path) =
+                    Self::save_script_output(script.id, workspace_id, output.stdout, output.stderr)
+                        .await?;
 
                 let status = if output.exit_code == 0 {
                     "Success"
@@ -187,7 +196,10 @@ impl InitScriptService {
                 script_active.executed_at = Set(Some(Utc::now()));
                 script_active.updated_at = Set(Utc::now());
 
-                let script = script_active.update(&self.db).await.map_err(VibeRepoError::Database)?;
+                let script = script_active
+                    .update(&self.db)
+                    .await
+                    .map_err(VibeRepoError::Database)?;
 
                 tracing::info!(
                     workspace_id = workspace_id,
@@ -208,7 +220,10 @@ impl InitScriptService {
                 script_active.executed_at = Set(Some(Utc::now()));
                 script_active.updated_at = Set(Utc::now());
 
-                let script = script_active.update(&self.db).await.map_err(VibeRepoError::Database)?;
+                let script = script_active
+                    .update(&self.db)
+                    .await
+                    .map_err(VibeRepoError::Database)?;
 
                 tracing::error!(
                     workspace_id = workspace_id,
@@ -253,20 +268,16 @@ impl InitScriptService {
         }
     }
 
-    async fn write_to_file(
-        script_id: i32,
-        workspace_id: i32,
-        content: &str,
-    ) -> Result<String> {
+    async fn write_to_file(script_id: i32, workspace_id: i32, content: &str) -> Result<String> {
         use tokio::fs;
 
         let base_dir = "/data/gitautodev/init-script-logs";
         let workspace_dir = format!("{}/workspace-{}", base_dir, workspace_id);
 
         // Create directory
-        fs::create_dir_all(&workspace_dir)
-            .await
-            .map_err(|e| VibeRepoError::Internal(format!("Failed to create log directory: {}", e)))?;
+        fs::create_dir_all(&workspace_dir).await.map_err(|e| {
+            VibeRepoError::Internal(format!("Failed to create log directory: {}", e))
+        })?;
 
         // Generate filename
         let timestamp = Utc::now().timestamp();
@@ -285,9 +296,9 @@ impl InitScriptService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::TestDatabase;
     use crate::entities::prelude::{RepoProvider, Repository};
     use crate::entities::workspace;
+    use crate::test_utils::TestDatabase;
 
     #[tokio::test]
     async fn test_create_init_script_success() {
@@ -303,11 +314,7 @@ mod tests {
 
         // Act
         let result = service
-            .create_init_script(
-                workspace.id,
-                "#!/bin/bash\necho 'test'".to_string(),
-                300,
-            )
+            .create_init_script(workspace.id, "#!/bin/bash\necho 'test'".to_string(), 300)
             .await;
 
         // Assert
@@ -374,7 +381,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_script_success() {
-        let test_db = TestDatabase::new().await.expect("Failed to create test database");
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
         let db = &test_db.connection;
         let workspace = create_test_workspace_with_container(db).await;
 
@@ -476,13 +485,19 @@ mod tests {
 
         // Try to create and start container
         let container_name = format!("test-init-script-{}", workspace.id);
-        match docker.create_container(&container_name, "alpine:latest", vec![], 1.0, "1GB").await {
+        match docker
+            .create_container(&container_name, "alpine:latest", vec![], 1.0, "1GB")
+            .await
+        {
             Ok(container_id) => {
                 if docker.start_container(&container_id).await.is_ok() {
                     // Update workspace with container_id
                     let mut workspace_active: workspace::ActiveModel = workspace.into();
                     workspace_active.container_id = Set(Some(container_id));
-                    workspace = workspace_active.update(db).await.expect("Failed to update workspace");
+                    workspace = workspace_active
+                        .update(db)
+                        .await
+                        .expect("Failed to update workspace");
                 }
             }
             Err(_) => {
@@ -495,7 +510,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_execution_rejected() {
-        let test_db = TestDatabase::new().await.expect("Failed to create test database");
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
         let db = &test_db.connection;
         let workspace = create_test_workspace_with_container(db).await;
 
@@ -524,7 +541,9 @@ mod tests {
         let workspace_id = workspace.id;
         let container_id = workspace.container_id.clone().unwrap();
         tokio::spawn(async move {
-            let _ = service_clone.execute_script(workspace_id, &container_id).await;
+            let _ = service_clone
+                .execute_script(workspace_id, &container_id)
+                .await;
         });
 
         // Wait a bit for first execution to start
@@ -538,9 +557,8 @@ mod tests {
         // Assert
         assert!(result.is_err());
         match result {
-            Err(VibeRepoError::Conflict(_)) => {}, // Expected
+            Err(VibeRepoError::Conflict(_)) => {} // Expected
             _ => panic!("Expected Conflict error"),
         }
     }
 }
-

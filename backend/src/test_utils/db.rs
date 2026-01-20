@@ -6,7 +6,7 @@ use sea_orm::{Database, DatabaseConnection};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tempfile::NamedTempFile;
 
-use crate::error::{VibeRepoError, Result};
+use crate::error::{Result, VibeRepoError};
 use crate::migration::Migrator;
 use sea_orm_migration::MigratorTrait;
 

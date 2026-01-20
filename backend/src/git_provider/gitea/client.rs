@@ -13,7 +13,9 @@ use crate::git_provider::{
     traits::GitProvider,
 };
 
-use super::models::{GiteaRepository, GiteaUser, GiteaWebhookRequest, GiteaWebhookConfig, GiteaWebhookResponse};
+use super::models::{
+    GiteaRepository, GiteaUser, GiteaWebhookConfig, GiteaWebhookRequest, GiteaWebhookResponse,
+};
 
 /// Gitea API client implementation
 pub struct GiteaClient {
