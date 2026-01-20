@@ -15,12 +15,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Init Scripts Feature**: Automated container setup with custom shell scripts
+  - Create init scripts when creating workspaces
+  - Update and execute scripts via API
+  - Hybrid storage strategy (≤4KB in DB, >4KB in files)
+  - Automatic log cleanup (30-day retention)
+  - Concurrency control with database locking
+  - 6 execution states: Pending, Running, Success, Failed, Timeout, Cancelled
+  - 4 new API endpoints for script management
+  - Comprehensive integration tests (12 new tests)
+  - Complete documentation and migration guide
+
 ### Changed
-- **BREAKING**: Renamed project from GitAutoDev to VibeRepo
-- Updated all package names, binary names, and module references
-- Changed error type from `GitAutoDevError` to `VibeRepoError`
-- Updated database path from `./data/gitautodev/` to `./data/vibe-repo/`
-- Updated API documentation title and description
+- **BREAKING**: Removed `custom_dockerfile_path` field from workspaces
+  - Replaced with more flexible init_script functionality
+  - See `docs/migration-guide-init-scripts.md` for migration instructions
+- Updated workspace API to include init_script in responses
+- Enhanced OpenAPI documentation with init script endpoints
+- Increased test coverage to 500+ tests
 
 ### Planned
 - Workspace API implementation

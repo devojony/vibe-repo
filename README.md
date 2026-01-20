@@ -24,7 +24,7 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - **Database ORM**: SeaORM 1.1 (supports SQLite and PostgreSQL)
 - **HTTP Client**: Reqwest 0.11 for Git provider APIs
 - **API Documentation**: utoipa 4.x with Swagger UI
-- **Testing**: Comprehensive TDD approach with 181+ tests
+- **Testing**: Comprehensive TDD approach with 500+ tests
 
 ## Quick Start
 
@@ -234,7 +234,7 @@ cargo run
 ### Testing
 
 ```bash
-# Run all tests (181+ tests)
+# Run all tests (500+ tests)
 cargo test
 
 # Run specific test
