@@ -106,11 +106,9 @@ impl IntoResponse for VibeRepoError {
                         "RATE_LIMIT_EXCEEDED",
                         e.to_string(),
                     ),
-                    GitProviderError::NetworkError(_) => (
-                        StatusCode::BAD_GATEWAY,
-                        "NETWORK_ERROR",
-                        e.to_string(),
-                    ),
+                    GitProviderError::NetworkError(_) => {
+                        (StatusCode::BAD_GATEWAY, "NETWORK_ERROR", e.to_string())
+                    }
                     _ => (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "GIT_PROVIDER_ERROR",

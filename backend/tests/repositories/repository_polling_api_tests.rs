@@ -123,7 +123,7 @@ async fn test_update_repository_polling_success() {
     // Assert: Verify response body contains updated configuration
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let repo_response: RepositoryResponse = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(repo_response.id, repo_id);
     // Note: RepositoryResponse doesn't include polling fields yet
     // This will need to be updated when the model is extended
@@ -131,14 +131,14 @@ async fn test_update_repository_polling_success() {
     // Assert: Verify database was updated
     use sea_orm::EntityTrait;
     use vibe_repo::entities::prelude::Repository;
-    
+
     let updated_repo = Repository::find_by_id(repo_id)
         .one(&state.db)
         .await
         .unwrap()
         .unwrap();
-    
-    assert_eq!(updated_repo.polling_enabled, true);
+
+    assert!(updated_repo.polling_enabled);
     assert_eq!(updated_repo.polling_interval_seconds, Some(300));
 }
 
@@ -273,8 +273,8 @@ async fn test_trigger_issue_polling_success() {
     // Assert: Verify response body contains success=true
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let poll_response: PollIssuesResponse = serde_json::from_slice(&body).unwrap();
-    
-    assert_eq!(poll_response.success, true);
+
+    assert!(poll_response.success);
     assert_eq!(poll_response.message, "Polling triggered");
 }
 
@@ -376,14 +376,14 @@ async fn test_update_repository_polling_disable() {
     // Assert: Verify database was updated
     use sea_orm::EntityTrait;
     use vibe_repo::entities::prelude::Repository;
-    
+
     let updated_repo = Repository::find_by_id(repo_id)
         .one(&state.db)
         .await
         .unwrap()
         .unwrap();
-    
-    assert_eq!(updated_repo.polling_enabled, false);
+
+    assert!(!updated_repo.polling_enabled);
 }
 
 /// Test PATCH /api/repositories/:id/polling - Update interval only
@@ -458,13 +458,13 @@ async fn test_update_repository_polling_interval_only() {
     // Assert: Verify database was updated with new interval
     use sea_orm::EntityTrait;
     use vibe_repo::entities::prelude::Repository;
-    
+
     let updated_repo = Repository::find_by_id(repo_id)
         .one(&state.db)
         .await
         .unwrap()
         .unwrap();
-    
-    assert_eq!(updated_repo.polling_enabled, true);
+
+    assert!(updated_repo.polling_enabled);
     assert_eq!(updated_repo.polling_interval_seconds, Some(600));
 }

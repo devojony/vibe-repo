@@ -505,7 +505,7 @@ mod tests {
             can_manage_issues: Set(true),
             validation_message: Set(None),
             webhook_status: Set(repository::WebhookStatus::Failed),
-            polling_enabled: Set(true), // Already enabled
+            polling_enabled: Set(true),               // Already enabled
             polling_interval_seconds: Set(Some(300)), // Default 5 minutes
             last_issue_poll_at: Set(None),
             deleted_at: Set(None),

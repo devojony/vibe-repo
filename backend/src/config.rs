@@ -715,10 +715,7 @@ mod tests {
             config.max_concurrent_polls, 10,
             "Default max concurrent polls should be 10"
         );
-        assert_eq!(
-            config.max_retries, 3,
-            "Default max retries should be 3"
-        );
+        assert_eq!(config.max_retries, 3, "Default max retries should be 3");
     }
 
     #[test]
@@ -758,10 +755,7 @@ mod tests {
             config.max_concurrent_polls, 20,
             "Max concurrent polls should be 20"
         );
-        assert_eq!(
-            config.max_retries, 5,
-            "Max retries should be 5"
-        );
+        assert_eq!(config.max_retries, 5, "Max retries should be 5");
 
         // Clean up
         std::env::remove_var("ISSUE_POLLING_ENABLED");
