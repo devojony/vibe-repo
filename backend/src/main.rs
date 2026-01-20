@@ -11,8 +11,8 @@ use vibe_repo::{
     db::database::DatabasePool,
     logging,
     services::{
-        LogCleanupService, RepositoryService, ServiceManager, WebhookCleanupService,
-        WebhookRetryService,
+        IssuePollingService, LogCleanupService, RepositoryService, ServiceManager,
+        WebhookCleanupService, WebhookRetryService,
     },
     state::AppState,
 };
@@ -82,6 +82,11 @@ async fn main() -> Result<()> {
     // Register LogCleanupService for init script log cleanup
     let log_cleanup_service = LogCleanupService::new(db_pool.connection().clone(), None, None);
     service_manager.register(log_cleanup_service);
+
+    // Register IssuePollingService for background issue polling
+    let issue_polling_service =
+        IssuePollingService::new(db_pool.connection().clone(), config.issue_polling.clone());
+    service_manager.register(issue_polling_service);
 
     service_manager.start_all(state.clone()).await?;
     tracing::info!("Background services started");
