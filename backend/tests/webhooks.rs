@@ -35,3 +35,6 @@ mod webhook_retry_tests;
 
 #[path = "webhooks/webhook_verification_tests.rs"]
 mod webhook_verification_tests;
+
+#[path = "webhooks/webhook_pr_merge_tests.rs"]
+mod webhook_pr_merge_tests;

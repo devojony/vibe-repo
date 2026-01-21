@@ -86,6 +86,8 @@ pub struct GiteaPullRequestPayload {
     pub body: Option<String>,
     /// Pull request state: "open" or "closed"
     pub state: String,
+    /// Whether the PR was merged (only present when state is "closed")
+    pub merged: Option<bool>,
 }
 
 /// Gitea comment in webhook payload

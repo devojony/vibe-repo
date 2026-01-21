@@ -6,9 +6,16 @@ use axum::{
     http::HeaderMap,
     Json,
 };
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::sync::Arc;
+use tracing::{error, info, warn};
 
-use crate::{error::VibeRepoError, state::AppState};
+use crate::{
+    entities::{prelude::*, task, workspace},
+    error::VibeRepoError,
+    services::IssueClosureService,
+    state::AppState,
+};
 
 use super::models::WebhookResponse;
 
@@ -229,6 +236,93 @@ pub async fn handle_webhook(
                     tracing::error!(error = %e, "Failed to handle comment event");
                 }
             });
+        }
+        "pull_request" => {
+            // Parse payload as generic JSON to check for PR merge
+            let payload: serde_json::Value = serde_json::from_str(payload_str).map_err(|e| {
+                tracing::error!(
+                    repository_id = repository_id,
+                    event_type = "pull_request",
+                    error = %e,
+                    "Failed to parse pull request payload"
+                );
+                VibeRepoError::Validation(format!("Failed to parse pull request payload: {}", e))
+            })?;
+
+            // Check if this is a PR merge event
+            let action = payload.get("action").and_then(|v| v.as_str());
+            let pr_data = payload.get("pull_request");
+            let merged = pr_data
+                .and_then(|pr| pr.get("merged"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            if action == Some("closed") && merged {
+                let pr_number = pr_data
+                    .and_then(|pr| pr.get("number"))
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n as i32);
+
+                if let Some(pr_num) = pr_number {
+                    info!(
+                        repository_id = repository_id,
+                        pr_number = pr_num,
+                        "PR merged, attempting to close linked issue"
+                    );
+
+                    // Get workspace for this repository
+                    let workspace = Workspace::find()
+                        .filter(workspace::Column::RepositoryId.eq(repository_id))
+                        .one(&state.db)
+                        .await?;
+
+                    let workspace = match workspace {
+                        Some(w) => w,
+                        None => {
+                            warn!(
+                                repository_id = repository_id,
+                                "No workspace found for repository"
+                            );
+                            // Continue processing - webhook was received successfully
+                            return Ok(Json(WebhookResponse {
+                                success: true,
+                                message: Some("Webhook received and verified".to_string()),
+                            }));
+                        }
+                    };
+
+                    // Find task by PR number
+                    let task = Task::find()
+                        .filter(task::Column::PrNumber.eq(pr_num))
+                        .filter(task::Column::WorkspaceId.eq(workspace.id))
+                        .one(&state.db)
+                        .await?;
+
+                    if let Some(task) = task {
+                        info!(
+                            task_id = task.id,
+                            pr_number = pr_num,
+                            "Found task for merged PR, closing issue"
+                        );
+
+                        let closure_service = IssueClosureService::new(state.db.clone());
+                        if let Err(e) = closure_service.close_issue_for_task(task.id).await {
+                            error!(
+                                task_id = task.id,
+                                error = %e,
+                                "Failed to close issue"
+                            );
+                            // Don't return error - webhook was received successfully
+                        }
+                    } else {
+                        info!(
+                            pr_number = pr_num,
+                            workspace_id = workspace.id,
+                            "No task found for merged PR"
+                        );
+                    }
+                }
+            }
         }
         _ => {
             tracing::warn!(

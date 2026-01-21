@@ -31,3 +31,12 @@ pub async fn create_test_app() -> Result<Router> {
     let state = create_test_state().await?;
     Ok(create_router(state))
 }
+
+/// Create a test router with test state, returning both
+///
+/// Returns a tuple of (Router, Arc<AppState>) for tests that need access to the state.
+pub async fn create_test_app_with_state() -> Result<(Router, Arc<AppState>)> {
+    let state = create_test_state().await?;
+    let router = create_router(state.clone());
+    Ok((router, state))
+}
