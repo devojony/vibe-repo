@@ -569,6 +569,45 @@ mod tests {
         }
     }
 
+    /// Test create_pr_handles_network_errors
+    /// Requirements: PR Creation - retry logic for network errors
+    ///
+    /// TODO: This test requires a mock Git provider implementation to properly test
+    /// the retry logic in create_pr_with_retry (lines 200-296).
+    ///
+    /// What should be tested:
+    /// - Network errors trigger retry logic (up to 3 retries)
+    /// - Exponential backoff is applied between retries (2^retry seconds)
+    /// - Success after retry returns the PR successfully
+    /// - Failure after max retries returns the network error
+    ///
+    /// Why it's not tested now:
+    /// - GitClient is an enum wrapping real provider implementations (Gitea, GitHub, GitLab)
+    /// - No mocking infrastructure exists for Git provider trait
+    /// - Creating a mock would require significant refactoring to support dependency injection
+    ///
+    /// How it should be tested in the future:
+    /// - Option 1: Add a MockGitProvider that implements GitProvider trait
+    ///   - Allow injecting mock into PRCreationService via constructor
+    ///   - Mock can simulate network errors and track retry attempts
+    /// - Option 2: Integration tests with a test Git provider server
+    ///   - Use wiremock or similar to simulate network failures
+    ///   - Verify retry behavior with real HTTP requests
+    /// - Option 3: Extract retry logic into a separate testable function
+    ///   - Create a generic retry wrapper that can be unit tested
+    ///   - Apply wrapper to Git provider calls
+    ///
+    /// Related code:
+    /// - create_pr_with_retry method (lines 200-296)
+    /// - GitProviderError::NetworkError handling (line 219)
+    /// - Exponential backoff implementation (line 230)
+    #[tokio::test]
+    #[ignore] // Requires mock Git provider infrastructure
+    async fn test_create_pr_handles_network_errors() {
+        // This test is intentionally left unimplemented pending mock infrastructure
+        // See TODO comment above for implementation plan
+    }
+
 
     // Helper functions
 
