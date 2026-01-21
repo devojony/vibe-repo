@@ -4,7 +4,7 @@
 
 use crate::entities::{agent, prelude::*, task, workspace};
 use crate::error::{Result, VibeRepoError};
-use crate::services::{AgentService, TaskService};
+use crate::services::{AgentService, TaskExecutionHistoryService, TaskService};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -16,16 +16,19 @@ pub struct TaskExecutorService {
     db: DatabaseConnection,
     task_service: TaskService,
     agent_service: AgentService,
+    execution_service: TaskExecutionHistoryService,
 }
 
 impl TaskExecutorService {
     pub fn new(db: DatabaseConnection) -> Self {
         let task_service = TaskService::new(db.clone());
         let agent_service = AgentService::new(db.clone());
+        let execution_service = TaskExecutionHistoryService::new(db.clone());
         Self {
             db,
             task_service,
             agent_service,
+            execution_service,
         }
     }
 
@@ -72,13 +75,48 @@ impl TaskExecutorService {
             ))
         })?;
 
+        // Build command
+        let command = self.build_execution_command(&agent, &task)?;
+
+        // Create execution record
+        let execution = self
+            .execution_service
+            .create_execution(task_id, Some(agent.id), command.clone())
+            .await?;
+
+        info!(
+            task_id = task_id,
+            execution_id = execution.id,
+            "Created execution record"
+        );
+
         // Update task status to running
         self.task_service.start_task(task_id).await?;
 
         // Execute task in container
-        match self.execute_in_container(&workspace, &agent, &task).await {
+        match self
+            .execute_in_container(&workspace, &agent, &task, &command)
+            .await
+        {
             Ok(result) => {
-                info!(task_id = task_id, "Task execution completed successfully");
+                info!(
+                    task_id = task_id,
+                    execution_id = execution.id,
+                    "Task execution completed successfully"
+                );
+
+                // Update execution record
+                self.execution_service
+                    .complete_execution(
+                        execution.id,
+                        result.exit_code,
+                        result.stdout,
+                        result.stderr,
+                        result.pr_info.as_ref().map(|p| p.pr_number),
+                        result.pr_info.as_ref().map(|p| p.pr_url.clone()),
+                        result.pr_info.as_ref().map(|p| p.branch_name.clone()),
+                    )
+                    .await?;
 
                 // Mark task as completed
                 if let Some(pr_info) = result.pr_info {
@@ -102,9 +140,15 @@ impl TaskExecutorService {
             Err(e) => {
                 error!(
                     task_id = task_id,
+                    execution_id = execution.id,
                     error = %e,
                     "Task execution failed"
                 );
+
+                // Update execution record as failed
+                self.execution_service
+                    .fail_execution(execution.id, e.to_string(), String::new(), String::new())
+                    .await?;
 
                 // Mark task as failed (will auto-retry if retries available)
                 self.task_service.fail_task(task_id, e.to_string()).await?;
@@ -120,6 +164,7 @@ impl TaskExecutorService {
         workspace: &workspace::Model,
         agent: &agent::Model,
         task: &task::Model,
+        command: &str,
     ) -> Result<ExecutionResult> {
         info!(
             workspace_id = workspace.id,
@@ -137,9 +182,6 @@ impl TaskExecutorService {
 
         let container_id = workspace.container_id.as_ref().unwrap();
 
-        // Build command to execute in container
-        let command = self.build_execution_command(agent, task)?;
-
         info!(
             container_id = container_id,
             command = command,
@@ -147,19 +189,21 @@ impl TaskExecutorService {
         );
 
         // Execute command in container using docker exec
-        let output = Command::new("docker")
-            .args(["exec", "-i", container_id, "sh", "-c", &command])
+        let mut child = Command::new("docker")
+            .args(["exec", "-i", container_id, "sh", "-c", command])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| VibeRepoError::Internal(format!("Failed to spawn docker exec: {}", e)))?;
 
         // Stream output
-        let stdout = output
+        let stdout = child
             .stdout
+            .take()
             .ok_or_else(|| VibeRepoError::Internal("Failed to capture stdout".to_string()))?;
-        let stderr = output
+        let stderr = child
             .stderr
+            .take()
             .ok_or_else(|| VibeRepoError::Internal("Failed to capture stderr".to_string()))?;
 
         let mut stdout_reader = BufReader::new(stdout).lines();
@@ -179,10 +223,23 @@ impl TaskExecutorService {
             stderr_lines.push(line);
         }
 
+        // Wait for process to complete
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to wait for process: {}", e)))?;
+
+        let exit_code = status.code();
+
         // Parse output to extract PR information
         let pr_info = self.parse_pr_info(&stdout_lines)?;
 
-        Ok(ExecutionResult { pr_info })
+        Ok(ExecutionResult {
+            exit_code,
+            stdout: stdout_lines.join("\n"),
+            stderr: stderr_lines.join("\n"),
+            pr_info,
+        })
     }
 
     /// Build execution command for agent
@@ -280,6 +337,9 @@ impl TaskExecutorService {
 }
 
 struct ExecutionResult {
+    exit_code: Option<i32>,
+    stdout: String,
+    stderr: String,
     pr_info: Option<PrInfo>,
 }
 

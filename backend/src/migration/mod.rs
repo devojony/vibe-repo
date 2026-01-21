@@ -20,6 +20,7 @@ mod m20260119_000001_replace_dockerfile_with_init_script;
 mod m20260120_000001_create_containers_table;
 mod m20260120_000002_add_repository_polling_fields;
 mod m20260120_000003_add_task_unique_constraint;
+mod m20260121_000001_create_task_executions;
 
 pub struct Migrator;
 
@@ -43,6 +44,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260120_000001_create_containers_table::Migration),
             Box::new(m20260120_000002_add_repository_polling_fields::Migration),
             Box::new(m20260120_000003_add_task_unique_constraint::Migration),
+            Box::new(m20260121_000001_create_task_executions::Migration),
         ]
     }
 }
