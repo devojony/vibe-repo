@@ -1245,38 +1245,21 @@ test(api): Add webhook integration tests
 
 ## Roadmap
 
-### Current Status (v0.4.0)
+For detailed roadmap including completed features, current work, and planned enhancements, see [docs/roadmap/README.md](./docs/roadmap/README.md).
 
-**Completed:**
-- ✅ Backend Foundation
-- ✅ RepoProvider API
-- ✅ Repository API
-- ✅ Git Provider Abstraction (Gitea)
-- ✅ Repository Initialization
-- ✅ Webhook Integration
-- ✅ Workspace API
-- ✅ Init Script Feature
-- ✅ Container Lifecycle Management
-- ✅ Agent Management
-- ✅ Task Automation (Complete Task API with 14 endpoints)
-- ✅ Issue Polling with Intelligent Filtering
-- ✅ Dual-Mode Issue Tracking (Webhook + Polling)
-- ✅ Task Execution Engine (Docker-based)
-- ✅ Task Scheduler (Automatic background execution)
-- ✅ Concurrency Control (Per-workspace limits)
-- ✅ Real-time Log Streaming (WebSocket)
-- ✅ Execution History Tracking
-- ✅ Intelligent Failure Analysis
+**Current Status (v0.4.0):**
+- ✅ Complete Issue-to-PR automation (90% done)
+- ✅ Task Scheduler with priority-based execution
+- ✅ Real-time log streaming via WebSocket
+- ✅ Intelligent failure analysis with recommendations
 
-**In Progress:**
-- 🟡 GitHub/GitLab provider implementations
-- 🟡 Complete Issue-to-PR Workflow (90% done)
+**Next Steps:**
+- 🟡 Complete Issue-to-PR Workflow (PR creation)
+- 📋 GitHub/GitLab provider implementations
+- 📋 Task execution metrics dashboard
+- 📋 Multi-Agent coordination
 
-**Planned:**
-- 📋 Task execution metrics and monitoring dashboard
-- 📋 Multi-Agent coordination and load balancing
-- 📋 Advanced retry strategies with exponential backoff
-- 📋 Task dependencies and workflow orchestration
+See [full roadmap](./docs/roadmap/README.md) for details.
 
 ## License
 
@@ -1285,12 +1268,11 @@ test(api): Add webhook integration tests
 ## Support
 
 - **Documentation**: See [docs/README.md](./docs/README.md) for comprehensive documentation
+  - [Development Guide](./docs/development/) - Setup, coding standards, and best practices
+  - [Roadmap](./docs/roadmap/) - Project roadmap and planned features
   - [API Documentation](./docs/api/) - API specifications and feature guides
   - [Database Schema](./docs/database/schema.md) - Complete database schema reference
-  - [Design Documents](./docs/design/) - Feature designs and architecture decisions
-  - [Implementation Plans](./docs/plans/) - Roadmaps and implementation plans
-  - [Research](./docs/research/) - Technical research and investigations
-- **Development Guidelines**: See [AGENTS.md](./AGENTS.md) for coding standards and best practices
+- **Quick Reference**: See [AGENTS.md](./AGENTS.md) for AI agent guidelines
 - **Issues**: Report bugs and feature requests on GitHub Issues
 - **API Docs**: Access Swagger UI at `http://localhost:3000/swagger-ui`
 

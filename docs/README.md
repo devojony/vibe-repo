@@ -55,14 +55,36 @@ Test plans, test reports, and testing strategies.
 - **[OpenCode Capture Test Report](./tests/opencode-capture-test-report.md)** - OpenCode capture testing
 - **[Testing Strategy](./tests/README.md)** - Comprehensive testing approach and best practices
 
+### 🗺️ [Roadmap](./roadmap/)
+Project roadmap, milestones, and version history.
+
+- **[Project Roadmap](./roadmap/README.md)** - Complete roadmap with completed features, current work, and planned enhancements
+- **Completed Features** - v0.1.0 to v0.4.0 feature history
+- **In Progress** - Current development status
+- **Planned Features** - Short-term, mid-term, and long-term plans
+- **Milestones** - Key project milestones and target dates
+
+### 🛠️ [Development Guide](./development/)
+Development guidelines, coding standards, and best practices.
+
+- **[Development Guide](./development/README.md)** - Comprehensive development guide
+- **Quick Start** - Setup development environment
+- **Code Style Guidelines** - Naming conventions, formatting, and patterns
+- **Testing Philosophy** - TDD workflow and test structure
+- **API Development** - Creating new endpoints
+- **Database Development** - Using SeaORM and migrations
+- **Git Workflow** - Commit standards and branch strategy
+
 ## 🚀 Quick Links
 
 ### For Developers
-- [AGENTS.md](../AGENTS.md) - Coding guidelines and development standards
-- [README.md](../README.md) - Project overview and quick start guide
+- [Development Guide](./development/) - Setup, coding standards, and best practices
+- [AGENTS.md](../AGENTS.md) - Quick reference for AI agents
 - [API Documentation](./api/) - API specifications and usage guides
+- [Database Schema](./database/schema.md) - Complete database reference
 
 ### For Contributors
+- [Roadmap](./roadmap/) - Project roadmap and planned features
 - [Design Documentation](./design/) - Feature design and architecture
 - [Plans](./plans/) - Implementation roadmap and plans
 - [Research](./research/) - Technical research and investigations
@@ -81,6 +103,8 @@ Test plans, test reports, and testing strategies.
 - **Plans** (`docs/plans/`) - Implementation plans, roadmaps, session notes
 - **Research** (`docs/research/`) - Technical research, comparisons, investigations
 - **Tests** (`docs/tests/`) - Test plans, test reports, testing strategies
+- **Roadmap** (`docs/roadmap/`) - Project roadmap, milestones, version history
+- **Development** (`docs/development/`) - Development guidelines, coding standards, best practices
 
 ### Naming Conventions
 

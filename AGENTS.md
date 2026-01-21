@@ -81,220 +81,56 @@ Settings (namespace)
 
 ## Build, Lint, and Test Commands
 
-### Building
+For comprehensive development guidelines, see **[docs/development/README.md](./docs/development/README.md)**.
+
+### Quick Reference
+
+**Building:**
 ```bash
-# Build the project (from project root or backend/)
-cargo build
-
-# Build in release mode
-cargo build --release
-
-# Run the application
-cargo run
+cargo build              # Build the project
+cargo build --release    # Build in release mode
+cargo run                # Run the application
 ```
 
-### Testing
+**Testing:**
 ```bash
-# Run all tests
-cargo test
-
-# Run specific test by name
-cargo test test_name
-
-# Run tests in a specific file/module
-cargo test config
-cargo test health
-
-# Run with output visible
-cargo test -- --nocapture
-
-# Run only unit tests (in src/)
-cargo test --lib
-
-# Run only integration tests (in tests/)
-cargo test --test '*'
-
-# Run a single integration test file
-cargo test --test health_integration_tests
+cargo test                    # Run all tests (327 tests)
+cargo test test_name          # Run specific test
+cargo test -- --nocapture     # Run with output visible
+cargo test --lib              # Run only unit tests
+cargo test --test '*'         # Run only integration tests
 ```
 
-### Code Quality
+**Code Quality:**
 ```bash
-# Check for warnings and style issues
-cargo clippy
-
-# Format code
-cargo fmt
-
-# Check formatting without modifying files
-cargo fmt --check
+cargo clippy             # Check for warnings and style issues
+cargo fmt                # Format code
+cargo fmt --check        # Check formatting without modifying
 ```
 
 ## Code Style Guidelines
 
-### Module Documentation
-- Every module must have a top-level doc comment (`//!`) describing its purpose
-- Example:
-  ```rust
-  //! Configuration management module
-  //!
-  //! Loads configuration from environment variables with sensible defaults.
-  ```
+For detailed code style guidelines, see **[docs/development/README.md](./docs/development/README.md#code-style-guidelines)**.
 
-### Imports Organization
-Organize imports in this order:
+### Quick Reference
+
+**Naming Conventions:**
+- Modules: `snake_case`
+- Structs/Enums: `PascalCase`
+- Functions/Variables: `snake_case`
+- Constants: `SCREAMING_SNAKE_CASE`
+
+**Imports Organization:**
 1. Standard library (`std::`)
 2. External crates (alphabetically)
 3. Internal crate modules (`crate::`)
 4. Relative imports (`super::`, `self::`)
 
-Example:
+**Module Documentation:**
 ```rust
-use std::sync::Arc;
-
-use anyhow::Result;
-use axum::Router;
-use serde::{Deserialize, Serialize};
-
-use crate::config::AppConfig;
-use crate::state::AppState;
-```
-
-### Type Definitions
-
-#### Structs
-- Use `#[derive(Debug, Clone)]` for most structs
-- Add `Serialize, Deserialize` for API models
-- Document public fields with doc comments
-
-```rust
-/// Database configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatabaseConfig {
-    /// Database connection URL
-    pub url: String,
-    /// Maximum number of connections in the pool
-    pub max_connections: u32,
-}
-```
-
-#### Enums
-- Use `#[derive(Debug, Clone)]` at minimum
-- Add `thiserror::Error` for error types
-- Document variants with doc comments
-
-```rust
-#[derive(Debug, thiserror::Error)]
-pub enum VibeRepoError {
-    #[error("Database error: {0}")]
-    Database(#[from] sea_orm::DbErr),
-    
-    #[error("Resource not found: {0}")]
-    NotFound(String),
-}
-```
-
-### Error Handling
-
-#### Error Types
-- Use the unified `VibeRepoError` enum for application errors
-- Use `Result<T>` type alias: `pub type Result<T> = std::result::Result<T, VibeRepoError>;`
-- Implement `IntoResponse` for custom error types to convert to HTTP responses
-- Map errors to appropriate HTTP status codes:
-  - `NotFound` → 404
-  - `Validation` → 400
-  - `Conflict` → 409
-  - `Forbidden` → 403
-  - `ServiceUnavailable` → 503
-  - `Database`, `Config`, `Internal` → 500
-
-#### Error Responses
-```rust
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ErrorResponse {
-    pub error: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
-}
-```
-
-### Naming Conventions
-
-- **Modules**: `snake_case` (e.g., `git_provider`, `repository_service`)
-- **Structs/Enums**: `PascalCase` (e.g., `AppConfig`, `VibeRepoError`)
-- **Functions/Variables**: `snake_case` (e.g., `create_router`, `db_pool`)
-- **Constants**: `SCREAMING_SNAKE_CASE` (e.g., `MAX_CONNECTIONS`)
-- **Type Aliases**: `PascalCase` (e.g., `Result`)
-
-### Async/Await
-- Use `#[tokio::main]` for main function
-- Use `#[tokio::test]` for async tests
-- Use `async_trait` for async trait methods
-- Always use `.await` for async operations
-
-```rust
-#[async_trait]
-pub trait GitProvider: Send + Sync {
-    async fn validate_token(&self) -> Result<(bool, Option<GitUser>), GitProviderError>;
-}
-```
-
-### Testing Philosophy
-
-This project follows **Test-Driven Development (TDD)**:
-1. Write failing test first
-2. Implement minimal code to pass
-3. Refactor while keeping tests green
-
-#### Test Structure
-- **Unit tests**: In `#[cfg(test)] mod tests` at bottom of source files
-- **Integration tests**: In `tests/` directory with `_integration_tests.rs` suffix
-- **Property tests**: Use `proptest` crate, suffix with `_property_tests.rs`
-
-#### Test Naming
-- Prefix with `test_` for unit/integration tests
-- Prefix with `prop_` for property-based tests
-- Use descriptive names: `test_health_endpoint_returns_200_when_healthy`
-
-#### Test Documentation
-```rust
-/// Test GET /health returns 200 when healthy
-/// Requirements: 7.1, 7.2
-#[tokio::test]
-async fn test_health_endpoint_returns_200_when_healthy() {
-    // Arrange: Create test application
-    let app = create_test_app().await.expect("Failed to create test app");
-    
-    // Act: Send GET request
-    let response = app.oneshot(request).await.unwrap();
-    
-    // Assert: Verify response
-    assert_eq!(response.status(), StatusCode::OK);
-}
-```
-
-### API Handlers
-
-- Use Axum extractors for request data
-- Return `Result<Json<T>, VibeRepoError>` or `impl IntoResponse`
-- Add OpenAPI documentation with `#[utoipa::path]`
-- Keep handlers thin - delegate to service layer
-
-```rust
-#[utoipa::path(
-    get,
-    path = "/health",
-    responses(
-        (status = 200, description = "Service is healthy", body = HealthResponse),
-    )
-)]
-pub async fn health_check(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<HealthResponse>, VibeRepoError> {
-    // Implementation
-}
+//! Module description
+//!
+//! Detailed explanation of the module's purpose.
 ```
 
 ## Project Structure
@@ -472,28 +308,28 @@ ISSUE_POLLING_MAX_ISSUE_AGE_DAYS=30
 
 ## Common Patterns
 
-### Creating New API Endpoints
+For detailed development patterns, see **[docs/development/README.md](./docs/development/README.md)**.
+
+### Quick Reference
+
+**Creating New API Endpoints:**
 1. Define models in `models.rs` with `#[derive(Serialize, Deserialize, ToSchema)]`
 2. Create handlers in `handlers.rs` with OpenAPI docs
 3. Define routes in `routes.rs`
 4. Register router in `api/mod.rs`
 5. Write integration tests in `tests/`
 
-### Database Operations
-- Use SeaORM for new code (legacy SQLx code exists)
+**Database Operations:**
+- Use SeaORM for new code
 - Migrations run automatically on startup
 - Use `DatabasePool::new()` to create connection pool
-- Access connection via `db_pool.connection()`
 
-### Background Services
+**Background Services:**
 - Implement `BackgroundService` trait
 - Register with `ServiceManager`
 - Services start automatically with application
 
-### Working with Git Providers
-
-The Git Provider abstraction provides a unified interface for different Git platforms:
-
+**Working with Git Providers:**
 ```rust
 use crate::git_provider::{GitProvider, GitClientFactory};
 
@@ -503,20 +339,7 @@ let client = GitClientFactory::from_provider(&provider)?;
 // Use the unified interface
 let repos = client.list_repositories(None).await?;
 let branches = client.list_branches("owner", "repo").await?;
-let issues = client.list_issues("owner", "repo", None).await?;
 ```
-
-**Supported Operations:**
-- Repository operations (list, get)
-- Branch operations (list, get, create, delete)
-- Issue operations (list, get, create, update, add/remove labels)
-- Pull request operations (list, get, create, update, merge)
-- Label operations (list, create, delete)
-
-**Current Implementations:**
-- ✅ Gitea (full support)
-- 🔄 GitHub (placeholder)
-- 🔄 GitLab (placeholder)
 
 ## Development Standards
 
