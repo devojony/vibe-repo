@@ -76,6 +76,8 @@ use crate::{logging, state::AppState};
         tasks::handlers::get_task,
         tasks::handlers::list_tasks_by_workspace,
         tasks::handlers::update_task_status,
+        tasks::handlers::create_pr_for_task,
+        tasks::handlers::close_issue_for_task,
     ),
     components(schemas(
         health::handlers::HealthResponse,
