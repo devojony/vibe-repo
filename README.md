@@ -1,6 +1,6 @@
 # VibeRepo
 
-**Version:** 0.3.0 (Pre-1.0 - Breaking changes allowed)
+**Version:** 0.4.0 (Pre-1.0 - Breaking changes allowed)
 
 VibeRepo is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
 
@@ -13,10 +13,15 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - **Issue Polling**: Automatic issue synchronization with intelligent filtering (labels, mentions, state, age)
 - **Dual-Mode Issue Tracking**: Webhook-first with automatic polling fallback on webhook failures
 - **Task Management**: Complete task lifecycle management with automatic retry, priority scheduling, and agent assignment
+- **Task Scheduler**: Automatic background execution of pending tasks with priority-based scheduling
+- **Concurrency Control**: Per-workspace task execution limits with semaphore-based control
+- **Real-time Logs**: WebSocket streaming for live task execution logs
+- **Execution History**: Complete tracking of task executions with stdout/stderr storage
+- **Failure Analysis**: Intelligent analysis of task failures with actionable recommendations
 - **Workspace Management**: Docker-based isolated development environments
 - **Container Lifecycle Management**: Automated Docker container management with health monitoring
 - **Init Scripts**: Automated container setup with custom shell scripts
-- **Background Services**: Scheduled repository synchronization, issue polling, and log cleanup
+- **Background Services**: Scheduled repository synchronization, issue polling, task scheduling, and log cleanup
 - **RESTful API**: Comprehensive API with OpenAPI documentation
 - **Database Flexibility**: Support for both SQLite (development) and PostgreSQL (production)
 
@@ -28,7 +33,7 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - **Database ORM**: SeaORM 1.1 (supports SQLite and PostgreSQL)
 - **HTTP Client**: Reqwest 0.11 for Git provider APIs
 - **API Documentation**: utoipa 4.x with Swagger UI
-- **Testing**: Comprehensive TDD approach with 500+ tests
+- **Testing**: Comprehensive TDD approach with 327 tests
 
 ## Quick Start
 
@@ -135,6 +140,10 @@ http://localhost:3000/swagger-ui
 
 #### Task Execution
 - `POST /api/tasks/:id/execute` - Execute task in workspace container with assigned agent
+
+#### Monitoring & Analysis
+- `GET /api/tasks/:id/logs/stream` - WebSocket endpoint for real-time log streaming
+- `GET /api/tasks/:id/failure-analysis` - Get intelligent failure analysis with recommendations
 
 ## Init Scripts
 
@@ -739,6 +748,307 @@ Tasks are automatically created when the Issue Polling service detects new issue
 
 See [Task API Design Document](docs/task-api-design.md) for complete API specifications.
 
+## Task Scheduler
+
+VibeRepo includes an automatic task scheduler that executes pending tasks in the background without manual intervention.
+
+### Features
+
+- **Automatic Execution**: Polls for pending tasks every 30 seconds (configurable)
+- **Priority-Based Scheduling**: Executes high priority tasks first (high → medium → low)
+- **Concurrency Aware**: Respects workspace `max_concurrent_tasks` limits
+- **Background Service**: Runs automatically on application startup
+- **Health Monitoring**: Integrated with service health check system
+
+### How It Works
+
+1. **Polling**: Scheduler wakes up every 30 seconds
+2. **Discovery**: Finds all workspaces with pending tasks
+3. **Selection**: Selects tasks by priority within concurrency limits
+4. **Execution**: Spawns background tasks for parallel execution
+5. **Monitoring**: Tracks running tasks per workspace
+
+### Configuration
+
+```bash
+# .env file
+TASK_SCHEDULER_INTERVAL_SECONDS=30  # Polling interval (default: 30)
+```
+
+### Automatic Workflow
+
+```
+Issue Created
+  ↓
+Issue Polling Service detects it
+  ↓
+Task created with status "Pending"
+  ↓
+Task Scheduler picks it up (within 30 seconds)
+  ↓
+Task executed automatically
+  ↓
+PR created and task marked "Completed"
+```
+
+No manual intervention required - the entire workflow is fully automated!
+
+## Concurrency Control
+
+VibeRepo implements sophisticated concurrency control to prevent resource exhaustion and ensure stable operation.
+
+### Features
+
+- **Per-Workspace Limits**: Each workspace has independent concurrency control
+- **Semaphore-Based**: Uses `tokio::sync::Semaphore` for efficient permit management
+- **Automatic Queuing**: Tasks wait for available slots when limit is reached
+- **RAII Pattern**: Permits automatically released when task completes
+- **Real-time Monitoring**: Track available slots per workspace
+
+### Configuration
+
+Concurrency limit is set per workspace:
+
+```bash
+curl -X POST http://localhost:3000/api/workspaces \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repository_id": 1,
+    "max_concurrent_tasks": 3
+  }'
+```
+
+### How It Works
+
+1. **Permit Acquisition**: Task executor requests permit from workspace semaphore
+2. **Blocking**: If no permits available, task waits in queue
+3. **Execution**: Task executes when permit is granted
+4. **Release**: Permit automatically released when task completes (success or failure)
+
+### Example Scenario
+
+Workspace with `max_concurrent_tasks = 3`:
+
+```
+Task 1: Running (permit 1)
+Task 2: Running (permit 2)
+Task 3: Running (permit 3)
+Task 4: Waiting (no permits available)
+Task 5: Waiting (no permits available)
+
+[Task 1 completes]
+
+Task 4: Running (permit 1 released and acquired)
+Task 5: Waiting (still no permits)
+```
+
+## Real-time Log Streaming
+
+VibeRepo provides WebSocket-based real-time log streaming for monitoring task execution as it happens.
+
+### Features
+
+- **WebSocket Protocol**: Efficient bidirectional communication
+- **Multi-Subscriber**: Multiple clients can watch the same task
+- **JSON Messages**: Structured log data with timestamps
+- **Automatic Cleanup**: Channels cleaned up when no subscribers remain
+- **Connection Management**: Graceful handling of client disconnections
+
+### WebSocket Endpoint
+
+```
+ws://localhost:3000/api/tasks/:id/logs/stream
+```
+
+### Usage Example
+
+#### JavaScript Client
+
+```javascript
+const taskId = 123;
+const ws = new WebSocket(`ws://localhost:3000/api/tasks/${taskId}/logs/stream`);
+
+ws.onopen = () => {
+  console.log('Connected to task logs');
+};
+
+ws.onmessage = (event) => {
+  const log = JSON.parse(event.data);
+  console.log(`[${log.timestamp}] ${log.level}: ${log.message}`);
+};
+
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+
+ws.onclose = () => {
+  console.log('Disconnected from task logs');
+};
+```
+
+#### Python Client
+
+```python
+import websocket
+import json
+
+def on_message(ws, message):
+    log = json.loads(message)
+    print(f"[{log['timestamp']}] {log['level']}: {log['message']}")
+
+def on_error(ws, error):
+    print(f"Error: {error}")
+
+def on_close(ws, close_status_code, close_msg):
+    print("Connection closed")
+
+def on_open(ws):
+    print("Connected to task logs")
+
+task_id = 123
+ws = websocket.WebSocketApp(
+    f"ws://localhost:3000/api/tasks/{task_id}/logs/stream",
+    on_open=on_open,
+    on_message=on_message,
+    on_error=on_error,
+    on_close=on_close
+)
+
+ws.run_forever()
+```
+
+### Message Format
+
+```json
+{
+  "timestamp": "2026-01-21T12:34:56Z",
+  "level": "info",
+  "message": "Task execution started",
+  "task_id": 123
+}
+```
+
+## Execution History
+
+VibeRepo maintains a complete history of all task executions for auditing and debugging.
+
+### Features
+
+- **Complete Metadata**: Command, exit code, duration, timestamps
+- **Output Storage**: Hybrid approach (DB + files) for efficiency
+- **PR Tracking**: Records pull request information
+- **Performance Metrics**: Execution duration in milliseconds
+- **Failure Details**: Error messages and stderr output
+
+### Data Storage
+
+- **Small outputs (≤4KB)**: Stored directly in database for fast access
+- **Large outputs (>4KB)**: Summary in database, full content in files
+- **File location**: `./data/vibe-repo/task-logs/execution_{id}_{type}.log`
+
+### Execution Record Fields
+
+```json
+{
+  "id": 1,
+  "task_id": 123,
+  "agent_id": 5,
+  "status": "completed",
+  "command": "opencode solve-issue",
+  "exit_code": 0,
+  "stdout_summary": "Task completed successfully...",
+  "stderr_summary": null,
+  "stdout_file_path": "./data/vibe-repo/task-logs/execution_1_stdout.log",
+  "pr_number": 456,
+  "pr_url": "https://git.example.com/owner/repo/pulls/456",
+  "branch_name": "feature/fix-bug",
+  "duration_ms": 45230,
+  "started_at": "2026-01-21T12:00:00Z",
+  "completed_at": "2026-01-21T12:00:45Z"
+}
+```
+
+### Use Cases
+
+1. **Debugging**: Review full execution logs for failed tasks
+2. **Auditing**: Track who executed what and when
+3. **Performance Analysis**: Identify slow-running tasks
+4. **Trend Analysis**: Monitor success rates over time
+
+## Failure Analysis
+
+VibeRepo includes an intelligent failure analysis system that automatically categorizes failures and provides actionable recommendations.
+
+### Features
+
+- **Automatic Categorization**: 9 failure categories with pattern matching
+- **Root Cause Analysis**: Extracts key error information
+- **Context-Aware Recommendations**: Specific advice for each failure type
+- **Similar Failure Detection**: Identifies patterns across workspace
+- **Recurring Failure Tracking**: Detects repeated failures for same task
+
+### Failure Categories
+
+1. **ContainerError**: Docker/container issues
+2. **AgentError**: Agent command or configuration problems
+3. **GitError**: Git operations failures
+4. **BuildError**: Build or compilation errors
+5. **TestError**: Test failures
+6. **Timeout**: Execution timeout exceeded
+7. **PermissionError**: Access or permission denied
+8. **NetworkError**: Network connectivity issues
+9. **Unknown**: Unclassified errors
+
+### Get Failure Analysis
+
+```bash
+curl http://localhost:3000/api/tasks/123/failure-analysis
+```
+
+Response:
+```json
+{
+  "task_id": 123,
+  "failure_category": "GitError",
+  "root_cause": "Git operation failed",
+  "recommendations": [
+    "Verify Git credentials and access token",
+    "Check repository permissions",
+    "Ensure Git is configured in the container",
+    "Verify branch names and remote URLs"
+  ],
+  "similar_failures_count": 3,
+  "is_recurring": false
+}
+```
+
+### Example Recommendations by Category
+
+**ContainerError:**
+- Check if the workspace container is running
+- Restart the container using POST /api/workspaces/:id/restart
+- Verify Docker daemon is running
+- Check container logs for startup errors
+
+**BuildError:**
+- Review build logs for specific error messages
+- Check if all dependencies are installed
+- Verify build configuration files
+- Try building manually to reproduce the issue
+
+**Timeout:**
+- Increase agent timeout setting
+- Optimize task to reduce execution time
+- Check for infinite loops or blocking operations
+- Consider breaking task into smaller subtasks
+
+### Integration
+
+Failure analysis is automatically performed when tasks fail. Access it via:
+- API endpoint: `GET /api/tasks/:id/failure-analysis`
+- Integrated into task management UI
+- Used by monitoring systems for alerting
+
 ## Development
 
 ### Build Commands
@@ -757,7 +1067,7 @@ cargo run
 ### Testing
 
 ```bash
-# Run all tests (500+ tests)
+# Run all tests (327 tests)
 cargo test
 
 # Run specific test
@@ -899,6 +1209,23 @@ Automated development tasks created from issues.
 - `created_at`, `updated_at`, `deleted_at` (nullable) - Lifecycle timestamps
 - Unique constraint on (workspace_id, issue_number) to prevent duplicates
 
+### task_executions
+Complete history of task execution attempts.
+
+**Key Fields:**
+- `task_id` (FK to tasks) - Associated task
+- `agent_id` (FK to agents, nullable) - Agent that executed the task
+- `status` - 'running', 'completed', 'failed'
+- `command` - Full command executed in container
+- `exit_code` (nullable) - Process exit code
+- `stdout_summary`, `stderr_summary` (nullable) - Output summaries (≤4KB)
+- `stdout_file_path`, `stderr_file_path` (nullable) - Full log file paths (>4KB)
+- `error_message` (nullable) - Error details
+- `pr_number`, `pr_url`, `branch_name` (nullable) - PR information
+- `duration_ms` (nullable) - Execution duration in milliseconds
+- `started_at`, `completed_at` (nullable) - Execution timestamps
+- `created_at`, `updated_at` - Record timestamps
+
 ## Architecture
 
 ### Module Hierarchy
@@ -911,6 +1238,7 @@ Settings (namespace)
             ├── InitScript (entity) [one-to-one]
             ├── Agent (entity) [one-to-many]
             └── Task (entity) [one-to-many]
+                └── TaskExecution (entity) [one-to-many]
 ```
 
 ### Git Provider Abstraction
@@ -944,12 +1272,18 @@ This project follows **Test-Driven Development (TDD)**:
 2. **Green**: Write minimal code to make the test pass
 3. **Refactor**: Refactor code while keeping tests passing
 
-**Test Coverage (v0.3.0):**
-- Total tests: 398
+**Test Coverage (v0.4.0):**
+- Total tests: 327
 - Passing: 100%
-- Unit tests: 379 (including issue polling service tests)
-- Integration tests: 19 (including polling API tests)
-- Property tests: 14
+- Unit tests: 310 (including scheduler, executor, analyzer tests)
+- Integration tests: 17
+- Test categories:
+  - Task management: 50+ tests
+  - Execution engine: 10+ tests
+  - Failure analysis: 4 tests
+  - Scheduler: 7 tests
+  - Concurrency control: 6 tests
+  - WebSocket logs: 4 tests
 
 ## Contributing
 
@@ -982,7 +1316,7 @@ test(api): Add webhook integration tests
 
 ## Roadmap
 
-### Current Status (v0.3.0)
+### Current Status (v0.4.0)
 
 **Completed:**
 - ✅ Backend Foundation
@@ -995,17 +1329,25 @@ test(api): Add webhook integration tests
 - ✅ Init Script Feature
 - ✅ Container Lifecycle Management
 - ✅ Agent Management
-- ✅ Task Automation (Complete Task API with 12 endpoints)
+- ✅ Task Automation (Complete Task API with 14 endpoints)
 - ✅ Issue Polling with Intelligent Filtering
 - ✅ Dual-Mode Issue Tracking (Webhook + Polling)
+- ✅ Task Execution Engine (Docker-based)
+- ✅ Task Scheduler (Automatic background execution)
+- ✅ Concurrency Control (Per-workspace limits)
+- ✅ Real-time Log Streaming (WebSocket)
+- ✅ Execution History Tracking
+- ✅ Intelligent Failure Analysis
 
 **In Progress:**
 - 🟡 GitHub/GitLab provider implementations
-- 🟡 Issue-to-PR Workflow
+- 🟡 Complete Issue-to-PR Workflow (90% done)
 
 **Planned:**
-- 📋 Advanced Task Scheduling
-- 📋 Multi-Agent Coordination
+- 📋 Task execution metrics and monitoring dashboard
+- 📋 Multi-Agent coordination and load balancing
+- 📋 Advanced retry strategies with exponential backoff
+- 📋 Task dependencies and workflow orchestration
 
 ## License
 
