@@ -358,6 +358,63 @@ Retry a failed task.
 
 Cancel task execution.
 
+### Pull Request Management
+
+#### POST /api/tasks/:id/create-pr
+
+Manually create a pull request for a completed task.
+
+**Requirements:**
+- Task must be in "Completed" status
+- Task must have `branch_name` set
+- Repository must be accessible with current credentials
+
+**Response (200 OK):**
+```json
+{
+  "id": 1,
+  "workspace_id": 1,
+  "issue_number": 42,
+  "issue_title": "Add user authentication",
+  "status": "Completed",
+  "pr_number": 123,
+  "pr_url": "https://git.example.com/owner/repo/pulls/123",
+  "branch_name": "feature/user-auth"
+}
+```
+
+**Error Responses:**
+- `400 Bad Request` - Task not in completed status or missing branch name
+- `404 Not Found` - Task not found
+- `500 Internal Server Error` - Failed to create PR
+
+#### POST /api/tasks/:id/close-issue
+
+Manually close the issue associated with a task.
+
+**Requirements:**
+- Task must have `issue_number` set
+- Issue must exist in the repository
+- Repository must be accessible with current credentials
+
+**Response (200 OK):**
+```json
+{
+  "id": 1,
+  "workspace_id": 1,
+  "issue_number": 42,
+  "issue_title": "Add user authentication",
+  "status": "Completed",
+  "pr_number": 123,
+  "pr_url": "https://git.example.com/owner/repo/pulls/123"
+}
+```
+
+**Error Responses:**
+- `400 Bad Request` - Task missing issue number
+- `404 Not Found` - Task or issue not found
+- `500 Internal Server Error` - Failed to close issue
+
 ### Task Execution
 
 #### POST /api/tasks/:id/execute

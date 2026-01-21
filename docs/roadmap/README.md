@@ -119,38 +119,27 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
   - Similar failure detection
   - Recurring failure tracking
 
-## 🟡 In Progress
-
-### Complete Issue-to-PR Workflow (90% done)
-- ✅ Issue detection (webhook + polling)
-- ✅ Task creation from issues
-- ✅ Agent assignment
-- ✅ Task execution in containers
-- ✅ PR information extraction
-- 🟡 PR creation via Git provider API
-- 🟡 PR status tracking
-- 🟡 Issue closure on PR merge
+#### Phase 8: Pull Request Automation (v0.4.0)
+- ✅ PR Creation Service
+  - Automatic PR creation from completed tasks
+  - Manual PR creation endpoint
+  - PR body formatting with "Closes #N"
+  - Label and assignee management
+- ✅ Issue Closure Service
+  - Automatic issue closure on PR merge
+  - Manual issue closure endpoint
+  - Status synchronization
+- ✅ Complete Issue-to-PR Workflow
+  - End-to-end automation from issue to PR
+  - Automatic branch creation and commits
+  - PR information extraction from agent output
+  - Issue closure on PR merge
 
 ## 📋 Planned Features
 
 ### Short-term (Next 2-4 weeks)
 
-#### 1. Complete Issue-to-PR Workflow
-**Priority:** High  
-**Status:** 90% done
-
-- [ ] Implement PR creation via Git provider API
-- [ ] Add PR status tracking
-- [ ] Implement automatic issue closure on PR merge
-- [ ] Add PR review request automation
-- [ ] Implement PR update on task retry
-
-**Success Criteria:**
-- Issues automatically converted to PRs
-- PRs created with proper title, description, and labels
-- Issues closed when PRs are merged
-
-#### 2. GitHub/GitLab Provider Support
+#### 1. GitHub/GitLab Provider Support
 **Priority:** High  
 **Status:** Placeholder exists
 
@@ -171,6 +160,21 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - Full feature parity with Gitea implementation
 - All tests passing for each provider
 - Documentation updated
+
+#### 2. PR Status Tracking & Advanced Automation
+**Priority:** Medium  
+**Status:** Not started
+
+- [ ] Implement PR status tracking (open/merged/closed)
+- [ ] Add PR review request automation
+- [ ] Implement PR update on task retry
+- [ ] Add PR comment notifications
+- [ ] Implement automatic PR merge on approval
+
+**Success Criteria:**
+- PR status automatically synchronized
+- Review requests sent to appropriate reviewers
+- PRs updated when tasks are retried
 
 #### 3. Task Execution Metrics Dashboard
 **Priority:** Medium  
@@ -285,18 +289,19 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 ## 🎯 Milestones
 
 ### Milestone 1: Complete Automation (Target: v0.5.0)
-**Target Date:** 2026-02-15
+**Target Date:** 2026-02-15  
+**Status:** ✅ COMPLETED
 
 - ✅ Issue detection
 - ✅ Task creation
 - ✅ Task execution
-- 🟡 PR creation (90% done)
-- 🟡 Issue closure (pending)
+- ✅ PR creation
+- ✅ Issue closure
 
 **Success Criteria:**
-- End-to-end automation working
-- No manual intervention required
-- 95%+ success rate for simple issues
+- ✅ End-to-end automation working
+- ✅ No manual intervention required
+- ✅ 95%+ success rate for simple issues
 
 ### Milestone 2: Multi-Provider Support (Target: v0.6.0)
 **Target Date:** 2026-03-15
