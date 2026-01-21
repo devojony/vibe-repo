@@ -12,6 +12,7 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - **Webhook Integration**: Real-time event processing from Git providers
 - **Issue Polling**: Automatic issue synchronization with intelligent filtering (labels, mentions, state, age)
 - **Dual-Mode Issue Tracking**: Webhook-first with automatic polling fallback on webhook failures
+- **Task Management**: Complete task lifecycle management with automatic retry, priority scheduling, and agent assignment
 - **Workspace Management**: Docker-based isolated development environments
 - **Container Lifecycle Management**: Automated Docker container management with health monitoring
 - **Init Scripts**: Automated container setup with custom shell scripts
@@ -114,6 +115,23 @@ http://localhost:3000/swagger-ui
 - `GET /api/workspaces/:id/init-script/logs` - Get init script execution logs
 - `GET /api/workspaces/:id/init-script/logs/full` - Download full log file
 - `POST /api/workspaces/:id/init-script/execute` - Execute init script manually
+
+### Task Module
+#### CRUD Operations
+- `POST /api/tasks` - Create a new task
+- `GET /api/tasks` - List tasks with optional filters (status, priority, assigned_agent_id)
+- `GET /api/tasks/:id` - Get task details
+- `PATCH /api/tasks/:id` - Update task (priority, assigned_agent_id)
+- `DELETE /api/tasks/:id` - Soft delete task
+
+#### Status Management
+- `PATCH /api/tasks/:id/status` - Update task status directly
+- `POST /api/tasks/:id/assign` - Assign agent to task
+- `POST /api/tasks/:id/start` - Start task execution
+- `POST /api/tasks/:id/complete` - Mark task completed with PR information
+- `POST /api/tasks/:id/fail` - Mark task failed (with automatic retry logic)
+- `POST /api/tasks/:id/retry` - Retry a failed task
+- `POST /api/tasks/:id/cancel` - Cancel task execution
 
 ## Init Scripts
 
@@ -360,6 +378,269 @@ When webhooks fail repeatedly, polling is automatically enabled:
 
 See [Issue Polling Documentation](docs/issue-polling-feature.md) for complete details (Chinese).
 
+## Task Management
+
+VibeRepo provides comprehensive task management capabilities for automated development workflows. Tasks are created from issues and executed by AI agents in isolated workspace containers.
+
+### Features
+
+- **Complete Lifecycle Management**: From creation to completion with clear state transitions
+- **Automatic Retry Mechanism**: Configurable retry logic for failed tasks
+- **Agent Assignment**: Assign specific AI agents to tasks
+- **Priority Management**: High/Medium/Low priority levels
+- **Advanced Filtering**: Filter tasks by status, priority, and assigned agent
+- **Soft Delete**: Preserve task history with soft deletion
+- **PR Integration**: Track pull request information for completed tasks
+
+### Task Lifecycle
+
+```
+Create (Pending) 
+  → Assign (Assigned) 
+  → Start (Running) 
+  → Complete (Completed) OR Fail (Pending/Failed)
+  → Retry (Pending) OR Cancel (Cancelled)
+```
+
+### Task Status Values
+
+- **Pending**: Task created, waiting to be assigned
+- **Assigned**: Agent assigned, ready to start
+- **Running**: Task execution in progress
+- **Completed**: Task successfully completed with PR created
+- **Failed**: Task failed after exhausting retries
+- **Cancelled**: Task manually cancelled
+
+### Quick Start
+
+#### 1. Create a task from an issue
+
+```bash
+curl -X POST http://localhost:3000/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspace_id": 1,
+    "issue_number": 42,
+    "issue_title": "Add user authentication",
+    "issue_body": "Implement JWT-based authentication...",
+    "issue_url": "https://git.example.com/owner/repo/issues/42",
+    "priority": "High",
+    "max_retries": 3
+  }'
+```
+
+Response:
+```json
+{
+  "id": 1,
+  "workspace_id": 1,
+  "issue_number": 42,
+  "issue_title": "Add user authentication",
+  "task_status": "Pending",
+  "priority": "High",
+  "retry_count": 0,
+  "max_retries": 3,
+  "created_at": "2026-01-21T10:00:00Z"
+}
+```
+
+#### 2. Assign an agent to the task
+
+```bash
+curl -X POST http://localhost:3000/api/tasks/1/assign \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": 5
+  }'
+```
+
+Response:
+```json
+{
+  "id": 1,
+  "task_status": "Assigned",
+  "assigned_agent_id": 5,
+  "updated_at": "2026-01-21T10:01:00Z"
+}
+```
+
+#### 3. Start task execution
+
+```bash
+curl -X POST http://localhost:3000/api/tasks/1/start
+```
+
+Response:
+```json
+{
+  "id": 1,
+  "task_status": "Running",
+  "started_at": "2026-01-21T10:02:00Z"
+}
+```
+
+#### 4. Complete the task with PR information
+
+```bash
+curl -X POST http://localhost:3000/api/tasks/1/complete \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pr_number": 123,
+    "pr_url": "https://git.example.com/owner/repo/pulls/123",
+    "branch_name": "feature/user-auth"
+  }'
+```
+
+Response:
+```json
+{
+  "id": 1,
+  "task_status": "Completed",
+  "pr_number": 123,
+  "pr_url": "https://git.example.com/owner/repo/pulls/123",
+  "branch_name": "feature/user-auth",
+  "completed_at": "2026-01-21T10:15:00Z"
+}
+```
+
+#### 5. Handle task failure (with automatic retry)
+
+```bash
+curl -X POST http://localhost:3000/api/tasks/1/fail \
+  -H "Content-Type: application/json" \
+  -d '{
+    "error_message": "Build failed: missing dependency"
+  }'
+```
+
+Response (if retry_count < max_retries):
+```json
+{
+  "id": 1,
+  "task_status": "Pending",
+  "retry_count": 1,
+  "max_retries": 3,
+  "error_message": "Build failed: missing dependency"
+}
+```
+
+Response (if retry_count >= max_retries):
+```json
+{
+  "id": 1,
+  "task_status": "Failed",
+  "retry_count": 3,
+  "max_retries": 3,
+  "error_message": "Build failed: missing dependency"
+}
+```
+
+#### 6. List tasks with filters
+
+```bash
+# List all pending tasks
+curl "http://localhost:3000/api/tasks?workspace_id=1&status=Pending"
+
+# List high priority tasks
+curl "http://localhost:3000/api/tasks?workspace_id=1&priority=High"
+
+# List tasks assigned to specific agent
+curl "http://localhost:3000/api/tasks?workspace_id=1&assigned_agent_id=5"
+
+# Combine multiple filters
+curl "http://localhost:3000/api/tasks?workspace_id=1&status=Running&priority=High"
+```
+
+#### 7. Update task properties
+
+```bash
+curl -X PATCH http://localhost:3000/api/tasks/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "priority": "High",
+    "assigned_agent_id": 7
+  }'
+```
+
+#### 8. Retry a failed task
+
+```bash
+curl -X POST http://localhost:3000/api/tasks/1/retry
+```
+
+Response:
+```json
+{
+  "id": 1,
+  "task_status": "Pending",
+  "retry_count": 0,
+  "error_message": null
+}
+```
+
+#### 9. Cancel a task
+
+```bash
+curl -X POST http://localhost:3000/api/tasks/1/cancel
+```
+
+Response:
+```json
+{
+  "id": 1,
+  "task_status": "Cancelled",
+  "updated_at": "2026-01-21T10:20:00Z"
+}
+```
+
+#### 10. Soft delete a task
+
+```bash
+curl -X DELETE http://localhost:3000/api/tasks/1
+```
+
+Response:
+```json
+{
+  "message": "Task soft deleted successfully",
+  "task_id": 1,
+  "deleted_at": "2026-01-21T10:25:00Z"
+}
+```
+
+### Task Priority Levels
+
+- **High**: Critical tasks that should be executed first
+- **Medium**: Normal priority tasks (default)
+- **Low**: Tasks that can be deferred
+
+### Automatic Retry Logic
+
+When a task fails:
+1. If `retry_count < max_retries`: Status → "Pending" (automatic retry)
+2. If `retry_count >= max_retries`: Status → "Failed" (no more retries)
+
+Default `max_retries` is 3, but can be customized per task.
+
+### Integration with Issue Polling
+
+Tasks are automatically created when the Issue Polling service detects new issues:
+
+1. Issue Polling service finds a new issue matching filters
+2. System checks if workspace exists for the repository
+3. If workspace exists, creates a new task with status "Pending"
+4. Task is ready to be assigned to an agent and executed
+
+### Best Practices
+
+1. **Set appropriate max_retries**: Balance between resilience and resource usage
+2. **Use priority levels**: Ensure critical tasks are executed first
+3. **Monitor failed tasks**: Review error messages to identify systemic issues
+4. **Clean up completed tasks**: Periodically soft delete old completed tasks
+5. **Use filters effectively**: Query specific task subsets for better performance
+
+See [Task API Design Document](docs/task-api-design.md) for complete API specifications.
+
 ## Development
 
 ### Build Commands
@@ -508,10 +789,16 @@ Automated development tasks created from issues.
 **Key Fields:**
 - `workspace_id` (FK to workspaces)
 - `issue_number` - Source issue number
+- `issue_title`, `issue_body` - Issue content
 - `issue_url` - Full URL to the issue
-- `task_type` - 'IssueToTask', 'Manual', etc.
-- `status` - 'Pending', 'InProgress', 'Completed', 'Failed'
-- `priority` - Task priority level
+- `task_status` - 'Pending', 'Assigned', 'Running', 'Completed', 'Failed', 'Cancelled'
+- `priority` - 'Low', 'Medium', 'High'
+- `assigned_agent_id` (FK to agents, nullable) - Assigned AI agent
+- `branch_name`, `pr_number`, `pr_url` (nullable) - Pull request information
+- `error_message` (nullable) - Error details for failed tasks
+- `retry_count`, `max_retries` - Automatic retry configuration (default: 0, 3)
+- `started_at`, `completed_at` (nullable) - Execution timestamps
+- `created_at`, `updated_at`, `deleted_at` (nullable) - Lifecycle timestamps
 - Unique constraint on (workspace_id, issue_number) to prevent duplicates
 
 ## Architecture
@@ -610,7 +897,7 @@ test(api): Add webhook integration tests
 - ✅ Init Script Feature
 - ✅ Container Lifecycle Management
 - ✅ Agent Management
-- ✅ Task Automation
+- ✅ Task Automation (Complete Task API with 12 endpoints)
 - ✅ Issue Polling with Intelligent Filtering
 - ✅ Dual-Mode Issue Tracking (Webhook + Polling)
 

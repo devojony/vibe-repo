@@ -71,6 +71,18 @@ pub struct ListTasksQuery {
     pub status: Option<String>,
     pub priority: Option<String>,
     pub assigned_agent_id: Option<i32>,
+    #[serde(default = "default_page")]
+    pub page: i32,
+    #[serde(default = "default_per_page")]
+    pub per_page: i32,
+}
+
+fn default_page() -> i32 {
+    1
+}
+
+fn default_per_page() -> i32 {
+    20
 }
 
 /// List tasks by workspace with filters
@@ -82,9 +94,12 @@ pub struct ListTasksQuery {
         ("status" = Option<String>, Query, description = "Filter by status"),
         ("priority" = Option<String>, Query, description = "Filter by priority"),
         ("assigned_agent_id" = Option<i32>, Query, description = "Filter by assigned agent"),
+        ("page" = Option<i32>, Query, description = "Page number (default: 1)"),
+        ("per_page" = Option<i32>, Query, description = "Items per page (default: 20, max: 100)"),
     ),
     responses(
-        (status = 200, description = "List of tasks", body = Vec<TaskResponse>),
+        (status = 200, description = "Paginated list of tasks", body = TaskListResponse),
+        (status = 400, description = "Invalid pagination parameters"),
         (status = 500, description = "Internal server error"),
     ),
     tag = "tasks"
@@ -92,21 +107,44 @@ pub struct ListTasksQuery {
 pub async fn list_tasks_by_workspace(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListTasksQuery>,
-) -> Result<Json<Vec<TaskResponse>>> {
+) -> Result<Json<TaskListResponse>> {
+    // Validate pagination parameters
+    if query.page < 1 {
+        return Err(crate::error::VibeRepoError::Validation(
+            "Page number must be >= 1".to_string(),
+        ));
+    }
+
+    let per_page = if query.per_page < 1 || query.per_page > 100 {
+        20 // Default to 20 if invalid
+    } else {
+        query.per_page
+    };
+
     let service = TaskService::new(state.db.clone());
 
-    let tasks = service
-        .list_tasks_with_filters(
+    let (tasks, total) = service
+        .list_tasks_with_pagination(
             query.workspace_id,
             query.status,
             query.priority,
             query.assigned_agent_id,
+            query.page,
+            per_page,
         )
         .await?;
 
     let responses: Vec<TaskResponse> = tasks.into_iter().map(|t| t.into()).collect();
 
-    Ok(Json(responses))
+    let total_pages = ((total as f64) / (per_page as f64)).ceil() as i32;
+
+    Ok(Json(TaskListResponse {
+        tasks: responses,
+        total,
+        page: query.page,
+        per_page,
+        total_pages,
+    }))
 }
 
 /// Update task status
@@ -440,6 +478,8 @@ mod tests {
             status: None,
             priority: None,
             assigned_agent_id: None,
+            page: 1,
+            per_page: 20,
         };
 
         // Act
@@ -447,8 +487,12 @@ mod tests {
 
         // Assert
         assert!(result.is_ok());
-        let Json(responses) = result.unwrap();
-        assert_eq!(responses.len(), 2);
+        let Json(response) = result.unwrap();
+        assert_eq!(response.tasks.len(), 2);
+        assert_eq!(response.total, 2);
+        assert_eq!(response.page, 1);
+        assert_eq!(response.per_page, 20);
+        assert_eq!(response.total_pages, 1);
     }
 
     /// Test update_task_status handler updates status
@@ -719,6 +763,8 @@ mod tests {
             status: Some("pending".to_string()),
             priority: None,
             assigned_agent_id: None,
+            page: 1,
+            per_page: 20,
         };
 
         // Act
@@ -726,10 +772,102 @@ mod tests {
 
         // Assert
         assert!(result.is_ok());
-        let Json(responses) = result.unwrap();
-        assert_eq!(responses.len(), 1);
-        assert_eq!(responses[0].id, task1.id);
-        assert_eq!(responses[0].task_status, "pending");
+        let Json(response) = result.unwrap();
+        assert_eq!(response.tasks.len(), 1);
+        assert_eq!(response.tasks[0].id, task1.id);
+        assert_eq!(response.tasks[0].task_status, "pending");
+    }
+
+    /// Test list_tasks_by_workspace with pagination
+    /// Requirements: Task API - pagination support
+    #[tokio::test]
+    async fn test_list_tasks_by_workspace_pagination() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+
+        // Create 5 tasks
+        for i in 1..=5 {
+            create_test_task_with_issue(&state, workspace.id, 700 + i).await;
+        }
+
+        let query = ListTasksQuery {
+            workspace_id: workspace.id,
+            status: None,
+            priority: None,
+            assigned_agent_id: None,
+            page: 1,
+            per_page: 2,
+        };
+
+        // Act
+        let result = list_tasks_by_workspace(State(state), Query(query)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.tasks.len(), 2);
+        assert_eq!(response.total, 5);
+        assert_eq!(response.page, 1);
+        assert_eq!(response.per_page, 2);
+        assert_eq!(response.total_pages, 3);
+    }
+
+    /// Test list_tasks_by_workspace with invalid page number
+    /// Requirements: Task API - pagination validation
+    #[tokio::test]
+    async fn test_list_tasks_by_workspace_invalid_page() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+
+        let query = ListTasksQuery {
+            workspace_id: workspace.id,
+            status: None,
+            priority: None,
+            assigned_agent_id: None,
+            page: 0, // Invalid page number
+            per_page: 20,
+        };
+
+        // Act
+        let result = list_tasks_by_workspace(State(state), Query(query)).await;
+
+        // Assert
+        assert!(result.is_err());
+    }
+
+    /// Test list_tasks_by_workspace with per_page exceeding max
+    /// Requirements: Task API - pagination validation
+    #[tokio::test]
+    async fn test_list_tasks_by_workspace_per_page_max() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        create_test_task(&state, workspace.id).await;
+
+        let query = ListTasksQuery {
+            workspace_id: workspace.id,
+            status: None,
+            priority: None,
+            assigned_agent_id: None,
+            page: 1,
+            per_page: 200, // Exceeds max of 100
+        };
+
+        // Act
+        let result = list_tasks_by_workspace(State(state), Query(query)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.per_page, 20); // Should default to 20
     }
 
     // Helper functions
@@ -800,6 +938,25 @@ mod tests {
                 workspace_id,
                 timestamp.abs(),
                 "Test Task".to_string(),
+                None,
+                None,
+                "medium".to_string(),
+            )
+            .await
+            .unwrap()
+    }
+
+    async fn create_test_task_with_issue(
+        state: &Arc<AppState>,
+        workspace_id: i32,
+        issue_number: i32,
+    ) -> crate::entities::task::Model {
+        let service = TaskService::new(state.db.clone());
+        service
+            .create_task(
+                workspace_id,
+                issue_number,
+                format!("Test Task {}", issue_number),
                 None,
                 None,
                 "medium".to_string(),
