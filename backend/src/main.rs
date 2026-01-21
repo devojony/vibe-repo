@@ -12,7 +12,7 @@ use vibe_repo::{
     logging,
     services::{
         IssuePollingService, LogCleanupService, RepositoryService, ServiceManager,
-        WebhookCleanupService, WebhookRetryService,
+        TaskSchedulerService, WebhookCleanupService, WebhookRetryService,
     },
     state::AppState,
 };
@@ -87,6 +87,10 @@ async fn main() -> Result<()> {
     let issue_polling_service =
         IssuePollingService::new(db_pool.connection().clone(), config.issue_polling.clone());
     service_manager.register(issue_polling_service);
+
+    // Register TaskSchedulerService for automatic task execution
+    let task_scheduler_service = TaskSchedulerService::new(db_pool.connection().clone(), None);
+    service_manager.register(task_scheduler_service);
 
     service_manager.start_all(state.clone()).await?;
     tracing::info!("Background services started");
