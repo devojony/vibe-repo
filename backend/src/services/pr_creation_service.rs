@@ -72,8 +72,8 @@ impl PRCreationService {
                 VibeRepoError::NotFound(format!("Provider {} not found", repository.provider_id))
             })?;
 
-        // Parse owner/repo from full_name
-        let (owner, repo_name) = self.parse_full_name(&repository.full_name)?;
+        // Parse owner/repo from clone_url
+        let (owner, repo_name) = self.parse_clone_url(&repository.clone_url)?;
 
         // Get default branch
         let base_branch = self.get_default_branch(&workspace).await?;
@@ -86,7 +86,7 @@ impl PRCreationService {
         let pr_body = self.build_pr_body(task.issue_number, task.issue_body.as_deref());
 
         // Create PR with retry logic
-        let pr = self
+        let pr = match self
             .create_pr_with_retry(
                 &git_client,
                 owner,
@@ -98,11 +98,26 @@ impl PRCreationService {
                     base: base_branch,
                 },
             )
-            .await?;
+            .await
+        {
+            Ok(pr) => pr,
+            Err(VibeRepoError::NotFound(e)) => {
+                // Branch not found - log warning but don't fail the task
+                tracing::warn!(
+                    task_id,
+                    branch = %branch_name,
+                    "Branch not found, skipping PR creation: {}",
+                    e
+                );
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
 
         // Update task with PR information
         let mut task_active: task::ActiveModel = task.into();
         task_active.pr_number = Set(Some(pr.number as i32));
+        // Construct PR URL from base_url (without /api/v1)
         task_active.pr_url = Set(Some(format!(
             "{}/{}/{}/pulls/{}",
             provider.base_url, owner, repo_name, pr.number
@@ -145,16 +160,41 @@ impl PRCreationService {
         Ok(repository.default_branch)
     }
 
-    /// Parse owner and repo name from full_name
-    fn parse_full_name<'a>(&self, full_name: &'a str) -> Result<(&'a str, &'a str)> {
-        let parts: Vec<&str> = full_name.split('/').collect();
-        if parts.len() != 2 {
-            return Err(VibeRepoError::Internal(format!(
-                "Invalid repository full_name: {}",
-                full_name
-            )));
+    /// Parse owner and repo name from clone_url
+    /// Supports both HTTPS and SSH formats:
+    /// - https://gitea.com/owner/repo.git
+    /// - git@gitea.com:owner/repo.git
+    fn parse_clone_url<'a>(&self, clone_url: &'a str) -> Result<(&'a str, &'a str)> {
+        // Remove .git suffix if present
+        let url = clone_url.strip_suffix(".git").unwrap_or(clone_url);
+        
+        // Try HTTPS format first: https://gitea.com/owner/repo
+        if let Some(path) = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")) {
+            // Find the first slash after the domain
+            if let Some(slash_pos) = path.find('/') {
+                let repo_path = &path[slash_pos + 1..];
+                let parts: Vec<&str> = repo_path.split('/').collect();
+                if parts.len() >= 2 {
+                    return Ok((parts[0], parts[1]));
+                }
+            }
         }
-        Ok((parts[0], parts[1]))
+        
+        // Try SSH format: git@gitea.com:owner/repo
+        if let Some(path) = url.strip_prefix("git@") {
+            if let Some(colon_pos) = path.find(':') {
+                let repo_path = &path[colon_pos + 1..];
+                let parts: Vec<&str> = repo_path.split('/').collect();
+                if parts.len() >= 2 {
+                    return Ok((parts[0], parts[1]));
+                }
+            }
+        }
+        
+        Err(VibeRepoError::Internal(format!(
+            "Invalid repository clone_url format: {}",
+            clone_url
+        )))
     }
 
     /// Create PR with retry logic for network errors
@@ -190,16 +230,57 @@ impl PRCreationService {
                     tokio::time::sleep(tokio::time::Duration::from_secs(1 << retries)).await;
                 }
                 Err(GitProviderError::Conflict(e)) => {
-                    // PR already exists - this is OK
+                    // PR already exists - this is OK, try to fetch it
                     tracing::info!(owner, repo, head = %request.head, "PR already exists: {}", e);
-                    // We need to fetch the existing PR to return it
-                    // For now, return an error that will be handled by the caller
-                    return Err(VibeRepoError::Conflict(format!(
-                        "PR already exists for branch {}",
-                        request.head
-                    )));
+                    
+                    // Try to fetch the existing PR by listing PRs and filtering by branch
+                    match git_client
+                        .list_pull_requests(owner, repo, None)
+                        .await
+                    {
+                        Ok(prs) => {
+                            // Find PR with matching source branch
+                            if let Some(existing_pr) = prs.iter().find(|pr| pr.source_branch == request.head) {
+                                tracing::info!(
+                                    owner,
+                                    repo,
+                                    head = %request.head,
+                                    pr_number = existing_pr.number,
+                                    "Found existing PR"
+                                );
+                                return Ok(existing_pr.clone());
+                            } else {
+                                tracing::warn!(
+                                    owner,
+                                    repo,
+                                    head = %request.head,
+                                    "PR exists but couldn't find it in list"
+                                );
+                                // Return a minimal PR object with just the branch info
+                                // This shouldn't happen but we handle it gracefully
+                                return Err(VibeRepoError::Conflict(format!(
+                                    "PR already exists for branch {} but couldn't fetch details",
+                                    request.head
+                                )));
+                            }
+                        }
+                        Err(list_err) => {
+                            tracing::warn!(
+                                owner,
+                                repo,
+                                head = %request.head,
+                                error = %list_err,
+                                "Failed to list PRs after conflict"
+                            );
+                            return Err(VibeRepoError::Conflict(format!(
+                                "PR already exists for branch {} but couldn't fetch details: {}",
+                                request.head, list_err
+                            )));
+                        }
+                    }
                 }
                 Err(GitProviderError::NotFound(e)) => {
+                    // Branch not found - return error to be handled by caller
                     tracing::warn!(owner, repo, head = %request.head, "Branch not found: {}", e);
                     return Err(VibeRepoError::NotFound(format!(
                         "Branch {} not found",
@@ -338,16 +419,6 @@ mod tests {
         assert_eq!(body2, "Closes #456\n\nAdditional context here");
     }
 
-    /// Test create_pr_handles_network_errors
-    /// Requirements: PR Creation - retry logic
-    #[tokio::test]
-    async fn test_create_pr_handles_network_errors() {
-        // This test would require mocking the Git Provider client
-        // For now, we'll test the retry logic indirectly through integration tests
-        // or by testing the create_pr_with_retry method with a mock client
-        // Skipping for now as it requires more complex mocking setup
-    }
-
     /// Test pr_already_exists returns true when pr_number is set
     #[tokio::test]
     async fn test_pr_already_exists_returns_true() {
@@ -415,9 +486,9 @@ mod tests {
         assert_eq!(result.unwrap(), "main");
     }
 
-    /// Test parse_full_name parses owner and repo correctly
+    /// Test parse_clone_url parses HTTPS URLs correctly
     #[tokio::test]
-    async fn test_parse_full_name_success() {
+    async fn test_parse_clone_url_https() {
         // Arrange
         let test_db = TestDatabase::new()
             .await
@@ -426,19 +497,57 @@ mod tests {
 
         let service = PRCreationService::new(db.clone());
 
-        // Act
-        let result = service.parse_full_name("owner/repo");
+        // Act & Assert - with .git suffix
+        let result = service.parse_clone_url("https://gitea.com/owner/repo.git");
+        assert!(result.is_ok());
+        let (owner, repo) = result.unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
 
-        // Assert
+        // Act & Assert - without .git suffix
+        let result = service.parse_clone_url("https://gitea.com/owner/repo");
+        assert!(result.is_ok());
+        let (owner, repo) = result.unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+
+        // Act & Assert - http protocol
+        let result = service.parse_clone_url("http://gitea.com/owner/repo.git");
         assert!(result.is_ok());
         let (owner, repo) = result.unwrap();
         assert_eq!(owner, "owner");
         assert_eq!(repo, "repo");
     }
 
-    /// Test parse_full_name fails with invalid format
+    /// Test parse_clone_url parses SSH URLs correctly
     #[tokio::test]
-    async fn test_parse_full_name_invalid_format() {
+    async fn test_parse_clone_url_ssh() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let service = PRCreationService::new(db.clone());
+
+        // Act & Assert - with .git suffix
+        let result = service.parse_clone_url("git@gitea.com:owner/repo.git");
+        assert!(result.is_ok());
+        let (owner, repo) = result.unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+
+        // Act & Assert - without .git suffix
+        let result = service.parse_clone_url("git@gitea.com:owner/repo");
+        assert!(result.is_ok());
+        let (owner, repo) = result.unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(repo, "repo");
+    }
+
+    /// Test parse_clone_url fails with invalid format
+    #[tokio::test]
+    async fn test_parse_clone_url_invalid_format() {
         // Arrange
         let test_db = TestDatabase::new()
             .await
@@ -448,17 +557,18 @@ mod tests {
         let service = PRCreationService::new(db.clone());
 
         // Act
-        let result = service.parse_full_name("invalid");
+        let result = service.parse_clone_url("invalid-url");
 
         // Assert
         assert!(result.is_err());
         match result.unwrap_err() {
             VibeRepoError::Internal(msg) => {
-                assert!(msg.contains("Invalid repository full_name"));
+                assert!(msg.contains("Invalid repository clone_url format"));
             }
             e => panic!("Expected Internal error, got: {:?}", e),
         }
     }
+
 
     // Helper functions
 
