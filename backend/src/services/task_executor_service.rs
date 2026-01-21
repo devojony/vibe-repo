@@ -1,15 +1,49 @@
 //! Task Executor Service
 //!
-//! Executes tasks in Docker containers using AI agents.
+//! Executes tasks in Docker containers using AI agents with concurrency control.
 
 use crate::entities::{agent, prelude::*, task, workspace};
 use crate::error::{Result, VibeRepoError};
 use crate::services::{AgentService, TaskExecutionHistoryService, TaskService};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::{error, info, warn};
+
+/// Concurrency manager for workspace task execution
+#[derive(Clone)]
+struct ConcurrencyManager {
+    semaphores: Arc<Mutex<HashMap<i32, Arc<Semaphore>>>>,
+}
+
+impl ConcurrencyManager {
+    fn new() -> Self {
+        Self {
+            semaphores: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Get or create a semaphore for a workspace
+    async fn get_semaphore(&self, workspace_id: i32, max_concurrent: i32) -> Arc<Semaphore> {
+        let mut semaphores = self.semaphores.lock().await;
+        semaphores
+            .entry(workspace_id)
+            .or_insert_with(|| Arc::new(Semaphore::new(max_concurrent as usize)))
+            .clone()
+    }
+
+    /// Get current available permits for a workspace
+    async fn available_permits(&self, workspace_id: i32) -> Option<usize> {
+        let semaphores = self.semaphores.lock().await;
+        semaphores
+            .get(&workspace_id)
+            .map(|sem| sem.available_permits())
+    }
+}
 
 #[derive(Clone)]
 pub struct TaskExecutorService {
@@ -17,6 +51,7 @@ pub struct TaskExecutorService {
     task_service: TaskService,
     agent_service: AgentService,
     execution_service: TaskExecutionHistoryService,
+    concurrency_manager: ConcurrencyManager,
 }
 
 impl TaskExecutorService {
@@ -29,10 +64,24 @@ impl TaskExecutorService {
             task_service,
             agent_service,
             execution_service,
+            concurrency_manager: ConcurrencyManager::new(),
         }
     }
 
-    /// Execute a task in its workspace container
+    /// Get available execution slots for a workspace
+    pub async fn get_available_slots(&self, workspace_id: i32) -> Result<usize> {
+        self.concurrency_manager
+            .available_permits(workspace_id)
+            .await
+            .ok_or_else(|| {
+                VibeRepoError::NotFound(format!(
+                    "No concurrency control initialized for workspace {}",
+                    workspace_id
+                ))
+            })
+    }
+
+    /// Execute a task in its workspace container with concurrency control
     pub async fn execute_task(&self, task_id: i32) -> Result<()> {
         info!(task_id = task_id, "Starting task execution");
 
@@ -55,6 +104,38 @@ impl TaskExecutorService {
             .ok_or_else(|| {
                 VibeRepoError::NotFound(format!("Workspace {} not found", task.workspace_id))
             })?;
+
+        // Acquire semaphore permit for concurrency control
+        let semaphore = self
+            .concurrency_manager
+            .get_semaphore(workspace.id, workspace.max_concurrent_tasks)
+            .await;
+
+        info!(
+            task_id = task_id,
+            workspace_id = workspace.id,
+            available_permits = semaphore.available_permits(),
+            "Acquiring execution permit"
+        );
+
+        let _permit = semaphore.acquire().await.map_err(|e| {
+            VibeRepoError::Internal(format!("Failed to acquire semaphore permit: {}", e))
+        })?;
+
+        info!(
+            task_id = task_id,
+            workspace_id = workspace.id,
+            remaining_permits = semaphore.available_permits(),
+            "Execution permit acquired"
+        );
+
+        // Execute task (permit will be released when _permit is dropped)
+        self.execute_task_internal(task_id, &workspace).await
+    }
+
+    /// Internal task execution logic (without concurrency control)
+    async fn execute_task_internal(&self, task_id: i32, workspace: &workspace::Model) -> Result<()> {
+        let task = self.task_service.get_task_by_id(task_id).await?;
 
         // Get agent if assigned
         let agent = if let Some(agent_id) = task.assigned_agent_id {
@@ -514,6 +595,108 @@ mod tests {
         assert!(result.is_ok());
         let pr_info = result.unwrap();
         assert!(pr_info.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_manager_creates_semaphore() {
+        // Arrange
+        let manager = ConcurrencyManager::new();
+
+        // Act
+        let semaphore = manager.get_semaphore(1, 3).await;
+
+        // Assert
+        assert_eq!(semaphore.available_permits(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_manager_reuses_semaphore() {
+        // Arrange
+        let manager = ConcurrencyManager::new();
+
+        // Act
+        let sem1 = manager.get_semaphore(1, 3).await;
+        let _permit = sem1.acquire().await.unwrap();
+
+        let sem2 = manager.get_semaphore(1, 3).await;
+
+        // Assert - should be the same semaphore with 2 permits left
+        assert_eq!(sem2.available_permits(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_manager_different_workspaces() {
+        // Arrange
+        let manager = ConcurrencyManager::new();
+
+        // Act
+        let sem1 = manager.get_semaphore(1, 3).await;
+        let _permit1 = sem1.acquire().await.unwrap();
+
+        let sem2 = manager.get_semaphore(2, 5).await;
+
+        // Assert - different workspaces have independent semaphores
+        assert_eq!(sem1.available_permits(), 2);
+        assert_eq!(sem2.available_permits(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_manager_available_permits() {
+        // Arrange
+        let manager = ConcurrencyManager::new();
+
+        // Act - before creating semaphore
+        let before = manager.available_permits(1).await;
+
+        // Create semaphore
+        let _sem = manager.get_semaphore(1, 3).await;
+
+        // Act - after creating semaphore
+        let after = manager.available_permits(1).await;
+
+        // Assert
+        assert!(before.is_none());
+        assert_eq!(after, Some(3));
+    }
+
+    #[tokio::test]
+    async fn test_get_available_slots_returns_error_when_not_initialized() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+        let executor = TaskExecutorService::new(db.clone());
+
+        // Act
+        let result = executor.get_available_slots(999).await;
+
+        // Assert
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), VibeRepoError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_get_available_slots_returns_permits_when_initialized() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+        let executor = TaskExecutorService::new(db.clone());
+
+        // Initialize semaphore
+        let _sem = executor
+            .concurrency_manager
+            .get_semaphore(1, 3)
+            .await;
+
+        // Act
+        let result = executor.get_available_slots(1).await;
+
+        // Assert
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 3);
     }
 
     async fn create_test_workspace(db: &DatabaseConnection) -> workspace::Model {
