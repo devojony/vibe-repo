@@ -206,44 +206,52 @@ impl TaskExecutorService {
                     )
                     .await?;
 
-                // Mark task as completed
+                // Check if we have PR info from agent output
                 if let Some(pr_info) = result.pr_info {
+                    // Agent created PR, use that info
                     self.task_service
                         .complete_task(
                             task_id,
                             pr_info.pr_number,
-                            pr_info.pr_url,
-                            pr_info.branch_name,
+                            pr_info.pr_url.clone(),
+                            pr_info.branch_name.clone(),
                         )
                         .await?;
-
-                    info!(task_id, "Task completed successfully");
+                    info!(task_id, "Task completed successfully with PR from agent");
                 } else {
-                    // If no PR was created, mark as failed
-                    self.task_service
-                        .fail_task(task_id, "Task completed but no PR was created".to_string())
-                        .await?;
-
-                    warn!(task_id, "Task completed but no PR info found in output");
-                }
-
-                // After task completion, check if we need to create PR as fallback
-                let task = self.task_service.get_task_by_id(task_id).await?;
-                if task.branch_name.is_some() && task.pr_number.is_none() {
-                    info!(
-                        task_id,
-                        branch = ?task.branch_name,
-                        "Task has branch but no PR, creating PR automatically"
-                    );
-
-                    match self.pr_creation_service.create_pr_for_task(task_id).await {
-                        Ok(()) => {
-                            info!(task_id, "PR created successfully via PRCreationService");
+                    // No PR info from agent, check if we have a branch to create PR from
+                    let task = self.task_service.get_task_by_id(task_id).await?;
+                    
+                    if let Some(branch_name) = &task.branch_name {
+                        // Try to create PR via PRCreationService
+                        info!(
+                            task_id,
+                            branch = ?branch_name,
+                            "No PR from agent, attempting to create PR automatically"
+                        );
+                        
+                        match self.pr_creation_service.create_pr_for_task(task_id).await {
+                            Ok(()) => {
+                                info!(task_id, "PR created successfully via PRCreationService");
+                                // Task is now completed (PRCreationService updates it)
+                            }
+                            Err(e) => {
+                                error!(task_id, error = %e, "Failed to create PR automatically");
+                                // Both agent and fallback failed, mark task as failed
+                                self.task_service
+                                    .fail_task(
+                                        task_id,
+                                        format!("Task completed but PR creation failed: {}", e),
+                                    )
+                                    .await?;
+                            }
                         }
-                        Err(e) => {
-                            error!(task_id, error = %e, "Failed to create PR automatically");
-                            // Don't fail the task, just log the error
-                        }
+                    } else {
+                        // No branch and no PR - task failed
+                        self.task_service
+                            .fail_task(task_id, "Task completed but no branch or PR was created".to_string())
+                            .await?;
+                        warn!(task_id, "Task completed but no branch or PR info found");
                     }
                 }
 
@@ -826,12 +834,11 @@ mod tests {
         let result = executor.execute_task(task.id).await;
 
         // Assert
-        // In a full integration test, we would verify:
-        // 1. Task execution completes successfully
-        // 2. Task has branch_name set but no pr_number initially
-        // 3. PRCreationService is called
-        // 4. Task is updated with PR information
-        assert!(result.is_ok() || result.is_err()); // Placeholder assertion
+        assert!(result.is_ok(), "Task execution should succeed");
+        // TODO: When mock is available, verify:
+        // - Task status is "completed"
+        // - Task has pr_number set
+        // - Task has pr_url set
     }
 
     /// Test execute_task_skips_pr_if_no_branch
@@ -886,11 +893,9 @@ mod tests {
         let result = executor.execute_task(task.id).await;
 
         // Assert
-        // In a full integration test, we would verify:
-        // 1. Task execution completes (or fails)
-        // 2. PRCreationService is NOT called because no branch_name
-        // 3. Task status reflects execution result
-        assert!(result.is_ok() || result.is_err()); // Placeholder assertion
+        assert!(result.is_ok() || result.is_err(), "Task execution completes");
+        // TODO: When mock is available, verify:
+        // - PRCreationService.create_pr_for_task was NOT called
     }
 
     /// Test execute_task_continues_if_pr_creation_fails
@@ -945,11 +950,9 @@ mod tests {
         let result = executor.execute_task(task.id).await;
 
         // Assert
-        // In a full integration test, we would verify:
-        // 1. Task execution completes
-        // 2. PRCreationService is called but fails (branch doesn't exist)
-        // 3. Task is NOT marked as failed due to PR creation failure
-        // 4. Error is logged but task status reflects execution result
-        assert!(result.is_ok() || result.is_err()); // Placeholder assertion
+        assert!(result.is_ok() || result.is_err(), "Task execution completes");
+        // TODO: When mock is available, verify:
+        // - Task status is "failed" (because PR creation failed)
+        // - Error message mentions PR creation failure
     }
 }
