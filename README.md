@@ -1143,88 +1143,17 @@ Configuration is loaded from `.env` file:
 
 ## Database Schema
 
-### repo_providers
-Git provider configurations with authentication credentials.
+For complete database schema documentation, see [docs/database/schema.md](./docs/database/schema.md).
 
-**Key Fields:**
-- `name`, `type`, `base_url`, `access_token`
-- `locked` - Prevents deletion when true
-- Unique constraint on (name, base_url, access_token)
-
-### repositories
-Repository records with validation status and polling configuration.
-
-**Key Fields:**
-- `provider_id` (FK to repo_providers)
-- `name`, `full_name`, `clone_url`, `default_branch`
-- `validation_status` - 'valid', 'invalid', 'pending'
-- Validation flags: `has_required_branches`, `has_required_labels`, etc.
-- Polling fields: `polling_enabled`, `polling_interval_seconds`, `polling_config`, `last_polled_at`
-
-### webhook_configs
-Webhook configurations for repository event monitoring.
-
-**Key Fields:**
-- `repository_id` (FK to repositories, one-to-one)
-- `provider_id` (FK to repo_providers, redundant for performance)
-- `webhook_id`, `webhook_secret`, `webhook_url`
-- `events` - JSON array of subscribed events
-- Retry mechanism: `retry_count`, `last_retry_at`, `next_retry_at`
-
-### workspaces
-Docker-based isolated development environments for repositories.
-
-**Key Fields:**
-- `repository_id` (FK to repositories, one-to-one)
-- `workspace_status` - 'creating', 'ready', 'error', etc.
-- `container_id`, `container_status`
-- Resource limits: `cpu_limit`, `memory_limit`, `disk_limit`
-
-### init_scripts
-Custom initialization scripts for workspace containers.
-
-**Key Fields:**
-- `workspace_id` (FK to workspaces, one-to-one)
-- `script_content` - Shell script to execute
-- `timeout_seconds` - Execution timeout (default: 300)
-- `status` - 'Pending', 'Running', 'Success', 'Failed'
-- `output_summary` - Last 4KB of output (stored in DB)
-- `output_file_path` - Path to full log file (for outputs >4KB)
-
-### tasks
-Automated development tasks created from issues.
-
-**Key Fields:**
-- `workspace_id` (FK to workspaces)
-- `issue_number` - Source issue number
-- `issue_title`, `issue_body` - Issue content
-- `issue_url` - Full URL to the issue
-- `task_status` - 'Pending', 'Assigned', 'Running', 'Completed', 'Failed', 'Cancelled'
-- `priority` - 'Low', 'Medium', 'High'
-- `assigned_agent_id` (FK to agents, nullable) - Assigned AI agent
-- `branch_name`, `pr_number`, `pr_url` (nullable) - Pull request information
-- `error_message` (nullable) - Error details for failed tasks
-- `retry_count`, `max_retries` - Automatic retry configuration (default: 0, 3)
-- `started_at`, `completed_at` (nullable) - Execution timestamps
-- `created_at`, `updated_at`, `deleted_at` (nullable) - Lifecycle timestamps
-- Unique constraint on (workspace_id, issue_number) to prevent duplicates
-
-### task_executions
-Complete history of task execution attempts.
-
-**Key Fields:**
-- `task_id` (FK to tasks) - Associated task
-- `agent_id` (FK to agents, nullable) - Agent that executed the task
-- `status` - 'running', 'completed', 'failed'
-- `command` - Full command executed in container
-- `exit_code` (nullable) - Process exit code
-- `stdout_summary`, `stderr_summary` (nullable) - Output summaries (≤4KB)
-- `stdout_file_path`, `stderr_file_path` (nullable) - Full log file paths (>4KB)
-- `error_message` (nullable) - Error details
-- `pr_number`, `pr_url`, `branch_name` (nullable) - PR information
-- `duration_ms` (nullable) - Execution duration in milliseconds
-- `started_at`, `completed_at` (nullable) - Execution timestamps
-- `created_at`, `updated_at` - Record timestamps
+**Key Tables:**
+- `repo_providers` - Git provider configurations
+- `repositories` - Repository records with validation and polling
+- `webhook_configs` - Webhook configurations
+- `workspaces` - Docker-based development environments
+- `init_scripts` - Container initialization scripts
+- `agents` - AI agent configurations
+- `tasks` - Automated development tasks
+- `task_executions` - Task execution history
 
 ## Architecture
 
@@ -1355,7 +1284,13 @@ test(api): Add webhook integration tests
 
 ## Support
 
-- **Documentation**: See [AGENTS.md](./AGENTS.md) for detailed development guidelines
+- **Documentation**: See [docs/README.md](./docs/README.md) for comprehensive documentation
+  - [API Documentation](./docs/api/) - API specifications and feature guides
+  - [Database Schema](./docs/database/schema.md) - Complete database schema reference
+  - [Design Documents](./docs/design/) - Feature designs and architecture decisions
+  - [Implementation Plans](./docs/plans/) - Roadmaps and implementation plans
+  - [Research](./docs/research/) - Technical research and investigations
+- **Development Guidelines**: See [AGENTS.md](./AGENTS.md) for coding standards and best practices
 - **Issues**: Report bugs and feature requests on GitHub Issues
 - **API Docs**: Access Swagger UI at `http://localhost:3000/swagger-ui`
 

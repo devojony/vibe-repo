@@ -1,173 +1,93 @@
-# Repository 管理功能设计文档索引
+# Implementation Plans & Roadmaps
 
-**创建日期**: 2026-01-17  
-**版本**: v1.0  
-**状态**: 设计阶段
+This directory contains implementation plans, roadmaps, session summaries, and time-sensitive planning documents.
 
-## 文档概述
+## 📋 Current Plans
 
-本目录包含 GitAutoDev Repository 管理功能的完整设计文档。该功能为 v0.1.20 版本添加了完整的仓库生命周期管理能力。
+### Implementation Roadmap
+- **[2026-01-17-implementation-roadmap.md](./2026-01-17-implementation-roadmap.md)** - Overall project roadmap and milestones
 
----
+### Feature Design & Planning
 
-## 文档列表
+#### Repository Management
+- **[2026-01-17-repository-management-design.md](./2026-01-17-repository-management-design.md)** - Repository management feature design
 
-### 1. [主设计文档](./2026-01-17-repository-management-design.md)
+#### Workspace Implementation (Phase-by-Phase)
+- **[2026-01-17-workspace-phase1-implementation.md](./2026-01-17-workspace-phase1-implementation.md)** - Phase 1: Database entities
+- **[2026-01-17-workspace-phase2-service-layer.md](./2026-01-17-workspace-phase2-service-layer.md)** - Phase 2: Service layer
+- **[2026-01-17-workspace-phase3-api-layer.md](./2026-01-17-workspace-phase3-api-layer.md)** - Phase 3: API layer
+- **[2026-01-17-workspace-phase4-task-api.md](./2026-01-17-workspace-phase4-task-api.md)** - Phase 4: Task API
+- **[2026-01-17-workspace-phase5-docker-integration.md](./2026-01-17-workspace-phase5-docker-integration.md)** - Phase 5: Docker integration
 
-**内容**：完整的功能设计方案
+#### Container Lifecycle Management
+- **[2026-01-20-container-lifecycle-management-design.md](./2026-01-20-container-lifecycle-management-design.md)** - Container management design and implementation plan
 
-**包含章节**：
-- 概述和设计目标
-- 背景和动机
-- 核心设计决策（软删除、5种状态、归档过滤、批量操作）
-- 状态机设计
-- 软删除与同步策略
-- 归档功能设计
-- 批量操作设计
-- 与 Workspace 的集成
-- 风险和缓解措施
-- 参考资料和附录
+#### Init Scripts
+- **[2026-01-19-init-script-feature-design.md](./2026-01-19-init-script-feature-design.md)** - Init script feature design
+- **[2026-01-19-init-script-implementation-plan.md](./2026-01-19-init-script-implementation-plan.md)** - Init script implementation plan
 
-**适合读者**：产品经理、架构师、开发人员
+#### Webhook System
+- **[webhook-refactor-plan.md](./webhook-refactor-plan.md)** - Webhook system refactoring plan
+- **[QUICKSTART-webhook.md](./QUICKSTART-webhook.md)** - Webhook quick start guide
+- **[2026-01-17-webhook-mention-monitoring.md](./2026-01-17-webhook-mention-monitoring.md)** - Webhook mention monitoring design
 
----
+#### Message History & Capture
+- **[2026-01-19-message-history-tracking-design.md](./2026-01-19-message-history-tracking-design.md)** - Message history tracking design
+- **[2026-01-19-claude-code-message-capture-implementation.md](./2026-01-19-claude-code-message-capture-implementation.md)** - Claude Code message capture implementation
 
-### 2. [实施路线图](./2026-01-17-implementation-roadmap.md)
+#### Task Execution
+- **[2026-01-19-rust-idiomatic-executor-design.md](./2026-01-19-rust-idiomatic-executor-design.md)** - Rust idiomatic executor design
 
-**内容**：详细的实施计划和时间线
+### AgentFS Research & Integration
 
-**包含章节**：
-- 时间线总览（3周，14-19天）
-- Phase 1: 数据库层 (3-4 天)
-- Phase 2: Service 层 (4-5 天)
-- Phase 3: API 层 (3-4 天)
-- Phase 4: 测试 (3-4 天)
-- Phase 5: 文档和部署 (1-2 天)
-- 里程碑和验收标准
-- 风险管理
+#### Architecture & Comparison
+- **[2025-01-18-agentfs-architecture-comparison.md](./2025-01-18-agentfs-architecture-comparison.md)** - AgentFS architecture comparison
+- **[2025-01-18-agentfs-research-summary.md](./2025-01-18-agentfs-research-summary.md)** - AgentFS research summary
 
-**适合读者**：项目经理、开发人员、测试人员
+#### Integration Testing
+- **[2025-01-18-agentfs-docker-integration-test-plan.md](./2025-01-18-agentfs-docker-integration-test-plan.md)** - Docker integration test plan
+- **[2025-01-18-agentfs-docker-integration-test-results.md](./2025-01-18-agentfs-docker-integration-test-results.md)** - Docker integration test results
+- **[2026-01-19-agentfs-container-integration-test-design.md](./2026-01-19-agentfs-container-integration-test-design.md)** - Container integration test design
+- **[2026-01-19-agentfs-container-integration-test-results.md](./2026-01-19-agentfs-container-integration-test-results.md)** - Container integration test results
+- **[2025-01-18-agentfs-container-session-test-report.md](./2025-01-18-agentfs-container-session-test-report.md)** - Container session test report
 
----
+#### MCP Server
+- **[2026-01-19-agentfs-mcp-server-toolcall-tracking.md](./2026-01-19-agentfs-mcp-server-toolcall-tracking.md)** - MCP server toolcall tracking
 
-## 快速开始
+### Session Summaries
+- **[2026-01-17-session-summary.md](./2026-01-17-session-summary.md)** - Session summary (2026-01-17)
+- **[2026-01-17-session-summary-final.md](./2026-01-17-session-summary-final.md)** - Final session summary (2026-01-17)
 
-### 阅读顺序建议
+## 📁 Directory Organization
 
-**对于产品经理/架构师**：
-1. 主设计文档 → 了解整体设计
-2. 实施路线图 → 了解时间和资源需求
+Plans are organized chronologically with date prefixes:
+- Format: `YYYY-MM-DD-feature-name.md`
+- Older plans are kept for historical reference
+- Active plans are updated as implementation progresses
 
-**对于开发人员**：
-1. 主设计文档 → 理解设计决策
-2. 实施路线图 → 了解任务分解
-3. 开始实施 Phase 1
+## 🔄 Plan Lifecycle
 
-**对于测试人员**：
-1. 主设计文档（状态机部分）→ 理解业务逻辑
-2. 实施路线图（Phase 4）→ 了解测试策略
+1. **Draft** - Initial planning and design
+2. **Active** - Currently being implemented
+3. **Completed** - Implementation finished
+4. **Archived** - Historical reference only
 
----
+## 📝 Creating New Plans
 
-## 核心设计要点
+When creating a new plan:
 
-### 5种状态
+1. Use date prefix: `YYYY-MM-DD-feature-name.md`
+2. Include clear objectives and milestones
+3. Reference related design documents
+4. Update this README with a link to the new plan
+5. Mark plan status (Draft/Active/Completed/Archived)
 
-| 状态 | 说明 |
-|------|------|
-| `uninitialized` | 未初始化 - 刚从 Provider 同步 |
-| `idle` | 闲置 - 已初始化但未关联 Workspace |
-| `active` | 活动 - 已关联 Workspace，处理 Issue |
-| `unavailable` | 不可用 - 验证失败或权限不足 |
-| `archived` | 归档 - 不再使用，只读 |
+## 🔗 Related Documentation
 
-### 关键特性
-
-✅ **软删除** - 使用 `deleted_at`，同步时自动恢复  
-✅ **归档过滤** - 同步时跳过归档仓库  
-✅ **批量操作** - 部分成功模式，返回详细结果  
-✅ **完全只读** - 归档仓库不允许任何修改  
-✅ **自动状态转换** - 系统自动管理状态变化  
-
----
-
-## 新增 API 端点
-
-### 单个操作
-- `PATCH /api/repositories/:id` - 更新元数据
-- `POST /api/repositories/:id/archive` - 归档
-- `POST /api/repositories/:id/unarchive` - 取消归档
-- `DELETE /api/repositories/:id` - 软删除
-- `POST /api/repositories/:id/reinitialize` - 重新初始化
-
-### 批量操作
-- `POST /api/repositories/batch-archive` - 批量归档
-- `POST /api/repositories/batch-delete` - 批量删除
-- `POST /api/repositories/batch-refresh` - 批量刷新
-- `POST /api/repositories/batch-reinitialize` - 批量重新初始化
-
-### 查询增强
-- `GET /api/repositories?status=idle&has_workspace=false&search=test`
+- **[Design Documentation](../design/)** - Feature designs and architecture
+- **[API Documentation](../api/)** - API specifications and guides
+- **[Research](../research/)** - Technical research and investigations
 
 ---
 
-## 数据库变更
-
-### 新增字段
-- `status` (TEXT, NOT NULL, DEFAULT 'uninitialized')
-- `has_workspace` (BOOLEAN, NOT NULL, DEFAULT FALSE)
-- `deleted_at` (TIMESTAMP, NULL)
-
-### 新增索引
-- `idx_repositories_status`
-- `idx_repositories_deleted_at`
-- `idx_repositories_has_workspace`
-
----
-
-## 实施时间线
-
-```
-Week 1: 数据库层 + Service 层基础
-Week 2: Service 层完善 + API 层
-Week 3: 测试 + 文档
-```
-
-**总计**: 14-19 天
-
----
-
-## 相关资源
-
-### 项目文档
-- [INIT-PRD.md](../INIT-PRD.md) - 项目需求文档
-- [AGENTS.md](../../AGENTS.md) - 开发指南
-
-### 参考实现
-- [vibe-kanban Repository 管理](https://deepwiki.com/BloopAI/vibe-kanban)
-
-### 技术栈
-- SeaORM 0.12 - ORM 框架
-- Axum 0.7 - Web 框架
-- SQLite/PostgreSQL - 数据库
-- utoipa 4.x - OpenAPI 文档
-
----
-
-## 版本历史
-
-| 版本 | 日期 | 变更说明 | 作者 |
-|------|------|---------|------|
-| v1.0 | 2026-01-17 | 初始版本 | AI Assistant |
-
----
-
-## 联系方式
-
-如有问题或建议，请：
-- 创建 GitHub Issue
-- 联系项目维护者
-
----
-
-**文档索引结束**
+**Last Updated:** 2026-01-21

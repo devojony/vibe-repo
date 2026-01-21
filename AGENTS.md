@@ -1,14 +1,24 @@
 # Agent Guidelines for VibeRepo
 
-**Current Version:** v0.3.0 (Pre-1.0 - Breaking changes allowed)
+**Current Version:** v0.4.0 (Pre-1.0 - Breaking changes allowed)
 
 This document provides coding guidelines for AI agents working on the VibeRepo codebase.
+
+## 📚 Documentation
+
+For comprehensive documentation, see:
+- **[docs/README.md](./docs/README.md)** - Documentation index
+- **[docs/api/](./docs/api/)** - API specifications and feature guides
+- **[docs/database/schema.md](./docs/database/schema.md)** - Complete database schema
+- **[docs/design/](./docs/design/)** - Feature designs and architecture
+- **[docs/plans/](./docs/plans/)** - Implementation plans and roadmaps
+- **[docs/research/](./docs/research/)** - Technical research and investigations
 
 ## Project Overview
 
 VibeRepo is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
 
-### Current Status (v0.3.0)
+### Current Status (v0.4.0)
 
 **Completed Modules:**
 - ✅ Backend Foundation (configuration, database, error handling, health check)
@@ -24,9 +34,15 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - ✅ Agent Management (AI agent configurations)
 - ✅ Task Automation (automated development tasks)
 - ✅ Issue Polling (automatic issue synchronization with intelligent filtering)
+- ✅ Task Execution Engine (Docker-based task execution)
+- ✅ Task Scheduler (automatic background execution)
+- ✅ Concurrency Control (per-workspace limits)
+- ✅ Real-time Log Streaming (WebSocket)
+- ✅ Execution History Tracking
+- ✅ Intelligent Failure Analysis
 
 **In Progress:**
-- 🟡 Issue-to-PR Workflow (automated pull request generation)
+- 🟡 Complete Issue-to-PR Workflow (90% done)
 
 ### Technology Stack
 
@@ -576,180 +592,49 @@ cargo test
 - **Integration Tests**: In `tests/` directory with `_integration_tests.rs` suffix
 - **Property Tests**: Use `proptest` crate, suffix with `_property_tests.rs`
 
-**Test Coverage (v0.3.0):**
-- Total tests: 398
+**Test Coverage (v0.4.0):**
+- Total tests: 327
 - Passing: 100%
-- Unit tests: 379 (including issue polling service tests)
-- Integration tests: 19 (including polling API tests)
-- Property tests: 14
+- Unit tests: 310 (including scheduler, executor, analyzer tests)
+- Integration tests: 17
+- Test categories:
+  - Task management: 50+ tests
+  - Execution engine: 10+ tests
+  - Failure analysis: 4 tests
+  - Scheduler: 7 tests
+  - Concurrency control: 6 tests
+  - WebSocket logs: 4 tests
 
 ## Database Schema
 
-### Implemented Tables (v0.3.0)
+For complete database schema documentation, see **[docs/database/schema.md](./docs/database/schema.md)**.
 
-#### repo_providers
-Git provider configurations with authentication credentials.
+### Implemented Tables (v0.4.0)
 
-**Fields:**
-- `id` (INTEGER, PRIMARY KEY)
-- `name` (TEXT, NOT NULL)
-- `type` (TEXT, NOT NULL) - Currently only 'gitea' supported
-- `base_url` (TEXT, NOT NULL)
-- `access_token` (TEXT, NOT NULL) - Masked in API responses
-- `locked` (BOOLEAN, DEFAULT false) - Prevents deletion when true
-- `created_at` (TIMESTAMP)
-- `updated_at` (TIMESTAMP)
+- **repo_providers** - Git provider configurations with authentication credentials
+- **repositories** - Repository records with validation status and polling configuration
+- **webhook_configs** - Webhook configurations for repository event monitoring
+- **workspaces** - Docker-based isolated development environments
+- **init_scripts** - Custom initialization scripts for workspace containers
+- **agents** - AI agent configurations for workspaces
+- **tasks** - Automated development tasks created from issues
+- **task_executions** - Complete history of task execution attempts
 
-**Constraints:**
-- UNIQUE (name, base_url, access_token)
+### Entity Relationships
 
-#### repositories
-Repository records with validation status and polling configuration.
+```
+Settings (namespace)
+└── RepoProvider (entity)
+    └── Repository (entity) [many-to-one]
+        ├── WebhookConfig (entity) [one-to-one]
+        └── Workspace (entity) [one-to-one]
+            ├── InitScript (entity) [one-to-one]
+            ├── Agent (entity) [one-to-many]
+            └── Task (entity) [one-to-many]
+                └── TaskExecution (entity) [one-to-many]
+```
 
-**Fields:**
-- `id` (INTEGER, PRIMARY KEY)
-- `provider_id` (INTEGER, FOREIGN KEY → repo_providers.id)
-- `name` (TEXT, NOT NULL)
-- `full_name` (TEXT, NOT NULL)
-- `clone_url` (TEXT, NOT NULL)
-- `default_branch` (TEXT, NOT NULL)
-- `branches` (JSON) - Array of branch names
-- `validation_status` (TEXT) - 'valid', 'invalid', 'pending'
-- `validation_message` (TEXT, NULLABLE)
-- `has_required_branches` (BOOLEAN) - vibe-dev branch exists
-- `has_required_labels` (BOOLEAN) - vibe/* labels exist
-- `can_manage_prs` (BOOLEAN) - Token has PR permissions
-- `can_manage_issues` (BOOLEAN) - Token has Issue permissions
-- `polling_enabled` (BOOLEAN, DEFAULT false) - Enable issue polling
-- `polling_interval_seconds` (INTEGER, NULLABLE) - Polling interval (60-86400)
-- `polling_config` (TEXT, NULLABLE) - JSON polling configuration
-- `last_polled_at` (TIMESTAMP, NULLABLE) - Last polling timestamp
-- `created_at` (TIMESTAMP)
-- `updated_at` (TIMESTAMP)
-
-**Relationships:**
-- CASCADE DELETE: Deleting a provider deletes all its repositories
-
-#### webhook_configs
-Webhook configurations for repository event monitoring.
-
-**Fields:**
-- `id` (INTEGER, PRIMARY KEY)
-- `provider_id` (INTEGER, FOREIGN KEY → repo_providers.id)
-- `repository_id` (INTEGER, FOREIGN KEY → repositories.id)
-- `webhook_id` (TEXT, NOT NULL) - Provider's webhook ID
-- `webhook_secret` (TEXT, NOT NULL) - Secret for signature verification
-- `webhook_url` (TEXT, NOT NULL) - Full webhook URL
-- `events` (TEXT, NOT NULL) - JSON array of subscribed events
-- `enabled` (BOOLEAN, DEFAULT true)
-- `created_at` (TIMESTAMP)
-- `updated_at` (TIMESTAMP)
-- `retry_count` (INTEGER, DEFAULT 0)
-- `last_retry_at` (TIMESTAMP, NULLABLE)
-- `next_retry_at` (TIMESTAMP, NULLABLE)
-- `last_error` (TEXT, NULLABLE)
-
-**Relationships:**
-- **Primary**: webhook_config → repository (one-to-one)
-  - Each repository has at most one webhook configuration
-  - Webhook URL format: `/api/webhooks/{repository_id}`
-- **Secondary**: webhook_config → provider (many-to-one, redundant)
-  - provider_id is redundant but kept for performance optimization
-  - Enables cascade delete when provider is removed
-  - Allows fast queries without JOIN operations
-
-**Constraints:**
-- UNIQUE (repository_id) - One webhook per repository
-- CASCADE DELETE: Deleting a repository deletes its webhook config
-- CASCADE DELETE: Deleting a provider deletes all its webhook configs
-
-**Design Rationale:**
-Webhooks are per-repository in Git providers (Gitea/GitHub/GitLab), not per-provider.
-The webhook URL uses `repository_id` to make this association explicit and enable
-direct lookup without database queries. While `provider_id` is technically redundant
-(can be obtained via `repository.provider_id`), it provides significant performance
-benefits for common operations like cascade deletion and provider-level queries.
-
-### Implemented Tables (Continued)
-
-#### workspaces
-Docker-based isolated development environments for repositories.
-
-**Fields:**
-- `id` (INTEGER, PRIMARY KEY)
-- `repository_id` (INTEGER, FOREIGN KEY → repositories.id)
-- `workspace_status` (TEXT) - 'creating', 'ready', 'error', etc.
-- `container_id` (TEXT, NULLABLE)
-- `container_status` (TEXT, NULLABLE)
-- `cpu_limit` (TEXT, NULLABLE) - CPU limit (e.g., "2.0")
-- `memory_limit` (TEXT, NULLABLE) - Memory limit (e.g., "2g")
-- `disk_limit` (TEXT, NULLABLE) - Disk limit (e.g., "10g")
-- `created_at` (TIMESTAMP)
-- `updated_at` (TIMESTAMP)
-
-**Relationships:**
-- One-to-one with repositories
-- CASCADE DELETE: Deleting a repository deletes its workspace
-
-#### init_scripts
-Custom initialization scripts for workspace containers.
-
-**Fields:**
-- `id` (INTEGER, PRIMARY KEY)
-- `workspace_id` (INTEGER, FOREIGN KEY → workspaces.id)
-- `script_content` (TEXT, NOT NULL) - Shell script to execute
-- `timeout_seconds` (INTEGER, DEFAULT 300) - Execution timeout
-- `status` (TEXT) - 'Pending', 'Running', 'Success', 'Failed'
-- `output_summary` (TEXT, NULLABLE) - Last 4KB of output
-- `output_file_path` (TEXT, NULLABLE) - Path to full log file
-- `executed_at` (TIMESTAMP, NULLABLE)
-- `created_at` (TIMESTAMP)
-- `updated_at` (TIMESTAMP)
-
-**Relationships:**
-- One-to-one with workspaces
-- CASCADE DELETE: Deleting a workspace deletes its init script
-
-#### agents
-AI agent configurations for workspaces.
-
-**Fields:**
-- `id` (INTEGER, PRIMARY KEY)
-- `workspace_id` (INTEGER, FOREIGN KEY → workspaces.id)
-- `agent_type` (TEXT, NOT NULL) - Type of AI agent
-- `config` (TEXT, NULLABLE) - JSON configuration
-- `status` (TEXT) - 'active', 'inactive', etc.
-- `created_at` (TIMESTAMP)
-- `updated_at` (TIMESTAMP)
-
-**Relationships:**
-- Many-to-one with workspaces
-- CASCADE DELETE: Deleting a workspace deletes its agents
-
-#### tasks
-Automated development tasks created from issues.
-
-**Fields:**
-- `id` (INTEGER, PRIMARY KEY)
-- `workspace_id` (INTEGER, FOREIGN KEY → workspaces.id)
-- `issue_number` (INTEGER, NOT NULL) - Source issue number
-- `issue_url` (TEXT, NOT NULL) - Full URL to the issue
-- `task_type` (TEXT, NOT NULL) - 'IssueToTask', 'Manual', etc.
-- `status` (TEXT) - 'Pending', 'InProgress', 'Completed', 'Failed'
-- `priority` (INTEGER, DEFAULT 0) - Task priority level
-- `created_at` (TIMESTAMP)
-- `updated_at` (TIMESTAMP)
-
-**Constraints:**
-- UNIQUE (workspace_id, issue_number) - Prevent duplicate tasks for same issue
-
-**Relationships:**
-- Many-to-one with workspaces
-- CASCADE DELETE: Deleting a workspace deletes its tasks
-
-### Planned Tables
-
-- `task_logs` - Task execution logs
+For detailed field descriptions, constraints, and relationships, see [docs/database/schema.md](./docs/database/schema.md).
 
 ## Additional Notes
 
