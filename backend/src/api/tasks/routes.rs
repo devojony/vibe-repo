@@ -26,4 +26,9 @@ pub fn task_routes() -> Router<Arc<AppState>> {
         .route("/api/tasks/:id/cancel", post(handlers::cancel_task))
         // Task execution
         .route("/api/tasks/:id/execute", post(handlers::execute_task))
+        // Failure analysis
+        .route(
+            "/api/tasks/:id/failure-analysis",
+            get(handlers::get_failure_analysis),
+        )
 }

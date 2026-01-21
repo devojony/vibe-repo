@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::{
     api::tasks::models::*,
     error::Result,
-    services::{TaskExecutorService, TaskService},
+    services::{TaskExecutorService, TaskFailureAnalyzer, TaskService},
     state::AppState,
 };
 
@@ -424,6 +424,31 @@ pub async fn execute_task(
     });
 
     Ok((StatusCode::ACCEPTED, Json(task.into())))
+}
+
+/// Get failure analysis for a failed task
+#[utoipa::path(
+    get,
+    path = "/api/tasks/{id}/failure-analysis",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    responses(
+        (status = 200, description = "Failure analysis retrieved", body = FailureAnalysis),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn get_failure_analysis(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<crate::services::FailureAnalysis>> {
+    let analyzer = TaskFailureAnalyzer::new(state.db.clone());
+
+    let analysis = analyzer.analyze_failure(id).await?;
+
+    Ok(Json(analysis))
 }
 
 #[cfg(test)]
