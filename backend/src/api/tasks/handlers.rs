@@ -68,14 +68,20 @@ pub async fn get_task(
 #[derive(Debug, Deserialize)]
 pub struct ListTasksQuery {
     pub workspace_id: i32,
+    pub status: Option<String>,
+    pub priority: Option<String>,
+    pub assigned_agent_id: Option<i32>,
 }
 
-/// List tasks by workspace
+/// List tasks by workspace with filters
 #[utoipa::path(
     get,
     path = "/api/tasks",
     params(
-        ("workspace_id" = i32, Query, description = "Workspace ID")
+        ("workspace_id" = i32, Query, description = "Workspace ID"),
+        ("status" = Option<String>, Query, description = "Filter by status"),
+        ("priority" = Option<String>, Query, description = "Filter by priority"),
+        ("assigned_agent_id" = Option<i32>, Query, description = "Filter by assigned agent"),
     ),
     responses(
         (status = 200, description = "List of tasks", body = Vec<TaskResponse>),
@@ -89,7 +95,14 @@ pub async fn list_tasks_by_workspace(
 ) -> Result<Json<Vec<TaskResponse>>> {
     let service = TaskService::new(state.db.clone());
 
-    let tasks = service.list_tasks_by_workspace(query.workspace_id).await?;
+    let tasks = service
+        .list_tasks_with_filters(
+            query.workspace_id,
+            query.status,
+            query.priority,
+            query.assigned_agent_id,
+        )
+        .await?;
 
     let responses: Vec<TaskResponse> = tasks.into_iter().map(|t| t.into()).collect();
 
@@ -119,6 +132,218 @@ pub async fn update_task_status(
     let service = TaskService::new(state.db.clone());
 
     let task = service.update_task_status(id, req.status).await?;
+
+    Ok(Json(task.into()))
+}
+
+/// Update task
+#[utoipa::path(
+    patch,
+    path = "/api/tasks/{id}",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    request_body = UpdateTaskRequest,
+    responses(
+        (status = 200, description = "Task updated successfully", body = TaskResponse),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn update_task(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+    Json(req): Json<UpdateTaskRequest>,
+) -> Result<Json<TaskResponse>> {
+    let service = TaskService::new(state.db.clone());
+
+    let task = service
+        .update_task(id, req.priority, req.assigned_agent_id.map(Some))
+        .await?;
+
+    Ok(Json(task.into()))
+}
+
+/// Delete task (soft delete)
+#[utoipa::path(
+    delete,
+    path = "/api/tasks/{id}",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    responses(
+        (status = 204, description = "Task deleted successfully"),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn delete_task(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<StatusCode> {
+    let service = TaskService::new(state.db.clone());
+
+    service.soft_delete_task(id).await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Assign agent to task
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{id}/assign",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    request_body = AssignAgentRequest,
+    responses(
+        (status = 200, description = "Agent assigned successfully", body = TaskResponse),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn assign_agent(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+    Json(req): Json<AssignAgentRequest>,
+) -> Result<Json<TaskResponse>> {
+    let service = TaskService::new(state.db.clone());
+
+    let task = service.assign_agent(id, req.agent_id).await?;
+
+    Ok(Json(task.into()))
+}
+
+/// Start task execution
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{id}/start",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    responses(
+        (status = 200, description = "Task started successfully", body = TaskResponse),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn start_task(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<TaskResponse>> {
+    let service = TaskService::new(state.db.clone());
+
+    let task = service.start_task(id).await?;
+
+    Ok(Json(task.into()))
+}
+
+/// Complete task with PR information
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{id}/complete",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    request_body = CompleteTaskRequest,
+    responses(
+        (status = 200, description = "Task completed successfully", body = TaskResponse),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn complete_task(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+    Json(req): Json<CompleteTaskRequest>,
+) -> Result<Json<TaskResponse>> {
+    let service = TaskService::new(state.db.clone());
+
+    let task = service
+        .complete_task(id, req.pr_number, req.pr_url, req.branch_name)
+        .await?;
+
+    Ok(Json(task.into()))
+}
+
+/// Mark task as failed
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{id}/fail",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    request_body = FailTaskRequest,
+    responses(
+        (status = 200, description = "Task marked as failed", body = TaskResponse),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn fail_task(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+    Json(req): Json<FailTaskRequest>,
+) -> Result<Json<TaskResponse>> {
+    let service = TaskService::new(state.db.clone());
+
+    let task = service.fail_task(id, req.error_message).await?;
+
+    Ok(Json(task.into()))
+}
+
+/// Retry a failed task
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{id}/retry",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    responses(
+        (status = 200, description = "Task retry initiated", body = TaskResponse),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn retry_task(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<TaskResponse>> {
+    let service = TaskService::new(state.db.clone());
+
+    let task = service.retry_task(id).await?;
+
+    Ok(Json(task.into()))
+}
+
+/// Cancel a task
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{id}/cancel",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    responses(
+        (status = 200, description = "Task cancelled successfully", body = TaskResponse),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn cancel_task(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<TaskResponse>> {
+    let service = TaskService::new(state.db.clone());
+
+    let task = service.cancel_task(id).await?;
 
     Ok(Json(task.into()))
 }
@@ -212,6 +437,9 @@ mod tests {
 
         let query = ListTasksQuery {
             workspace_id: workspace.id,
+            status: None,
+            priority: None,
+            assigned_agent_id: None,
         };
 
         // Act
@@ -245,6 +473,263 @@ mod tests {
         assert!(result.is_ok());
         let Json(response) = result.unwrap();
         assert_eq!(response.task_status, "in_progress");
+    }
+
+    /// Test update_task handler updates priority
+    /// Requirements: Task API - update task endpoint
+    #[tokio::test]
+    async fn test_update_task_handler_priority() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        let req = UpdateTaskRequest {
+            priority: Some("high".to_string()),
+            assigned_agent_id: None,
+        };
+
+        // Act
+        let result = update_task(State(state), Path(task.id), Json(req)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.priority, "high");
+    }
+
+    /// Test delete_task handler soft deletes task
+    /// Requirements: Task API - delete task endpoint
+    #[tokio::test]
+    async fn test_delete_task_handler_success() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Act
+        let result = delete_task(State(state.clone()), Path(task.id)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
+
+        // Verify task is marked as deleted
+        let service = TaskService::new(state.db.clone());
+        let deleted_task = service.get_task_by_id(task.id).await.unwrap();
+        assert!(deleted_task.deleted_at.is_some());
+    }
+
+    /// Test assign_agent handler assigns agent
+    /// Requirements: Task API - assign agent endpoint
+    #[tokio::test]
+    async fn test_assign_agent_handler_success() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        let req = AssignAgentRequest { agent_id: None };
+
+        // Act
+        let result = assign_agent(State(state), Path(task.id), Json(req)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.assigned_agent_id, None);
+        assert_eq!(response.task_status, "assigned");
+    }
+
+    /// Test start_task handler starts task
+    /// Requirements: Task API - start task endpoint
+    #[tokio::test]
+    async fn test_start_task_handler_success() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Act
+        let result = start_task(State(state), Path(task.id)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.task_status, "running");
+        assert!(response.started_at.is_some());
+    }
+
+    /// Test complete_task handler completes task
+    /// Requirements: Task API - complete task endpoint
+    #[tokio::test]
+    async fn test_complete_task_handler_success() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        let req = CompleteTaskRequest {
+            pr_number: 456,
+            pr_url: "https://git.example.com/owner/repo/pulls/456".to_string(),
+            branch_name: "fix/test-branch".to_string(),
+        };
+
+        // Act
+        let result = complete_task(State(state), Path(task.id), Json(req)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.task_status, "completed");
+        assert_eq!(response.pr_number, Some(456));
+        assert_eq!(
+            response.pr_url,
+            Some("https://git.example.com/owner/repo/pulls/456".to_string())
+        );
+        assert_eq!(response.branch_name, Some("fix/test-branch".to_string()));
+        assert!(response.completed_at.is_some());
+    }
+
+    /// Test fail_task handler marks task as failed
+    /// Requirements: Task API - fail task endpoint
+    #[tokio::test]
+    async fn test_fail_task_handler_success() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        let req = FailTaskRequest {
+            error_message: "Test error".to_string(),
+        };
+
+        // Act
+        let result = fail_task(State(state), Path(task.id), Json(req)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.retry_count, 1);
+        assert_eq!(response.error_message, Some("Test error".to_string()));
+        assert_eq!(response.task_status, "pending"); // Should retry
+    }
+
+    /// Test retry_task handler retries task
+    /// Requirements: Task API - retry task endpoint
+    #[tokio::test]
+    async fn test_retry_task_handler_success() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Fail the task first
+        let service = TaskService::new(state.db.clone());
+        service
+            .fail_task(task.id, "Test error".to_string())
+            .await
+            .unwrap();
+
+        // Act
+        let result = retry_task(State(state), Path(task.id)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.task_status, "pending");
+        assert_eq!(response.error_message, None);
+    }
+
+    /// Test cancel_task handler cancels task
+    /// Requirements: Task API - cancel task endpoint
+    #[tokio::test]
+    async fn test_cancel_task_handler_success() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Act
+        let result = cancel_task(State(state), Path(task.id)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.task_status, "cancelled");
+    }
+
+    /// Test list_tasks_by_workspace with filters
+    /// Requirements: Task API - list tasks with filters
+    #[tokio::test]
+    async fn test_list_tasks_by_workspace_with_filters() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+
+        // Create tasks with different statuses
+        let service = TaskService::new(state.db.clone());
+        let task1 = service
+            .create_task(
+                workspace.id,
+                200,
+                "Task 1".to_string(),
+                None,
+                None,
+                "high".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let task2 = service
+            .create_task(
+                workspace.id,
+                201,
+                "Task 2".to_string(),
+                None,
+                None,
+                "low".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Start one task
+        service.start_task(task2.id).await.unwrap();
+
+        let query = ListTasksQuery {
+            workspace_id: workspace.id,
+            status: Some("pending".to_string()),
+            priority: None,
+            assigned_agent_id: None,
+        };
+
+        // Act
+        let result = list_tasks_by_workspace(State(state), Query(query)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(responses) = result.unwrap();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0].id, task1.id);
+        assert_eq!(responses[0].task_status, "pending");
     }
 
     // Helper functions

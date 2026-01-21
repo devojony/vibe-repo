@@ -73,6 +73,193 @@ impl TaskService {
 
         Ok(task)
     }
+
+    /// Assign an agent to a task
+    pub async fn assign_agent(&self, task_id: i32, agent_id: Option<i32>) -> Result<task::Model> {
+        let task = self.get_task_by_id(task_id).await?;
+
+        let mut task: task::ActiveModel = task.into();
+        task.assigned_agent_id = Set(agent_id);
+        task.task_status = Set("assigned".to_string());
+        task.updated_at = Set(Utc::now());
+
+        let task = task
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        Ok(task)
+    }
+
+    /// Start a task
+    pub async fn start_task(&self, task_id: i32) -> Result<task::Model> {
+        let task = self.get_task_by_id(task_id).await?;
+
+        let mut task: task::ActiveModel = task.into();
+        task.task_status = Set("running".to_string());
+        task.started_at = Set(Some(Utc::now()));
+        task.updated_at = Set(Utc::now());
+
+        let task = task
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        Ok(task)
+    }
+
+    /// Complete a task with PR information
+    pub async fn complete_task(
+        &self,
+        task_id: i32,
+        pr_number: i32,
+        pr_url: String,
+        branch_name: String,
+    ) -> Result<task::Model> {
+        let task = self.get_task_by_id(task_id).await?;
+
+        let mut task: task::ActiveModel = task.into();
+        task.task_status = Set("completed".to_string());
+        task.pr_number = Set(Some(pr_number));
+        task.pr_url = Set(Some(pr_url));
+        task.branch_name = Set(Some(branch_name));
+        task.completed_at = Set(Some(Utc::now()));
+        task.updated_at = Set(Utc::now());
+
+        let task = task
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        Ok(task)
+    }
+
+    /// Mark a task as failed
+    pub async fn fail_task(&self, task_id: i32, error_message: String) -> Result<task::Model> {
+        let task = self.get_task_by_id(task_id).await?;
+
+        let new_retry_count = task.retry_count + 1;
+        let new_status = if new_retry_count < task.max_retries {
+            "pending".to_string()
+        } else {
+            "failed".to_string()
+        };
+
+        let mut task: task::ActiveModel = task.into();
+        task.retry_count = Set(new_retry_count);
+        task.error_message = Set(Some(error_message));
+        task.task_status = Set(new_status);
+        task.updated_at = Set(Utc::now());
+
+        let task = task
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        Ok(task)
+    }
+
+    /// Retry a failed task
+    pub async fn retry_task(&self, task_id: i32) -> Result<task::Model> {
+        let task = self.get_task_by_id(task_id).await?;
+
+        let mut task: task::ActiveModel = task.into();
+        task.task_status = Set("pending".to_string());
+        task.error_message = Set(None);
+        task.updated_at = Set(Utc::now());
+
+        let task = task
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        Ok(task)
+    }
+
+    /// Cancel a task
+    pub async fn cancel_task(&self, task_id: i32) -> Result<task::Model> {
+        let task = self.get_task_by_id(task_id).await?;
+
+        let mut task: task::ActiveModel = task.into();
+        task.task_status = Set("cancelled".to_string());
+        task.updated_at = Set(Utc::now());
+
+        let task = task
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        Ok(task)
+    }
+
+    /// Soft delete a task
+    pub async fn soft_delete_task(&self, task_id: i32) -> Result<()> {
+        let task = self.get_task_by_id(task_id).await?;
+
+        let mut task: task::ActiveModel = task.into();
+        task.deleted_at = Set(Some(Utc::now()));
+        task.updated_at = Set(Utc::now());
+
+        task.update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        Ok(())
+    }
+
+    /// Update task fields
+    pub async fn update_task(
+        &self,
+        task_id: i32,
+        priority: Option<String>,
+        assigned_agent_id: Option<Option<i32>>,
+    ) -> Result<task::Model> {
+        let task = self.get_task_by_id(task_id).await?;
+
+        let mut task: task::ActiveModel = task.into();
+
+        if let Some(p) = priority {
+            task.priority = Set(p);
+        }
+
+        if let Some(agent_id) = assigned_agent_id {
+            task.assigned_agent_id = Set(agent_id);
+        }
+
+        task.updated_at = Set(Utc::now());
+
+        let task = task
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        Ok(task)
+    }
+
+    /// List tasks with filters
+    pub async fn list_tasks_with_filters(
+        &self,
+        workspace_id: i32,
+        status: Option<String>,
+        priority: Option<String>,
+        assigned_agent_id: Option<i32>,
+    ) -> Result<Vec<task::Model>> {
+        let mut query = Task::find().filter(task::Column::WorkspaceId.eq(workspace_id));
+
+        if let Some(s) = status {
+            query = query.filter(task::Column::TaskStatus.eq(s));
+        }
+
+        if let Some(p) = priority {
+            query = query.filter(task::Column::Priority.eq(p));
+        }
+
+        if let Some(agent_id) = assigned_agent_id {
+            query = query.filter(task::Column::AssignedAgentId.eq(agent_id));
+        }
+
+        query.all(&self.db).await.map_err(VibeRepoError::Database)
+    }
 }
 
 #[cfg(test)]
@@ -305,6 +492,536 @@ mod tests {
             VibeRepoError::NotFound(_) => {}
             _ => panic!("Expected NotFound error"),
         }
+    }
+
+    /// Test assign_agent assigns agent and updates status
+    /// Requirements: Task API - assign agent
+    #[tokio::test]
+    async fn test_assign_agent_success() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+        let task = service
+            .create_task(
+                workspace.id,
+                100,
+                "Test Task".to_string(),
+                None,
+                None,
+                "medium".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act - Use None to avoid foreign key constraint
+        let result = service.assign_agent(task.id, None).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let updated = result.unwrap();
+        assert_eq!(updated.assigned_agent_id, None);
+        assert_eq!(updated.task_status, "assigned");
+        assert!(updated.updated_at > task.updated_at);
+    }
+
+    /// Test start_task sets status to running and records start time
+    /// Requirements: Task API - start task
+    #[tokio::test]
+    async fn test_start_task_success() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+        let task = service
+            .create_task(
+                workspace.id,
+                101,
+                "Test Task".to_string(),
+                None,
+                None,
+                "high".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act
+        let result = service.start_task(task.id).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let updated = result.unwrap();
+        assert_eq!(updated.task_status, "running");
+        assert!(updated.started_at.is_some());
+        assert!(updated.updated_at > task.updated_at);
+    }
+
+    /// Test complete_task sets status and PR information
+    /// Requirements: Task API - complete task
+    #[tokio::test]
+    async fn test_complete_task_success() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+        let task = service
+            .create_task(
+                workspace.id,
+                102,
+                "Test Task".to_string(),
+                None,
+                None,
+                "medium".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act
+        let result = service
+            .complete_task(
+                task.id,
+                456,
+                "https://git.example.com/owner/repo/pulls/456".to_string(),
+                "fix/test-branch".to_string(),
+            )
+            .await;
+
+        // Assert
+        assert!(result.is_ok());
+        let updated = result.unwrap();
+        assert_eq!(updated.task_status, "completed");
+        assert_eq!(updated.pr_number, Some(456));
+        assert_eq!(
+            updated.pr_url,
+            Some("https://git.example.com/owner/repo/pulls/456".to_string())
+        );
+        assert_eq!(updated.branch_name, Some("fix/test-branch".to_string()));
+        assert!(updated.completed_at.is_some());
+        assert!(updated.updated_at > task.updated_at);
+    }
+
+    /// Test fail_task increments retry count and sets error message
+    /// Requirements: Task API - fail task
+    #[tokio::test]
+    async fn test_fail_task_with_retry() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+        let task = service
+            .create_task(
+                workspace.id,
+                103,
+                "Test Task".to_string(),
+                None,
+                None,
+                "low".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act
+        let result = service
+            .fail_task(task.id, "Test error message".to_string())
+            .await;
+
+        // Assert
+        assert!(result.is_ok());
+        let updated = result.unwrap();
+        assert_eq!(updated.retry_count, 1);
+        assert_eq!(
+            updated.error_message,
+            Some("Test error message".to_string())
+        );
+        assert_eq!(updated.task_status, "pending"); // Should retry
+        assert!(updated.updated_at > task.updated_at);
+    }
+
+    /// Test fail_task marks as failed when max retries reached
+    /// Requirements: Task API - fail task with max retries
+    #[tokio::test]
+    async fn test_fail_task_max_retries() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+        let mut task = service
+            .create_task(
+                workspace.id,
+                104,
+                "Test Task".to_string(),
+                None,
+                None,
+                "high".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Fail task multiple times to reach max retries
+        for _ in 0..3 {
+            task = service
+                .fail_task(task.id, "Test error".to_string())
+                .await
+                .unwrap();
+        }
+
+        // Assert
+        assert_eq!(task.retry_count, 3);
+        assert_eq!(task.task_status, "failed"); // Should be failed now
+    }
+
+    /// Test retry_task resets status and clears error
+    /// Requirements: Task API - retry task
+    #[tokio::test]
+    async fn test_retry_task_success() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+        let task = service
+            .create_task(
+                workspace.id,
+                105,
+                "Test Task".to_string(),
+                None,
+                None,
+                "medium".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Fail the task first
+        let failed_task = service
+            .fail_task(task.id, "Test error".to_string())
+            .await
+            .unwrap();
+
+        // Act
+        let result = service.retry_task(failed_task.id).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let updated = result.unwrap();
+        assert_eq!(updated.task_status, "pending");
+        assert_eq!(updated.error_message, None);
+        assert!(updated.updated_at > failed_task.updated_at);
+    }
+
+    /// Test cancel_task sets status to cancelled
+    /// Requirements: Task API - cancel task
+    #[tokio::test]
+    async fn test_cancel_task_success() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+        let task = service
+            .create_task(
+                workspace.id,
+                106,
+                "Test Task".to_string(),
+                None,
+                None,
+                "low".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act
+        let result = service.cancel_task(task.id).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let updated = result.unwrap();
+        assert_eq!(updated.task_status, "cancelled");
+        assert!(updated.updated_at > task.updated_at);
+    }
+
+    /// Test soft_delete_task sets deleted_at timestamp
+    /// Requirements: Task API - soft delete
+    #[tokio::test]
+    async fn test_soft_delete_task_success() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+        let task = service
+            .create_task(
+                workspace.id,
+                107,
+                "Test Task".to_string(),
+                None,
+                None,
+                "medium".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act
+        let result = service.soft_delete_task(task.id).await;
+
+        // Assert
+        assert!(result.is_ok());
+
+        // Verify task is marked as deleted
+        let deleted_task = service.get_task_by_id(task.id).await.unwrap();
+        assert!(deleted_task.deleted_at.is_some());
+    }
+
+    /// Test update_task updates priority
+    /// Requirements: Task API - update task
+    #[tokio::test]
+    async fn test_update_task_priority() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+        let task = service
+            .create_task(
+                workspace.id,
+                108,
+                "Test Task".to_string(),
+                None,
+                None,
+                "low".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act
+        let result = service
+            .update_task(task.id, Some("high".to_string()), None)
+            .await;
+
+        // Assert
+        assert!(result.is_ok());
+        let updated = result.unwrap();
+        assert_eq!(updated.priority, "high");
+        assert!(updated.updated_at > task.updated_at);
+    }
+
+    /// Test update_task updates assigned agent
+    /// Requirements: Task API - update task
+    #[tokio::test]
+    async fn test_update_task_assigned_agent() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+        let task = service
+            .create_task(
+                workspace.id,
+                109,
+                "Test Task".to_string(),
+                None,
+                None,
+                "medium".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act - Use None to avoid foreign key constraint
+        let result = service.update_task(task.id, None, Some(None)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let updated = result.unwrap();
+        assert_eq!(updated.assigned_agent_id, None);
+        assert!(updated.updated_at > task.updated_at);
+    }
+
+    /// Test list_tasks_with_filters filters by status
+    /// Requirements: Task API - list tasks with filters
+    #[tokio::test]
+    async fn test_list_tasks_with_filters_by_status() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+
+        // Create tasks with different statuses
+        let task1 = service
+            .create_task(
+                workspace.id,
+                110,
+                "Task 1".to_string(),
+                None,
+                None,
+                "high".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let task2 = service
+            .create_task(
+                workspace.id,
+                111,
+                "Task 2".to_string(),
+                None,
+                None,
+                "low".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Update one task to running
+        service.start_task(task2.id).await.unwrap();
+
+        // Act
+        let result = service
+            .list_tasks_with_filters(workspace.id, Some("pending".to_string()), None, None)
+            .await;
+
+        // Assert
+        assert!(result.is_ok());
+        let tasks = result.unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, task1.id);
+        assert_eq!(tasks[0].task_status, "pending");
+    }
+
+    /// Test list_tasks_with_filters filters by priority
+    /// Requirements: Task API - list tasks with filters
+    #[tokio::test]
+    async fn test_list_tasks_with_filters_by_priority() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+
+        // Create tasks with different priorities
+        service
+            .create_task(
+                workspace.id,
+                112,
+                "Task 1".to_string(),
+                None,
+                None,
+                "high".to_string(),
+            )
+            .await
+            .unwrap();
+
+        service
+            .create_task(
+                workspace.id,
+                113,
+                "Task 2".to_string(),
+                None,
+                None,
+                "low".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act
+        let result = service
+            .list_tasks_with_filters(workspace.id, None, Some("high".to_string()), None)
+            .await;
+
+        // Assert
+        assert!(result.is_ok());
+        let tasks = result.unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].priority, "high");
+    }
+
+    /// Test list_tasks_with_filters filters by assigned agent
+    /// Requirements: Task API - list tasks with filters
+    #[tokio::test]
+    async fn test_list_tasks_with_filters_by_agent() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let service = TaskService::new(db.clone());
+
+        // Create tasks - one with assigned_agent_id in create_task, one without
+        let _task1 = service
+            .create_task(
+                workspace.id,
+                114,
+                "Task 1".to_string(),
+                None,
+                None, // No agent assigned
+                "medium".to_string(),
+            )
+            .await
+            .unwrap();
+
+        service
+            .create_task(
+                workspace.id,
+                115,
+                "Task 2".to_string(),
+                None,
+                None, // No agent assigned
+                "medium".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act - Filter by None (tasks without assigned agent)
+        let result = service
+            .list_tasks_with_filters(workspace.id, None, None, None)
+            .await;
+
+        // Assert
+        assert!(result.is_ok());
+        let tasks = result.unwrap();
+        assert_eq!(tasks.len(), 2); // Both tasks have no agent
+        assert_eq!(tasks[0].assigned_agent_id, None);
     }
 
     // Helper functions

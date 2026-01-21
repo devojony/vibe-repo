@@ -47,6 +47,43 @@ pub struct UpdateTaskStatusRequest {
     pub status: String,
 }
 
+/// Request model for updating task
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateTaskRequest {
+    pub priority: Option<String>,
+    pub assigned_agent_id: Option<i32>,
+}
+
+/// Request model for assigning agent
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AssignAgentRequest {
+    pub agent_id: Option<i32>,
+}
+
+/// Request model for completing task
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CompleteTaskRequest {
+    pub pr_number: i32,
+    pub pr_url: String,
+    pub branch_name: String,
+}
+
+/// Request model for failing task
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct FailTaskRequest {
+    pub error_message: String,
+}
+
+/// Response model for task list with pagination
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TaskListResponse {
+    pub tasks: Vec<TaskResponse>,
+    pub total: i64,
+    pub page: i32,
+    pub per_page: i32,
+    pub total_pages: i32,
+}
+
 impl From<crate::entities::task::Model> for TaskResponse {
     fn from(model: crate::entities::task::Model) -> Self {
         Self {
