@@ -6,7 +6,7 @@ use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
 use crate::config::AppConfig;
-use crate::services::{DockerService, RepositoryService};
+use crate::services::{DockerService, RepositoryService, TaskLogBroadcaster};
 
 /// Shared application state
 #[derive(Clone)]
@@ -19,6 +19,8 @@ pub struct AppState {
     pub repository_service: Arc<RepositoryService>,
     /// Docker service for container management (optional)
     pub docker: Option<DockerService>,
+    /// Task log broadcaster for WebSocket streaming
+    pub log_broadcaster: TaskLogBroadcaster,
 }
 
 impl AppState {
@@ -48,12 +50,28 @@ impl AppState {
             config,
             repository_service,
             docker,
+            log_broadcaster: TaskLogBroadcaster::new(),
         }
     }
 
     /// Create a thread-safe Arc-wrapped state
     pub fn into_arc(self) -> Arc<Self> {
         Arc::new(self)
+    }
+
+    /// Get or create a broadcast channel for task logs
+    pub async fn get_or_create_log_channel(&self, task_id: i32) -> tokio::sync::broadcast::Receiver<String> {
+        self.log_broadcaster.subscribe(task_id).await
+    }
+
+    /// Broadcast a log message to all subscribers of a task
+    pub async fn broadcast_log(&self, task_id: i32, message: String) -> Result<usize, String> {
+        self.log_broadcaster.broadcast(task_id, message).await
+    }
+
+    /// Remove log channel for a task (cleanup after task completion)
+    pub async fn remove_log_channel(&self, task_id: i32) {
+        self.log_broadcaster.cleanup(task_id).await;
     }
 }
 

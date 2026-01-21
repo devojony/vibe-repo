@@ -50,6 +50,7 @@ impl TaskExecutionService {
     }
 
     /// Update execution with completion data
+    #[allow(clippy::too_many_arguments)]
     pub async fn complete_execution(
         &self,
         execution_id: i32,
@@ -250,7 +251,7 @@ impl TaskExecutionService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::{agent, repository, task, workspace};
+    use crate::entities::{repository, task, workspace};
     use crate::test_utils::db::TestDatabase;
     use sea_orm::Set;
 

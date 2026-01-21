@@ -31,4 +31,9 @@ pub fn task_routes() -> Router<Arc<AppState>> {
             "/api/tasks/:id/failure-analysis",
             get(handlers::get_failure_analysis),
         )
+        // WebSocket log streaming
+        .route(
+            "/api/tasks/:id/logs/stream",
+            get(super::websocket::stream_task_logs),
+        )
 }

@@ -176,7 +176,7 @@ impl TaskExecutorService {
 
         // Execute task in container
         match self
-            .execute_in_container(&workspace, &agent, &task, &command)
+            .execute_in_container(workspace, &agent, &task, &command)
             .await
         {
             Ok(result) => {
