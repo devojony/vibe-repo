@@ -6,7 +6,12 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::{api::tasks::models::*, error::Result, services::TaskService, state::AppState};
+use crate::{
+    api::tasks::models::*,
+    error::Result,
+    services::{TaskExecutorService, TaskService},
+    state::AppState,
+};
 
 /// Create a new task
 #[utoipa::path(
@@ -384,6 +389,41 @@ pub async fn cancel_task(
     let task = service.cancel_task(id).await?;
 
     Ok(Json(task.into()))
+}
+
+/// Execute a task in its workspace container
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{id}/execute",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    responses(
+        (status = 202, description = "Task execution started", body = TaskResponse),
+        (status = 400, description = "Task not in valid state for execution"),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn execute_task(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<(StatusCode, Json<TaskResponse>)> {
+    let executor = TaskExecutorService::new(state.db.clone());
+    let task_service = TaskService::new(state.db.clone());
+
+    // Get task before execution
+    let task = task_service.get_task_by_id(id).await?;
+
+    // Start execution in background
+    tokio::spawn(async move {
+        if let Err(e) = executor.execute_task(id).await {
+            tracing::error!(task_id = id, error = %e, "Task execution failed");
+        }
+    });
+
+    Ok((StatusCode::ACCEPTED, Json(task.into())))
 }
 
 #[cfg(test)]

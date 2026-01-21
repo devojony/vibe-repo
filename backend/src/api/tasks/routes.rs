@@ -24,4 +24,6 @@ pub fn task_routes() -> Router<Arc<AppState>> {
         .route("/api/tasks/:id/fail", post(handlers::fail_task))
         .route("/api/tasks/:id/retry", post(handlers::retry_task))
         .route("/api/tasks/:id/cancel", post(handlers::cancel_task))
+        // Task execution
+        .route("/api/tasks/:id/execute", post(handlers::execute_task))
 }

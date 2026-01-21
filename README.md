@@ -133,6 +133,9 @@ http://localhost:3000/swagger-ui
 - `POST /api/tasks/:id/retry` - Retry a failed task
 - `POST /api/tasks/:id/cancel` - Cancel task execution
 
+#### Task Execution
+- `POST /api/tasks/:id/execute` - Execute task in workspace container with assigned agent
+
 ## Init Scripts
 
 Init scripts allow you to automatically configure workspace containers after they start. This replaces the previous `custom_dockerfile_path` approach with a more flexible shell script solution.
@@ -621,6 +624,101 @@ When a task fails:
 2. If `retry_count >= max_retries`: Status → "Failed" (no more retries)
 
 Default `max_retries` is 3, but can be customized per task.
+
+### Task Execution Engine
+
+VibeRepo includes a powerful task execution engine that runs tasks in isolated Docker containers using AI agents.
+
+#### How It Works
+
+1. **Task Assignment**: Assign an AI agent to a task (or use the default enabled agent)
+2. **Container Execution**: Task is executed in the workspace's Docker container
+3. **Command Building**: Agent command is built with task context (issue number, title, body)
+4. **Output Parsing**: System parses agent output to extract PR information
+5. **Status Update**: Task status is automatically updated based on execution result
+
+#### Execute a Task
+
+```bash
+curl -X POST http://localhost:3000/api/tasks/1/execute
+```
+
+Response (202 Accepted):
+```json
+{
+  "id": 1,
+  "task_status": "Running",
+  "started_at": "2026-01-21T12:00:00Z"
+}
+```
+
+The task execution happens asynchronously in the background. The system will:
+- Start the task (status → "Running")
+- Execute the agent command in the container
+- Parse the output for PR information
+- Update task status to "Completed" (with PR info) or "Failed"
+
+#### Agent Configuration
+
+Agents are configured with:
+- **name**: Agent identifier
+- **tool_type**: Type of AI tool (e.g., "opencode", "aider")
+- **command**: Command to execute in container
+- **env_vars**: Environment variables (JSON object)
+- **timeout**: Execution timeout in seconds
+
+Example agent:
+```json
+{
+  "name": "OpenCode Primary",
+  "tool_type": "opencode",
+  "command": "opencode solve-issue",
+  "env_vars": {
+    "ANTHROPIC_API_KEY": "sk-ant-...",
+    "MODEL": "claude-3.5-sonnet"
+  },
+  "timeout": 1800
+}
+```
+
+#### Task Context
+
+When executing, the agent receives task context as environment variables:
+- `TASK_ID`: Task database ID
+- `ISSUE_NUMBER`: Source issue number
+- `ISSUE_TITLE`: Issue title
+- `ISSUE_BODY`: Issue description
+
+#### Output Format
+
+Agents should output PR information in this format:
+```
+PR_NUMBER=123 PR_URL=https://git.example.com/owner/repo/pulls/123 BRANCH_NAME=feature/fix-bug
+```
+
+The system will parse this output and automatically mark the task as completed with the PR information.
+
+#### Execution Flow
+
+```
+1. POST /api/tasks/:id/execute
+   ↓
+2. Validate task status (must be "pending" or "assigned")
+   ↓
+3. Get workspace and agent
+   ↓
+4. Update task status to "running"
+   ↓
+5. Execute in container: docker exec <container_id> sh -c "<command>"
+   ↓
+6. Stream and log output
+   ↓
+7. Parse PR information from output
+   ↓
+8. Update task status:
+   - "Completed" (if PR info found)
+   - "Failed" (if no PR or error occurred)
+```
 
 ### Integration with Issue Polling
 
