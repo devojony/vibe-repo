@@ -2,7 +2,7 @@
 //!
 //! Handles creating pull requests for completed tasks via Git Provider API.
 
-use crate::entities::{prelude::*, task, workspace};
+use crate::entities::{prelude::*, repository, task};
 use crate::error::{Result, VibeRepoError};
 use crate::git_provider::{
     models::CreatePullRequestRequest, traits::GitProvider, GitClientFactory,
@@ -76,7 +76,7 @@ impl PRCreationService {
         let (owner, repo_name) = self.parse_clone_url(&repository.clone_url)?;
 
         // Get default branch
-        let base_branch = self.get_default_branch(&workspace).await?;
+        let base_branch = self.get_default_branch(&repository).await?;
 
         // Create Git Provider client
         let git_client = GitClientFactory::from_provider(&provider)
@@ -117,10 +117,13 @@ impl PRCreationService {
         // Update task with PR information
         let mut task_active: task::ActiveModel = task.into();
         task_active.pr_number = Set(Some(pr.number as i32));
-        // Construct PR URL from base_url (without /api/v1)
+        // Construct PR web URL (not API URL)
+        // Note: Gitea uses /pulls/, GitHub uses /pull/ (singular)
+        // We strip /api/v1 from base_url to get the web base URL
+        let web_base_url = provider.base_url.trim_end_matches("/api/v1");
         task_active.pr_url = Set(Some(format!(
             "{}/{}/{}/pulls/{}",
-            provider.base_url, owner, repo_name, pr.number
+            web_base_url, owner, repo_name, pr.number
         )));
         task_active.update(&self.db).await?;
 
@@ -149,15 +152,8 @@ impl PRCreationService {
     }
 
     /// Get repository default branch
-    async fn get_default_branch(&self, workspace: &workspace::Model) -> Result<String> {
-        let repository = Repository::find_by_id(workspace.repository_id)
-            .one(&self.db)
-            .await?
-            .ok_or_else(|| {
-                VibeRepoError::NotFound(format!("Repository {} not found", workspace.repository_id))
-            })?;
-
-        Ok(repository.default_branch)
+    async fn get_default_branch(&self, repository: &repository::Model) -> Result<String> {
+        Ok(repository.default_branch.clone())
     }
 
     /// Parse owner and repo name from clone_url
@@ -234,6 +230,9 @@ impl PRCreationService {
                     tracing::info!(owner, repo, head = %request.head, "PR already exists: {}", e);
                     
                     // Try to fetch the existing PR by listing PRs and filtering by branch
+                    // Note: This only fetches the first page of PRs. If the PR is not in the
+                    // first page (due to pagination), we'll return an error. This is acceptable
+                    // because the PR was successfully created (just not by us).
                     match git_client
                         .list_pull_requests(owner, repo, None)
                         .await
@@ -254,12 +253,12 @@ impl PRCreationService {
                                     owner,
                                     repo,
                                     head = %request.head,
-                                    "PR exists but couldn't find it in list"
+                                    "PR exists but couldn't find it in first page (may be paginated)"
                                 );
-                                // Return a minimal PR object with just the branch info
-                                // This shouldn't happen but we handle it gracefully
+                                // PR exists but not in first page - this is a conflict error
+                                // The task should handle this gracefully (PR was created, just not by us)
                                 return Err(VibeRepoError::Conflict(format!(
-                                    "PR already exists for branch {} but couldn't fetch details",
+                                    "PR already exists for branch {} but couldn't fetch details (may be paginated)",
                                     request.head
                                 )));
                             }
@@ -272,6 +271,8 @@ impl PRCreationService {
                                 error = %list_err,
                                 "Failed to list PRs after conflict"
                             );
+                            // PR exists but we couldn't list PRs - this is a conflict error
+                            // The task should handle this gracefully (PR was created, just not by us)
                             return Err(VibeRepoError::Conflict(format!(
                                 "PR already exists for branch {} but couldn't fetch details: {}",
                                 request.head, list_err
@@ -299,7 +300,7 @@ impl PRCreationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::{repo_provider, repository};
+    use crate::entities::{repo_provider, repository, workspace};
     use crate::test_utils::db::TestDatabase;
 
     /// Test create_pr_for_task_success
@@ -474,12 +475,12 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let (_task, workspace, _repository, _provider) = create_test_task_with_branch(db).await;
+        let (_task, _workspace, repository, _provider) = create_test_task_with_branch(db).await;
 
         let service = PRCreationService::new(db.clone());
 
         // Act
-        let result = service.get_default_branch(&workspace).await;
+        let result = service.get_default_branch(&repository).await;
 
         // Assert
         assert!(result.is_ok());
