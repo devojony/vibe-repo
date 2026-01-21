@@ -44,15 +44,10 @@ This directory contains implementation plans, roadmaps, session summaries, and t
 - **[2025-01-18-agentfs-architecture-comparison.md](./2025-01-18-agentfs-architecture-comparison.md)** - AgentFS architecture comparison
 - **[2025-01-18-agentfs-research-summary.md](./2025-01-18-agentfs-research-summary.md)** - AgentFS research summary
 
-#### Integration Testing
-- **[2025-01-18-agentfs-docker-integration-test-plan.md](./2025-01-18-agentfs-docker-integration-test-plan.md)** - Docker integration test plan
-- **[2025-01-18-agentfs-docker-integration-test-results.md](./2025-01-18-agentfs-docker-integration-test-results.md)** - Docker integration test results
-- **[2026-01-19-agentfs-container-integration-test-design.md](./2026-01-19-agentfs-container-integration-test-design.md)** - Container integration test design
-- **[2026-01-19-agentfs-container-integration-test-results.md](./2026-01-19-agentfs-container-integration-test-results.md)** - Container integration test results
-- **[2025-01-18-agentfs-container-session-test-report.md](./2025-01-18-agentfs-container-session-test-report.md)** - Container session test report
-
 #### MCP Server
 - **[2026-01-19-agentfs-mcp-server-toolcall-tracking.md](./2026-01-19-agentfs-mcp-server-toolcall-tracking.md)** - MCP server toolcall tracking
+
+**Note:** AgentFS integration test plans and results have been moved to [docs/tests/](../tests/).
 
 ### Session Summaries
 - **[2026-01-17-session-summary.md](./2026-01-17-session-summary.md)** - Session summary (2026-01-17)
@@ -87,6 +82,7 @@ When creating a new plan:
 - **[Design Documentation](../design/)** - Feature designs and architecture
 - **[API Documentation](../api/)** - API specifications and guides
 - **[Research](../research/)** - Technical research and investigations
+- **[Tests](../tests/)** - Test plans and test reports
 
 ---
 

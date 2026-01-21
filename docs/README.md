@@ -47,7 +47,13 @@ Research findings, comparisons, and technical investigations.
 - **[Claude Code Capture Demo](./research/claude-code-capture-demo-summary.md)** - Claude Code message capture demo
 - **[ACP Message History Analysis](./research/acp-message-history-analysis.md)** - Anthropic Claude Protocol analysis
 - **[Gemini CLI Capture Analysis](./research/gemini-cli-capture-analysis.md)** - Gemini CLI capture analysis
-- **[OpenCode Capture Test Report](./research/opencode-capture-test-report.md)** - OpenCode capture testing
+
+### 🧪 [Testing Documentation](./tests/)
+Test plans, test reports, and testing strategies.
+
+- **[AgentFS Integration Tests](./tests/)** - Docker and container integration test plans and results
+- **[OpenCode Capture Test Report](./tests/opencode-capture-test-report.md)** - OpenCode capture testing
+- **[Testing Strategy](./tests/README.md)** - Comprehensive testing approach and best practices
 
 ## 🚀 Quick Links
 
@@ -74,6 +80,7 @@ Research findings, comparisons, and technical investigations.
 - **Design docs** (`docs/design/`) - Feature designs, architecture decisions
 - **Plans** (`docs/plans/`) - Implementation plans, roadmaps, session notes
 - **Research** (`docs/research/`) - Technical research, comparisons, investigations
+- **Tests** (`docs/tests/`) - Test plans, test reports, testing strategies
 
 ### Naming Conventions
 
@@ -83,6 +90,7 @@ Research findings, comparisons, and technical investigations.
   - Design docs: `feature-name-design.md`
   - Plans: `YYYY-MM-DD-feature-plan.md`
   - Research: `topic-research.md` or `topic-analysis.md`
+  - Tests: `YYYY-MM-DD-feature-test-plan.md` or `YYYY-MM-DD-feature-test-results.md`
 
 ### Documentation Standards
 
