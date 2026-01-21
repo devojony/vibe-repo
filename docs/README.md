@@ -9,6 +9,8 @@ Welcome to the VibeRepo documentation! This directory contains comprehensive doc
 ### 📡 [API Documentation](./api/)
 API specifications, usage guides, and feature documentation.
 
+- **[User Guide](./api/user-guide.md)** - Complete usage guide with examples for all features
+- **[API Reference](./api/api-reference.md)** - Complete API endpoint reference
 - **[Task API Design](./api/task-api-design.md)** - Complete Task API specifications with 14 endpoints
 - **[Issue Polling Feature](./api/issue-polling-feature.md)** - Automatic issue synchronization with intelligent filtering
 - **[Issue Polling Fallback Design](./api/issue-polling-fallback-design.md)** - Dual-mode issue tracking (webhook + polling)
