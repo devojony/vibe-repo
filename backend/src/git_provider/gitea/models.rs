@@ -1,5 +1,15 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Helper function to deserialize null as default value
+fn deserialize_null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    let opt = Option::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
+}
 
 /// Gitea user API response
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -56,9 +66,9 @@ pub struct GiteaIssue {
     pub title: String,
     pub body: Option<String>,
     pub state: String, // "open" or "closed"
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub labels: Vec<GiteaLabel>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub assignees: Vec<GiteaUser>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
