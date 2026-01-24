@@ -24,7 +24,7 @@ use crate::{logging, state::AppState};
 #[openapi(
     info(
         title = "VibeRepo API",
-        version = "0.1.0",
+        version = "0.3.0",
         description = "VibeRepo automated programming assistant API"
     ),
     paths(
@@ -61,6 +61,7 @@ use crate::{logging, state::AppState};
         workspaces::handlers::list_workspaces,
         workspaces::handlers::update_workspace_status,
         workspaces::handlers::delete_workspace,
+        workspaces::lifecycle_handlers::create_container,
         workspaces::lifecycle_handlers::restart_workspace,
         workspaces::lifecycle_handlers::get_workspace_stats,
         init_scripts::handlers::update_init_script,

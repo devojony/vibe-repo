@@ -1,6 +1,6 @@
 # Agent Guidelines for VibeRepo
 
-**Current Version:** v0.4.0 (Pre-1.0 - Breaking changes allowed)
+**Current Version:** v0.3.0 (Pre-1.0 - Breaking changes allowed)
 
 This document provides quick reference guidelines for AI agents working on the VibeRepo codebase.
 
@@ -17,7 +17,7 @@ For comprehensive documentation, see:
 
 VibeRepo is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
 
-### Current Status (v0.4.0)
+### Current Status (v0.3.0)
 
 **Completed Modules:**
 - ✅ Backend Foundation, RepoProvider API, Repository API
@@ -177,17 +177,17 @@ This project strictly follows Test-Driven Development:
 2. **Green**: Write minimal code to make the test pass
 3. **Refactor**: Refactor code while keeping tests passing
 
-**Test Coverage (v0.4.0):**
-- Total tests: 327
+**Test Coverage (v0.3.0):**
+- Total tests: 589+
 - Passing: 100%
-- Unit tests: 310
-- Integration tests: 17
+- Unit tests: 375+
+- Integration tests: 214+
 
 ## 🗄️ Database Schema
 
 For complete database schema documentation, see **[docs/database/schema.md](./docs/database/schema.md)**.
 
-### Implemented Tables (v0.4.0)
+### Implemented Tables (v0.3.0)
 
 - **repo_providers** - Git provider configurations
 - **repositories** - Repository records with validation and polling
@@ -235,7 +235,7 @@ For detailed standards, see **[docs/development/README.md](./docs/development/RE
 ### Language Standards
 
 - **Primary Language**: English for all code, comments, documentation, and commit messages
-- **Breaking Changes**: Allowed before v1.0.0 (currently v0.4.0)
+- **Breaking Changes**: Allowed before v1.0.0 (currently v0.3.0)
 
 ### Commit Message Standards
 
@@ -289,5 +289,5 @@ cargo test
 
 **Note:** This document serves as a quick reference for AI agents. For comprehensive guidelines, always refer to the detailed documentation in the `docs/` directory.
 
-**Last Updated:** 2026-01-21  
-**Version:** 0.4.0
+**Last Updated:** 2026-01-24  
+**Version:** 0.3.0

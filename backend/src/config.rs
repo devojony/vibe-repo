@@ -17,7 +17,7 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-                "sqlite:./data/gitautodev/db/gitautodev.db?mode=rwc".to_string()
+                "sqlite:./data/vibe-repo/db/vibe-repo.db?mode=rwc".to_string()
             }),
             max_connections: std::env::var("DATABASE_MAX_CONNECTIONS")
                 .ok()
@@ -51,10 +51,12 @@ impl Default for ServerConfig {
 /// Webhook configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookConfig {
-    /// Base domain for webhook URLs (e.g., "https://gitautodev.example.com")
+    /// Base domain for webhook URLs (e.g., "https://vibe-repo.example.com")
     pub domain: String,
     /// Secret key for signing webhook payloads
     pub secret_key: String,
+    /// Bot username for mention detection in webhook events
+    pub bot_username: String,
     /// Retry configuration
     pub retry: WebhookRetryConfig,
 }
@@ -142,6 +144,8 @@ impl Default for WebhookConfig {
                 .unwrap_or_else(|_| "http://localhost:3000".to_string()),
             secret_key: std::env::var("WEBHOOK_SECRET_KEY")
                 .unwrap_or_else(|_| "default-webhook-secret-change-in-production".to_string()),
+            bot_username: std::env::var("WEBHOOK_BOT_USERNAME")
+                .unwrap_or_else(|_| "vibe-repo-bot".to_string()),
             retry: WebhookRetryConfig::default(),
         }
     }
@@ -169,7 +173,7 @@ impl Default for IssuePollingConfig {
                 .or_else(|| Some(vec!["vibe-auto".to_string()])),
             bot_username: std::env::var("ISSUE_POLLING_BOT_USERNAME")
                 .ok()
-                .or_else(|| Some("gitautodev-bot".to_string())),
+                .or_else(|| Some("vibe-repo-bot".to_string())),
             max_issue_age_days: std::env::var("ISSUE_POLLING_MAX_ISSUE_AGE_DAYS")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -186,6 +190,38 @@ impl Default for IssuePollingConfig {
     }
 }
 
+/// Workspace configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceConfig {
+    /// Base directory for all workspaces
+    pub base_dir: String,
+}
+
+impl Default for WorkspaceConfig {
+    fn default() -> Self {
+        Self {
+            base_dir: std::env::var("WORKSPACE_BASE_DIR")
+                .unwrap_or_else(|_| "./data/vibe-repo/workspaces".to_string()),
+        }
+    }
+}
+
+/// WebSocket configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSocketConfig {
+    /// Authentication token for WebSocket connections
+    /// If empty, authentication is disabled (not recommended for production)
+    pub auth_token: Option<String>,
+}
+
+impl Default for WebSocketConfig {
+    fn default() -> Self {
+        Self {
+            auth_token: std::env::var("WEBSOCKET_AUTH_TOKEN").ok(),
+        }
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -197,6 +233,10 @@ pub struct AppConfig {
     pub webhook: WebhookConfig,
     /// Issue polling configuration
     pub issue_polling: IssuePollingConfig,
+    /// Workspace configuration
+    pub workspace: WorkspaceConfig,
+    /// WebSocket configuration
+    pub websocket: WebSocketConfig,
 }
 
 impl AppConfig {
@@ -231,6 +271,22 @@ impl AppConfig {
                 field: "DATABASE_MAX_CONNECTIONS".to_string(),
                 message: "DATABASE_MAX_CONNECTIONS must be greater than 0".to_string(),
             });
+        }
+
+        // Validate WORKSPACE_BASE_DIR is not empty
+        if self.workspace.base_dir.is_empty() {
+            return Err(ConfigError::InvalidValue {
+                field: "WORKSPACE_BASE_DIR".to_string(),
+                message: "WORKSPACE_BASE_DIR cannot be empty".to_string(),
+            });
+        }
+
+        // Warn if using default webhook secret key (security issue)
+        if self.webhook.secret_key == "default-webhook-secret-change-in-production" {
+            tracing::warn!(
+                "SECURITY WARNING: Using default webhook secret key. \
+                 Please set WEBHOOK_SECRET_KEY environment variable to a secure random value."
+            );
         }
 
         // Validate issue polling configuration
@@ -287,7 +343,7 @@ mod tests {
         let config = DatabaseConfig::default();
 
         assert_eq!(
-            config.url, "sqlite:./data/gitautodev/db/gitautodev.db?mode=rwc",
+            config.url, "sqlite:./data/vibe-repo/db/vibe-repo.db?mode=rwc",
             "DATABASE_URL should default to SQLite development database"
         );
     }
@@ -341,11 +397,28 @@ mod tests {
         // Verify all defaults are set correctly
         assert_eq!(
             config.database.url,
-            "sqlite:./data/gitautodev/db/gitautodev.db?mode=rwc"
+            "sqlite:./data/vibe-repo/db/vibe-repo.db?mode=rwc"
         );
         assert_eq!(config.database.max_connections, 10);
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.server.port, 3000);
+    }
+
+    // ============================================
+    // Webhook Configuration Tests
+    // ============================================
+
+    #[test]
+    fn test_webhook_config_bot_username_default() {
+        // Clear environment variable to test default
+        std::env::remove_var("WEBHOOK_BOT_USERNAME");
+
+        let config = WebhookConfig::default();
+
+        assert_eq!(
+            config.bot_username, "vibe-repo-bot",
+            "WEBHOOK_BOT_USERNAME should default to 'vibe-repo-bot'"
+        );
     }
 
     // ============================================
@@ -432,6 +505,8 @@ mod tests {
                     },
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
+                    workspace: WorkspaceConfig::default(),
+                    websocket: WebSocketConfig::default(),
                 };
 
                 let result = config.validate();
@@ -462,6 +537,8 @@ mod tests {
                     },
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
+                    workspace: WorkspaceConfig::default(),
+                    websocket: WebSocketConfig::default(),
                 };
 
                 let result = config.validate();
@@ -497,6 +574,8 @@ mod tests {
                     },
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
+                    workspace: WorkspaceConfig::default(),
+                    websocket: WebSocketConfig::default(),
                 };
 
                 let result = config.validate();
@@ -532,6 +611,8 @@ mod tests {
                     },
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
+                    workspace: WorkspaceConfig::default(),
+                    websocket: WebSocketConfig::default(),
                 };
 
                 let result = config.validate();
@@ -567,6 +648,8 @@ mod tests {
             },
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
+            workspace: WorkspaceConfig::default(),
+            websocket: WebSocketConfig::default(),
         };
 
         assert!(
@@ -585,6 +668,8 @@ mod tests {
             server: ServerConfig::default(),
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
+            workspace: WorkspaceConfig::default(),
+            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -613,6 +698,8 @@ mod tests {
             },
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
+            workspace: WorkspaceConfig::default(),
+            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -641,6 +728,8 @@ mod tests {
             server: ServerConfig::default(),
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
+            workspace: WorkspaceConfig::default(),
+            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -703,8 +792,8 @@ mod tests {
         );
         assert_eq!(
             config.bot_username,
-            Some("gitautodev-bot".to_string()),
-            "Default bot username should be 'gitautodev-bot'"
+            Some("vibe-repo-bot".to_string()),
+            "Default bot username should be 'vibe-repo-bot'"
         );
         assert_eq!(
             config.max_issue_age_days,
@@ -782,6 +871,8 @@ mod tests {
                 max_concurrent_polls: 10,
                 max_retries: 3,
             },
+            workspace: WorkspaceConfig::default(),
+            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -818,6 +909,8 @@ mod tests {
                 max_concurrent_polls: 10,
                 max_retries: 3,
             },
+            workspace: WorkspaceConfig::default(),
+            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -854,6 +947,8 @@ mod tests {
                 max_concurrent_polls: 10,
                 max_retries: 3,
             },
+            workspace: WorkspaceConfig::default(),
+            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -878,6 +973,8 @@ mod tests {
                 max_concurrent_polls: 10,
                 max_retries: 3,
             },
+            workspace: WorkspaceConfig::default(),
+            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();

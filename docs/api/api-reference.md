@@ -1,7 +1,7 @@
 # API Reference
 
-**Version:** 0.4.0  
-**Last Updated:** 2026-01-21
+**Version:** 0.3.0  
+**Last Updated:** 2026-01-24
 
 This document provides a complete reference for all VibeRepo API endpoints.
 
@@ -34,7 +34,7 @@ Service health status with database connectivity check.
 {
   "status": "healthy",
   "database": "connected",
-  "version": "0.4.0"
+  "version": "0.3.0"
 }
 ```
 
@@ -734,4 +734,4 @@ ws.onmessage = (event) => {
 ---
 
 **Last Updated:** 2026-01-21  
-**API Version:** 0.4.0
+**API Version:** 0.3.0

@@ -1,6 +1,6 @@
 # Development Guide
 
-**Version:** 0.4.0  
+**Version:** 0.3.0  
 **Last Updated:** 2026-01-21
 
 This guide provides comprehensive development guidelines for contributing to VibeRepo.
@@ -300,7 +300,7 @@ async fn test_health_endpoint_returns_200_when_healthy() {
 }
 ```
 
-### Test Coverage (v0.4.0)
+### Test Coverage (v0.3.0)
 
 - Total tests: 327
 - Passing: 100%

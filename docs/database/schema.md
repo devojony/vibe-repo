@@ -1,6 +1,6 @@
 # Database Schema
 
-**Version:** 0.4.0
+**Version:** 0.3.0
 
 This document describes the complete database schema for VibeRepo.
 
@@ -70,10 +70,12 @@ Repository records with validation status and polling configuration.
 - `has_required_labels` (BOOLEAN) - vibe/* labels exist
 - `can_manage_prs` (BOOLEAN) - Token has PR permissions
 - `can_manage_issues` (BOOLEAN) - Token has Issue permissions
+- `validation_message` (TEXT, NULLABLE) - Validation error message
+- `webhook_status` (TEXT, DEFAULT 'not_configured') - Webhook configuration status
 - `polling_enabled` (BOOLEAN, DEFAULT false) - Enable issue polling
-- `polling_interval_seconds` (INTEGER, NULLABLE) - Polling interval (60-86400)
-- `polling_config` (TEXT, NULLABLE) - JSON polling configuration
-- `last_polled_at` (TIMESTAMP, NULLABLE) - Last polling timestamp
+- `polling_interval_seconds` (INTEGER, NULLABLE) - Polling interval (60-86400 seconds)
+- `last_issue_poll_at` (TIMESTAMP, NULLABLE) - Last issue poll timestamp
+- `deleted_at` (TIMESTAMP, NULLABLE) - Soft delete timestamp
 - `created_at` (TIMESTAMP) - Creation timestamp
 - `updated_at` (TIMESTAMP) - Last update timestamp
 
@@ -81,16 +83,6 @@ Repository records with validation status and polling configuration.
 - Many-to-one with `repo_providers` (CASCADE DELETE)
 - One-to-one with `workspaces` (CASCADE DELETE)
 - One-to-one with `webhook_configs` (CASCADE DELETE)
-
-**Polling Configuration (JSON):**
-```json
-{
-  "filter_labels": ["vibe/auto", "bug"],
-  "filter_mentions": ["@vibe-bot"],
-  "filter_state": "open",
-  "max_issue_age_days": 30
-}
-```
 
 ---
 
@@ -192,6 +184,53 @@ Custom initialization scripts for workspace containers.
 
 ---
 
+### containers
+
+Docker container instances for workspaces.
+
+**Fields:**
+- `id` (INTEGER, PRIMARY KEY) - Unique identifier
+- `workspace_id` (INTEGER, FOREIGN KEY → workspaces.id, UNIQUE) - Associated workspace
+- `container_id` (TEXT, NOT NULL, UNIQUE) - Docker container ID
+- `container_name` (TEXT, NOT NULL) - Container name (format: `workspace-{workspace_id}`)
+- `image_name` (TEXT, NOT NULL) - Docker image name
+- `image_id` (TEXT, NULLABLE) - Docker image ID
+- `status` (TEXT, NOT NULL, DEFAULT 'creating') - Container status
+- `health_status` (TEXT, NULLABLE) - Health check status
+- `exit_code` (INTEGER, NULLABLE) - Container exit code
+- `error_message` (TEXT, NULLABLE) - Error details for failed containers
+- `restart_count` (INTEGER, NOT NULL, DEFAULT 0) - Number of restart attempts
+- `max_restart_attempts` (INTEGER, NOT NULL, DEFAULT 3) - Maximum restart attempts
+- `last_restart_at` (TIMESTAMP, NULLABLE) - Last restart timestamp
+- `last_health_check` (TIMESTAMP, NULLABLE) - Last health check timestamp
+- `health_check_failures` (INTEGER, NOT NULL, DEFAULT 0) - Consecutive health check failures
+- `created_at` (TIMESTAMP) - Creation timestamp
+- `updated_at` (TIMESTAMP) - Last update timestamp
+- `started_at` (TIMESTAMP, NULLABLE) - Container start timestamp
+- `stopped_at` (TIMESTAMP, NULLABLE) - Container stop timestamp
+
+**Relationships:**
+- One-to-one with `workspaces` (CASCADE DELETE)
+
+**Container Status Values:**
+- `creating` - Container is being created
+- `running` - Container is running normally
+- `stopped` - Container was stopped manually
+- `exited` - Container exited (may be restarted)
+- `failed` - Container failed and exceeded restart limits
+
+**Health Status Values:**
+- `Healthy` - Container is healthy
+- `Unhealthy` - Container failed health checks
+- `Unknown` - Health status unknown
+
+**Indices:**
+- `idx_containers_workspace_id` - Fast workspace lookups
+- `idx_containers_status` - Filter by status
+- `idx_containers_container_id` - Fast Docker ID lookups
+
+---
+
 ### agents
 
 AI agent configurations for workspaces.
@@ -233,7 +272,6 @@ Automated development tasks created from issues.
 - `issue_number` (INTEGER, NOT NULL) - Source issue number
 - `issue_title` (TEXT, NOT NULL) - Issue title
 - `issue_body` (TEXT, NULLABLE) - Issue description
-- `issue_url` (TEXT, NOT NULL) - Full URL to the issue
 - `task_status` (TEXT) - Task status ('Pending', 'Assigned', 'Running', 'Completed', 'Failed', 'Cancelled')
 - `priority` (TEXT, DEFAULT 'Medium') - Priority level ('Low', 'Medium', 'High')
 - `assigned_agent_id` (INTEGER, FOREIGN KEY → agents.id, NULLABLE) - Assigned AI agent
@@ -313,6 +351,51 @@ Complete history of task execution attempts.
 
 ---
 
+### task_logs
+
+Structured logs for task execution with different log levels.
+
+**Fields:**
+- `id` (INTEGER, PRIMARY KEY) - Unique identifier
+- `task_id` (INTEGER, FOREIGN KEY → tasks.id) - Associated task
+- `log_level` (TEXT, NOT NULL, DEFAULT 'Info') - Log level
+- `message` (TEXT, NOT NULL) - Log message
+- `metadata` (JSON, NULLABLE) - Additional structured data
+- `created_at` (TIMESTAMP) - Log entry timestamp
+
+**Relationships:**
+- Many-to-one with `tasks` (CASCADE DELETE)
+
+**Log Level Values:**
+- `Debug` - Detailed debugging information
+- `Info` - General informational messages
+- `Warning` - Warning messages
+- `Error` - Error messages
+- `Critical` - Critical error messages
+
+**Metadata (JSON):**
+```json
+{
+  "execution_id": 123,
+  "agent_id": 5,
+  "step": "git_commit",
+  "duration_ms": 1500
+}
+```
+
+**Indices:**
+- `idx_task_logs_task_id` - Fast task lookups
+- `idx_task_logs_level` - Filter by log level
+- `idx_task_logs_created_at` - Time-based queries
+
+**Usage:**
+- Real-time log streaming via WebSocket
+- Historical log analysis
+- Debugging task execution issues
+- Performance monitoring
+
+---
+
 ## Migrations
 
 All migrations are located in `backend/src/migration/` and run automatically on application startup.
@@ -323,12 +406,19 @@ All migrations are located in `backend/src/migration/` and run automatically on 
 - `m20250114_000001_create_repo_providers.rs` - RepoProvider table
 - `m20250114_000002_create_repositories.rs` - Repository table
 - `m20250114_000003_add_provider_unique_constraint.rs` - Provider unique constraint
-- `m20250117_000001_create_workspaces.rs` - Workspace table
-- `m20250119_000001_create_init_scripts.rs` - InitScript table
-- `m20250119_000002_create_agents.rs` - Agent table
-- `m20250119_000003_create_tasks.rs` - Task table
-- `m20250120_000001_create_webhook_configs.rs` - WebhookConfig table
-- `m20250121_000001_create_task_executions.rs` - TaskExecution table
+- `m20250117_000001_add_repository_status_and_soft_delete.rs` - Repository status and soft delete
+- `m20260117_000001_create_workspaces.rs` - Workspace table
+- `m20260117_000002_create_agents.rs` - Agent table
+- `m20260117_000003_create_webhook_configs.rs` - WebhookConfig table
+- `m20260117_000004_add_repository_webhook_status.rs` - Repository webhook status
+- `m20260117_000005_create_tasks.rs` - Task table
+- `m20260117_000006_create_task_logs.rs` - TaskLog table
+- `m20260118_000001_add_webhook_retry_fields.rs` - Webhook retry configuration
+- `m20260119_000001_replace_dockerfile_with_init_script.rs` - InitScript table (replaces Dockerfile)
+- `m20260120_000001_create_containers_table.rs` - Container table
+- `m20260120_000002_add_repository_polling_fields.rs` - Repository polling fields
+- `m20260120_000003_add_task_unique_constraint.rs` - Task unique constraint
+- `m20260121_000001_create_task_executions.rs` - TaskExecution table
 
 ### Running Migrations
 

@@ -1,6 +1,6 @@
 # VibeRepo Roadmap
 
-**Version:** 0.4.0  
+**Version:** 0.3.0  
 **Last Updated:** 2026-01-21
 
 This document outlines the development roadmap for VibeRepo, including completed features, current work, and planned enhancements.
@@ -9,7 +9,7 @@ This document outlines the development roadmap for VibeRepo, including completed
 
 VibeRepo is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
 
-## 📊 Current Status (v0.4.0)
+## 📊 Current Status (v0.3.0)
 
 ### ✅ Completed Features
 
@@ -72,7 +72,7 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
   - Resource statistics
   - Image management
 
-#### Phase 6: Agent & Task Management (v0.3.0 - v0.4.0)
+#### Phase 6: Agent & Task Management (v0.3.0)
 - ✅ Agent Management
   - AI agent configurations
   - Multiple tool types support (OpenCode, Aider, etc.)
@@ -86,7 +86,7 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
   - Soft delete support
   - PR integration tracking
 
-#### Phase 7: Task Execution (v0.4.0)
+#### Phase 7: Task Execution (v0.3.0)
 - ✅ Task Execution Engine
   - Docker-based task execution
   - Command building with task context
@@ -119,7 +119,7 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
   - Similar failure detection
   - Recurring failure tracking
 
-#### Phase 8: Pull Request Automation (v0.4.0)
+#### Phase 8: Pull Request Automation (v0.3.0)
 - ✅ PR Creation Service
   - Automatic PR creation from completed tasks
   - Manual PR creation endpoint
@@ -332,11 +332,11 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 
 ## 📈 Performance Goals
 
-### Current Performance (v0.4.0)
+### Current Performance (v0.3.0)
 - Task execution: ~45 seconds average
 - Issue polling: 5 minutes interval
 - Concurrent tasks: 3 per workspace
-- Test coverage: 327 tests (100% passing)
+- Test coverage: 589+ tests (100% passing)
 
 ### Target Performance (v1.0.0)
 - Task execution: <30 seconds average
@@ -350,8 +350,7 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 
 | Version | Date | Key Features |
 |---------|------|--------------|
-| v0.4.0 | 2026-01-21 | Task Scheduler, Concurrency Control, Real-time Logs, Execution History, Failure Analysis |
-| v0.3.0 | 2026-01-20 | Container Lifecycle Management, Issue Polling, Task Automation |
+| v0.3.0 | 2026-01-20 | Container Lifecycle Management, Issue Polling, Task Automation, Task Scheduler, Concurrency Control, Real-time Logs, Execution History, Failure Analysis, PR Creation, Issue Closure |
 | v0.2.0 | 2026-01-19 | Workspace API, Init Scripts, Agent Management |
 | v0.1.0 | 2026-01-17 | Initial release with RepoProvider, Repository, Webhook APIs |
 

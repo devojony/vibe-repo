@@ -26,12 +26,12 @@ VibeRepo follows a comprehensive testing approach:
 2. **Integration Tests** - Located in `backend/tests/` directory
 3. **Property Tests** - Using `proptest` crate for property-based testing
 
-### Test Coverage (v0.4.0)
+### Test Coverage (v0.3.0)
 
-- **Total tests**: 327
+- **Total tests**: 589+
 - **Passing**: 100%
-- **Unit tests**: 310
-- **Integration tests**: 17
+- **Unit tests**: 375+
+- **Integration tests**: 214+
 
 **Test Categories:**
 - Task management: 50+ tests

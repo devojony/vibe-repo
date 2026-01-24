@@ -1,7 +1,7 @@
 # User Guide
 
-**Version:** 0.4.0  
-**Last Updated:** 2026-01-21
+**Version:** 0.3.0  
+**Last Updated:** 2026-01-24
 
 This guide provides comprehensive instructions for using VibeRepo features.
 
@@ -864,5 +864,5 @@ DATABASE_MAX_CONNECTIONS=20
 
 ---
 
-**Last Updated:** 2026-01-21  
-**Version:** 0.4.0
+**Last Updated:** 2026-01-24  
+**Version:** 0.3.0

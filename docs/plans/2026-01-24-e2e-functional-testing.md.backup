@@ -200,7 +200,7 @@ Create `docs/testing/e2e-testing.md`:
 ```markdown
 # End-to-End Testing Guide
 
-**Version:** 0.3.0  
+**Version:** 0.4.0  
 **Last Updated:** 2026-01-24
 
 This guide explains how to run and write end-to-end (E2E) tests for VibeRepo.
@@ -1046,9 +1046,9 @@ Add to `TestContext` impl:
                 "workspace_id": workspace_id,
                 "name": "E2E Test Agent",
                 "tool_type": "OpenCode",
-                "command": "opencode --model glm-4-flash",
-                "timeout": 600,
-                "env_vars": {
+                "model_name": "glm-4-flash",
+                "timeout_seconds": 600,
+                "environment_variables": {
                     "TEST_MODE": "true"
                 },
             }))

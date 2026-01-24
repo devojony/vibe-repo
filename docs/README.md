@@ -1,6 +1,6 @@
 # VibeRepo Documentation
 
-**Version:** 0.4.0
+**Version:** 0.3.0
 
 Welcome to the VibeRepo documentation! This directory contains comprehensive documentation for the VibeRepo project, organized by category.
 
@@ -127,8 +127,7 @@ Development guidelines, coding standards, and best practices.
 
 ## 🔄 Version History
 
-- **v0.4.0** (2026-01-21) - Added Task Scheduler, Concurrency Control, Real-time Logs, Execution History, Failure Analysis
-- **v0.3.0** (2026-01-20) - Added Container Lifecycle Management, Issue Polling, Task Automation
+- **v0.3.0** (2026-01-20) - Added Container Lifecycle Management, Issue Polling, Task Automation, Task Scheduler, Concurrency Control, Real-time Logs, Execution History, Failure Analysis
 - **v0.2.0** (2026-01-19) - Added Workspace API, Init Scripts, Agent Management
 - **v0.1.0** (2026-01-17) - Initial release with RepoProvider, Repository, Webhook APIs
 
