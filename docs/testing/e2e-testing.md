@@ -10,6 +10,7 @@ This guide covers the E2E testing infrastructure for VibeRepo, which tests the c
 - [Available Test Cases](#available-test-cases)
 - [Test Structure](#test-structure)
 - [Writing New E2E Tests](#writing-new-e2e-tests)
+- [Agent Configuration](#agent-configuration)
 - [Troubleshooting](#troubleshooting)
 - [Best Practices](#best-practices)
 
@@ -425,6 +426,170 @@ async fn test_e2e_webhook_trigger() {
     
     println!("✅ Webhook trigger test passed");
 }
+```
+
+## Agent Configuration
+
+### Understanding Agent Configuration
+
+Agents in VibeRepo are AI-powered automation tools that execute tasks. The E2E tests create agents with specific configurations.
+
+### Agent API Fields
+
+When creating an agent via the API, use these fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `workspace_id` | integer | Yes | ID of the workspace |
+| `name` | string | Yes | Human-readable agent name |
+| `tool_type` | string | Yes | Tool type (e.g., "OpenCode", "Aider") |
+| `command` | string | Yes | Full command to execute the tool |
+| `timeout` | integer | No | Timeout in seconds (default: 1800) |
+| `env_vars` | object | No | Environment variables as JSON object |
+
+### Example Agent Configurations
+
+#### OpenCode Agent
+
+```json
+{
+    "workspace_id": 1,
+    "name": "OpenCode GLM-4",
+    "tool_type": "OpenCode",
+    "command": "opencode --model glm-4-flash",
+    "timeout": 600,
+    "env_vars": {
+        "TEST_MODE": "true",
+        "OPENAI_API_KEY": "your-api-key"
+    }
+}
+```
+
+#### Aider Agent
+
+```json
+{
+    "workspace_id": 1,
+    "name": "Aider GPT-4",
+    "tool_type": "Aider",
+    "command": "aider --model gpt-4 --yes",
+    "timeout": 1800,
+    "env_vars": {
+        "OPENAI_API_KEY": "your-api-key"
+    }
+}
+```
+
+#### Custom Tool Agent
+
+```json
+{
+    "workspace_id": 1,
+    "name": "Custom Script",
+    "tool_type": "Custom",
+    "command": "/usr/local/bin/my-tool --config /etc/config.json",
+    "timeout": 3600,
+    "env_vars": {
+        "CUSTOM_VAR": "value"
+    }
+}
+```
+
+### Creating Agents in E2E Tests
+
+In E2E tests, use the `create_agent()` method:
+
+```rust
+// Create agent
+ctx.create_agent().await.expect("Failed to create agent");
+
+// The method sends this request:
+let response = self.vibe_client
+    .post(&format!("{}/api/agents", VIBE_REPO_BASE_URL))
+    .json(&json!({
+        "workspace_id": workspace_id,
+        "name": "E2E Test Agent",
+        "tool_type": "OpenCode",
+        "command": "opencode --model glm-4-flash",
+        "timeout": 600,
+        "env_vars": {
+            "TEST_MODE": "true"
+        },
+    }))
+    .send()
+    .await?;
+```
+
+### Common Mistakes
+
+#### ❌ Wrong Field Names
+
+```json
+{
+    "model_name": "glm-4-flash",           // ❌ Wrong: Use 'command' instead
+    "timeout_seconds": 600,                 // ❌ Wrong: Use 'timeout' instead
+    "environment_variables": {...}          // ❌ Wrong: Use 'env_vars' instead
+}
+```
+
+#### ✅ Correct Field Names
+
+```json
+{
+    "command": "opencode --model glm-4-flash",  // ✅ Correct
+    "timeout": 600,                              // ✅ Correct
+    "env_vars": {...}                            // ✅ Correct
+}
+```
+
+### Agent Command Best Practices
+
+1. **Include Full Command Path**: Use absolute paths when possible
+   ```json
+   "command": "/usr/local/bin/opencode --model glm-4-flash"
+   ```
+
+2. **Specify Model in Command**: Include model selection in the command string
+   ```json
+   "command": "opencode --model glm-4-flash"
+   ```
+
+3. **Add Necessary Flags**: Include all required command-line flags
+   ```json
+   "command": "aider --model gpt-4 --yes --no-git"
+   ```
+
+4. **Use Environment Variables**: Store sensitive data in `env_vars`
+   ```json
+   "env_vars": {
+       "OPENAI_API_KEY": "sk-...",
+       "OPENAI_BASE_URL": "https://api.example.com"
+   }
+   ```
+
+5. **Set Appropriate Timeouts**: Consider task complexity
+   - Simple tasks: 600 seconds (10 minutes)
+   - Complex tasks: 1800 seconds (30 minutes)
+   - Very complex: 3600 seconds (1 hour)
+
+### Verifying Agent Configuration
+
+After creating an agent, verify it was configured correctly:
+
+```rust
+// Get agent details
+let agent_id = ctx.agent_id.expect("Agent ID not set");
+let response = ctx.vibe_client
+    .get(&format!("{}/api/agents/{}", VIBE_REPO_BASE_URL, agent_id))
+    .send()
+    .await
+    .expect("Failed to get agent");
+
+assert!(response.status().is_success());
+
+let agent: serde_json::Value = response.json().await.expect("Failed to parse agent");
+assert_eq!(agent["tool_type"].as_str(), Some("OpenCode"));
+assert_eq!(agent["timeout"].as_i64(), Some(600));
 ```
 
 ## Troubleshooting
