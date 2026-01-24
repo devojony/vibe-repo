@@ -27,6 +27,9 @@ pub enum GitProviderError {
     #[error("Unsupported provider: {0}")]
     UnsupportedProvider(String),
 
+    #[error("Client creation error: {0}")]
+    ClientCreationError(String),
+
     #[error("Unsupported operation: {0}")]
     UnsupportedOperation(String),
 

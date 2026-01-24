@@ -108,17 +108,21 @@ impl GiteaClient {
     ///
     /// * `base_url` - Base URL of the Gitea instance (e.g., "https://gitea.example.com")
     /// * `token` - API token for authentication
-    pub fn new(base_url: String, token: String) -> Self {
+    ///
+    /// # Returns
+    ///
+    /// Returns a Result containing the client or an error message if client creation fails
+    pub fn new(base_url: String, token: String) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(true)
             .build()
-            .expect("Failed to build HTTP client");
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
-        Self {
+        Ok(Self {
             base_url,
             token,
             client,
-        }
+        })
     }
 
     /// Creates a new repository in Gitea
@@ -493,7 +497,8 @@ mod tests {
         let client = GiteaClient::new(
             "https://gitea.example.com".to_string(),
             "test-token".to_string(),
-        );
+        )
+        .expect("Failed to create GiteaClient");
 
         assert_eq!(client.base_url, "https://gitea.example.com");
         assert_eq!(client.token, "test-token");

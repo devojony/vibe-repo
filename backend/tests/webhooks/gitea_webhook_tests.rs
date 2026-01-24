@@ -28,7 +28,7 @@ async fn test_gitea_create_webhook() {
         .mount(&mock_server)
         .await;
 
-    let client = GiteaClient::new(&mock_server.uri(), "test-token");
+    let client = GiteaClient::new(&mock_server.uri(), "test-token").unwrap();
 
     let req = CreateWebhookRequest {
         url: "https://example.com/webhook".to_string(),
@@ -56,7 +56,7 @@ async fn test_gitea_delete_webhook() {
         .mount(&mock_server)
         .await;
 
-    let client = GiteaClient::new(&mock_server.uri(), "test-token");
+    let client = GiteaClient::new(&mock_server.uri(), "test-token").unwrap();
 
     let result = client.delete_webhook("owner", "repo", "1").await;
     assert!(result.is_ok());
@@ -98,7 +98,7 @@ async fn test_gitea_list_webhooks() {
         .mount(&mock_server)
         .await;
 
-    let client = GiteaClient::new(&mock_server.uri(), "test-token");
+    let client = GiteaClient::new(&mock_server.uri(), "test-token").unwrap();
 
     let webhooks = client.list_webhooks("owner", "repo").await.unwrap();
 

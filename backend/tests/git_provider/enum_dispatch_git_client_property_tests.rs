@@ -121,7 +121,7 @@ proptest! {
         access_token in arb_access_token()
     ) {
         // Test Gitea variant
-        let gitea_client = GitClient::Gitea(GiteaClient::new(&base_url, &access_token));
+        let gitea_client = GitClient::Gitea(GiteaClient::new(&base_url, &access_token).unwrap());
         prop_assert_eq!(
             gitea_client.provider_type(),
             "gitea",
@@ -160,7 +160,7 @@ proptest! {
         let factory_gitlab = GitClientFactory::create("gitlab", &base_url, &access_token).unwrap();
 
         // Create directly
-        let direct_gitea = GitClient::Gitea(GiteaClient::new(&base_url, &access_token));
+        let direct_gitea = GitClient::Gitea(GiteaClient::new(&base_url, &access_token).unwrap());
         let direct_github = GitClient::GitHub(GitHubClient::new(&base_url, &access_token));
         let direct_gitlab = GitClient::GitLab(GitLabClient::new(&base_url, &access_token));
 
@@ -403,7 +403,7 @@ proptest! {
         // Test all variants are Send + Sync
         fn assert_send_sync<T: Send + Sync>(_: &T) {}
 
-        let gitea = GitClient::Gitea(GiteaClient::new(&base_url, &access_token));
+        let gitea = GitClient::Gitea(GiteaClient::new(&base_url, &access_token).unwrap());
         let github = GitClient::GitHub(GitHubClient::new(&base_url, &access_token));
         let gitlab = GitClient::GitLab(GitLabClient::new(&base_url, &access_token));
 

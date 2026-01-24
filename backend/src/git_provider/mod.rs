@@ -33,7 +33,7 @@ use gitea::GiteaClient;
 /// ```ignore
 /// use vibe_repo::git_provider::{GitClient, GitProvider};
 ///
-/// let client = GitClient::Gitea(GiteaClient::new("https://gitea.example.com", "token"));
+/// let client = GitClient::Gitea(GiteaClient::new("https://gitea.example.com", "token")?);
 /// let user = client.get_current_user().await?;
 /// ```
 pub enum GitClient {
@@ -777,7 +777,7 @@ mod tests {
 
     #[test]
     fn test_git_client_gitea_variant() {
-        let client = GitClient::Gitea(GiteaClient::new("https://gitea.example.com", "token"));
+        let client = GitClient::Gitea(GiteaClient::new("https://gitea.example.com", "token").unwrap());
         assert_eq!(client.provider_type(), "gitea");
         assert_eq!(client.base_url(), "https://gitea.example.com");
     }

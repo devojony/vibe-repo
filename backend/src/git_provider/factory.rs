@@ -21,13 +21,17 @@ impl GitClientFactory {
     ///
     /// # Errors
     /// Returns `UnsupportedProvider` if the provider type is not recognized
+    /// Returns `ClientCreationError` if the HTTP client cannot be created
     pub fn create(
         provider_type: &str,
         base_url: &str,
         access_token: &str,
     ) -> Result<GitClient, GitProviderError> {
         match provider_type {
-            "gitea" => Ok(GitClient::Gitea(GiteaClient::new(base_url, access_token))),
+            "gitea" => Ok(GitClient::Gitea(
+                GiteaClient::new(base_url, access_token)
+                    .map_err(GitProviderError::ClientCreationError)?,
+            )),
             "github" => Ok(GitClient::GitHub(GitHubClient::new(base_url, access_token))),
             "gitlab" => Ok(GitClient::GitLab(GitLabClient::new(base_url, access_token))),
             _ => Err(GitProviderError::UnsupportedProvider(

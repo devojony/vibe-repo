@@ -30,12 +30,19 @@ impl GiteaClient {
     /// # Arguments
     /// * `base_url` - Base URL of the Gitea instance (e.g., "https://gitea.example.com")
     /// * `access_token` - Personal access token for authentication
-    pub fn new(base_url: &str, access_token: &str) -> Self {
-        Self {
+    ///
+    /// # Returns
+    /// Returns a Result containing the client or an error message if client creation fails
+    pub fn new(base_url: &str, access_token: &str) -> Result<Self, String> {
+        let http_client = reqwest::Client::builder()
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+        Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             access_token: access_token.to_string(),
-            http_client: reqwest::Client::new(),
-        }
+            http_client,
+        })
     }
 
     /// Build API URL from path
@@ -928,20 +935,20 @@ mod tests {
 
     #[test]
     fn test_new_client() {
-        let client = GiteaClient::new("https://gitea.example.com", "test_token");
+        let client = GiteaClient::new("https://gitea.example.com", "test_token").unwrap();
         assert_eq!(client.base_url, "https://gitea.example.com");
         assert_eq!(client.access_token, "test_token");
     }
 
     #[test]
     fn test_new_client_trims_trailing_slash() {
-        let client = GiteaClient::new("https://gitea.example.com/", "test_token");
+        let client = GiteaClient::new("https://gitea.example.com/", "test_token").unwrap();
         assert_eq!(client.base_url, "https://gitea.example.com");
     }
 
     #[test]
     fn test_api_url() {
-        let client = GiteaClient::new("https://gitea.example.com", "test_token");
+        let client = GiteaClient::new("https://gitea.example.com", "test_token").unwrap();
         assert_eq!(
             client.api_url("/user"),
             "https://gitea.example.com/api/v1/user"
@@ -954,19 +961,19 @@ mod tests {
 
     #[test]
     fn test_auth_header() {
-        let client = GiteaClient::new("https://gitea.example.com", "test_token_123");
+        let client = GiteaClient::new("https://gitea.example.com", "test_token_123").unwrap();
         assert_eq!(client.auth_header(), "token test_token_123");
     }
 
     #[test]
     fn test_provider_type() {
-        let client = GiteaClient::new("https://gitea.example.com", "test_token");
+        let client = GiteaClient::new("https://gitea.example.com", "test_token").unwrap();
         assert_eq!(client.provider_type(), "gitea");
     }
 
     #[test]
     fn test_base_url_getter() {
-        let client = GiteaClient::new("https://gitea.example.com", "test_token");
+        let client = GiteaClient::new("https://gitea.example.com", "test_token").unwrap();
         assert_eq!(client.base_url(), "https://gitea.example.com");
     }
 }
