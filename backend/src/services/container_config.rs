@@ -27,8 +27,8 @@ impl Default for ContainerConfig {
     fn default() -> Self {
         Self {
             workspace_base_dir: PathBuf::from("/tmp/gitautodev"),
-            workspace_dockerfile: PathBuf::from("docker/workspace/Dockerfile"),
-            build_context: PathBuf::from("."),
+            workspace_dockerfile: PathBuf::from("../docker/workspace/Dockerfile"),
+            build_context: PathBuf::from(".."),
             stop_timeout_seconds: 10,
             max_restart_attempts: 3,
         }
@@ -44,10 +44,10 @@ impl ContainerConfig {
                 .unwrap_or_else(|_| PathBuf::from("/tmp/gitautodev")),
             workspace_dockerfile: std::env::var("WORKSPACE_DOCKERFILE")
                 .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("docker/workspace/Dockerfile")),
+                .unwrap_or_else(|_| PathBuf::from("../docker/workspace/Dockerfile")),
             build_context: std::env::var("WORKSPACE_BUILD_CONTEXT")
                 .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from(".")),
+                .unwrap_or_else(|_| PathBuf::from("..")),
             stop_timeout_seconds: std::env::var("CONTAINER_STOP_TIMEOUT")
                 .ok()
                 .and_then(|s| s.parse().ok())

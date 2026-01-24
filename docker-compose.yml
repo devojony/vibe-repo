@@ -1,71 +1,94 @@
+version: '3.8'
+
 services:
-  # GitAutoDev API Service - Main backend service
-  gitautodev-api:
+  # VibeRepo API Service - 主后端服务
+  vibe-repo-api:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: gitautodev-api
+    container_name: vibe-repo-api
     ports:
       - "${SERVER_PORT:-3000}:3000"
     environment:
-      # Database configuration - supports both SQLite and PostgreSQL
-      - DATABASE_URL=postgresql://gitautodev:gitautodev_password@postgres:5432/gitautodev
+      # 数据库配置 - 支持 SQLite 和 PostgreSQL
+      # 默认使用 SQLite，如需 PostgreSQL 请取消注释下面的行
+      - DATABASE_URL=${DATABASE_URL:-sqlite:/data/vibe-repo/db/vibe-repo.db?mode=rwc}
+      # - DATABASE_URL=postgresql://vibe_repo:vibe_repo_password@postgres:5432/vibe_repo
       - DATABASE_MAX_CONNECTIONS=${DATABASE_MAX_CONNECTIONS:-10}
       
-      # Server configuration
+      # 服务器配置
       - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
-      - SERVER_PORT=3000
+      - SERVER_PORT=3000@
       
-      # Loggin
-      - RUST_LOG=${RUST_LOG:-info}
+      # Webhook 配置
+      - WEBHOOK_DOMAIN=${WEBHOOK_DOMAIN:-http://localhost:3000}
+      - WEBHOOK_SECRET_KEY=${WEBHOOK_SECRET_KEY:-change-this-in-production}
+      
+      # Issue 轮询配置
+      - ISSUE_POLLING_ENABLED=${ISSUE_POLLING_ENABLED:-true}
+      - ISSUE_POLLING_INTERVAL_SECONDS=${ISSUE_POLLING_INTERVAL_SECONDS:-300}
+      
+      # Workspace 配置
+      - WORKSPACE_BASE_DIR=${WORKSPACE_BASE_DIR:-/data/vibe-repo/workspaces}
+      - WORKSPACE_MAX_CONCURRENT_TASKS=${WORKSPACE_MAX_CONCURRENT_TASKS:-3}
+      
+      # 日志配置
+      - RUST_LOG=${RUST_LOG:-info,vibe_repo=debug}
       - RUST_BACKTRACE=${RUST_BACKTRACE:-1}
     volumes:
-      # Docker socket mount - enables Rust to control host Docker (Requirement 10.2)
+      # Docker socket 挂载 - 使 Rust 能够控制宿主机 Docker
       - /var/run/docker.sock:/var/run/docker.sock:rw
       
-      # Data persistence mount - for repositories and database (Requirement 10.3)
-      - gitautodev_data:/data/gitautodev
-    depends_on:
-      postgres:
-        condition: service_healthy
+      # 数据持久化挂载 - 用于仓库、数据库和工作空间
+      - vibe_repo_data:/data/vibe-repo
+    # depends_on:
+    #   postgres:
+    #     condition: service_healthy
     restart: unless-stopped
     networks:
-      - gitautodev
-    # Enable Docker-in-Docker functionality (Requirement 10.5)
+      - vibe-repo
+    # 启用 Docker-in-Docker 功能
     privileged: true
-
-  # PostgreSQL Database Service
-  postgres:
-    image: postgres:latest
-    container_name: gitautodev-postgres
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB:-gitautodev}
-      - POSTGRES_USER=${POSTGRES_USER:-gitautodev}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-gitautodev_password}
-      - PGDATA=/var/lib/postgresql/data/pgdata
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - gitautodev
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gitautodev}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+  # PostgreSQL 数据库服务（可选）
+  # 如果使用 PostgreSQL，请取消注释此部分
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: vibe-repo-postgres
+  #   environment:
+  #     - POSTGRES_DB=${POSTGRES_DB:-vibe_repo}
+  #     - POSTGRES_USER=${POSTGRES_USER:-vibe_repo}
+  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-vibe_repo_password}
+  #     - PGDATA=/var/lib/postgresql/data/pgdata
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - vibe-repo
+  #   ports:
+  #     - "${POSTGRES_PORT:-5432}:5432"
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vibe_repo}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
 volumes:
-  # Persistent storage for repositories, database, and worktrees (Requirement 10.3)
-  gitautodev_data:
+  # 持久化存储：仓库、数据库和工作树
+  vibe_repo_data:
     driver: local
   
-  # PostgreSQL data persistence
-  postgres_data:
-    driver: local
+  # PostgreSQL 数据持久化（如果使用）
+  # postgres_data:
+  #   driver: local
 
 networks:
-  gitautodev:
+  vibe-repo:
     driver: bridge
-    name: gitautodev-network
+    name: vibe-repo-network

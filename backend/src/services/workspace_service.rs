@@ -148,6 +148,7 @@ impl WorkspaceService {
                     image_name,
                     workspace.cpu_limit,
                     &workspace.memory_limit,
+                    None, // No host directory binding in this flow
                 )
                 .await
             {
@@ -197,7 +198,7 @@ impl WorkspaceService {
     ///
     /// Checks if the specified image exists in Docker. If not, builds it using
     /// the default Dockerfile location.
-    async fn ensure_image_exists(&self, image_name: &str) -> Result<()> {
+    pub async fn ensure_image_exists(&self, image_name: &str) -> Result<()> {
         // Get Docker service reference
         let docker = self
             .docker
@@ -224,12 +225,16 @@ impl WorkspaceService {
         let start_time = std::time::Instant::now();
 
         // Build image using default Dockerfile location
+        let dockerfile_path = self.config.workspace_dockerfile.to_str().ok_or_else(|| {
+            VibeRepoError::Internal("Invalid Dockerfile path encoding".to_string())
+        })?;
+
+        let build_context_path = self.config.build_context.to_str().ok_or_else(|| {
+            VibeRepoError::Internal("Invalid build context path encoding".to_string())
+        })?;
+
         docker
-            .build_image(
-                self.config.workspace_dockerfile.to_str().unwrap(),
-                image_name,
-                self.config.build_context.to_str().unwrap(),
-            )
+            .build_image(dockerfile_path, image_name, build_context_path)
             .await?;
 
         let build_time = start_time.elapsed();

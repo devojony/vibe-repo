@@ -145,6 +145,23 @@ pub async fn handle_webhook(
 ) -> Result<Json<WebhookResponse>, VibeRepoError> {
     tracing::info!(repository_id = repository_id, "Received webhook request");
 
+    // Log webhook details for debugging
+    let event_type = headers
+        .get("X-Gitea-Event")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+    let signature = headers
+        .get("X-Gitea-Signature")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("none");
+    tracing::info!(
+        repository_id = repository_id,
+        event_type = event_type,
+        signature = signature,
+        body_len = body.len(),
+        "Webhook details"
+    );
+
     // Verify webhook signature
     verify_webhook_request(repository_id, &headers, &body, &state).await?;
 
@@ -200,8 +217,11 @@ pub async fn handle_webhook(
 
             // Spawn async task to handle event
             let comment_info_clone = comment_info.clone();
+            let state_clone = Arc::clone(&state);
             tokio::spawn(async move {
-                if let Err(e) = super::event_handler::handle_comment_event(comment_info_clone).await
+                if let Err(e) =
+                    super::event_handler::handle_comment_event(comment_info_clone, &state_clone)
+                        .await
                 {
                     tracing::error!(error = %e, "Failed to handle comment event");
                 }
@@ -230,8 +250,11 @@ pub async fn handle_webhook(
 
             // Spawn async task to handle event
             let comment_info_clone = comment_info.clone();
+            let state_clone = Arc::clone(&state);
             tokio::spawn(async move {
-                if let Err(e) = super::event_handler::handle_comment_event(comment_info_clone).await
+                if let Err(e) =
+                    super::event_handler::handle_comment_event(comment_info_clone, &state_clone)
+                        .await
                 {
                     tracing::error!(error = %e, "Failed to handle comment event");
                 }

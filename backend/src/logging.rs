@@ -91,9 +91,16 @@ pub async fn request_id_middleware(mut request: Request, next: Next) -> Response
     let mut response = next.run(request).await;
 
     // Add request ID to response headers
-    response
-        .headers_mut()
-        .insert(REQUEST_ID_HEADER, request_id.parse().unwrap());
+    if let Ok(header_value) = request_id.parse() {
+        response
+            .headers_mut()
+            .insert(REQUEST_ID_HEADER, header_value);
+    } else {
+        tracing::warn!(
+            request_id = %request_id,
+            "Failed to parse request ID as header value"
+        );
+    }
 
     response
 }

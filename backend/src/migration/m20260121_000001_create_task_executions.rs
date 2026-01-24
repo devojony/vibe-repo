@@ -19,11 +19,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(TaskExecutions::TaskId).integer().not_null())
-                    .col(
-                        ColumnDef::new(TaskExecutions::AgentId)
-                            .integer()
-                            .null(),
-                    )
+                    .col(ColumnDef::new(TaskExecutions::AgentId).integer().null())
                     .col(
                         ColumnDef::new(TaskExecutions::Status)
                             .string()
@@ -34,8 +30,16 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(TaskExecutions::ExitCode).integer().null())
                     .col(ColumnDef::new(TaskExecutions::StdoutSummary).text().null())
                     .col(ColumnDef::new(TaskExecutions::StderrSummary).text().null())
-                    .col(ColumnDef::new(TaskExecutions::StdoutFilePath).string().null())
-                    .col(ColumnDef::new(TaskExecutions::StderrFilePath).string().null())
+                    .col(
+                        ColumnDef::new(TaskExecutions::StdoutFilePath)
+                            .string()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(TaskExecutions::StderrFilePath)
+                            .string()
+                            .null(),
+                    )
                     .col(ColumnDef::new(TaskExecutions::ErrorMessage).text().null())
                     .col(ColumnDef::new(TaskExecutions::PrNumber).integer().null())
                     .col(ColumnDef::new(TaskExecutions::PrUrl).string().null())
@@ -51,7 +55,11 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(Expr::current_timestamp()),
                     )
-                    .col(ColumnDef::new(TaskExecutions::CompletedAt).timestamp().null())
+                    .col(
+                        ColumnDef::new(TaskExecutions::CompletedAt)
+                            .timestamp()
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(TaskExecutions::CreatedAt)
                             .timestamp()

@@ -82,7 +82,9 @@ impl TaskFailureAnalyzer {
         let recommendations = self.generate_recommendations(&category, &root_cause, &execution);
 
         // Check for similar failures
-        let similar_failures_count = self.count_similar_failures(task.workspace_id, &category).await?;
+        let similar_failures_count = self
+            .count_similar_failures(task.workspace_id, &category)
+            .await?;
 
         // Check if this is a recurring failure
         let is_recurring = self.is_recurring_failure(task_id).await?;
@@ -164,10 +166,7 @@ impl TaskFailureAnalyzer {
             || combined.contains("assertion")
             || combined.contains("expected")
         {
-            return (
-                FailureCategory::TestError,
-                "Tests failed".to_string(),
-            );
+            return (FailureCategory::TestError, "Tests failed".to_string());
         }
 
         // Timeout
@@ -224,14 +223,18 @@ impl TaskFailureAnalyzer {
         match category {
             FailureCategory::ContainerError => {
                 recommendations.push("Check if the workspace container is running".to_string());
-                recommendations.push("Restart the container using POST /api/workspaces/:id/restart".to_string());
+                recommendations.push(
+                    "Restart the container using POST /api/workspaces/:id/restart".to_string(),
+                );
                 recommendations.push("Verify Docker daemon is running".to_string());
                 recommendations.push("Check container logs for startup errors".to_string());
             }
             FailureCategory::AgentError => {
                 recommendations.push("Verify agent command is correct and executable".to_string());
-                recommendations.push("Check if required tools are installed in the container".to_string());
-                recommendations.push("Review agent configuration and environment variables".to_string());
+                recommendations
+                    .push("Check if required tools are installed in the container".to_string());
+                recommendations
+                    .push("Review agent configuration and environment variables".to_string());
                 recommendations.push("Test agent command manually in the container".to_string());
             }
             FailureCategory::GitError => {
@@ -268,7 +271,8 @@ impl TaskFailureAnalyzer {
                 recommendations.push("Check network connectivity from container".to_string());
                 recommendations.push("Verify firewall rules and proxy settings".to_string());
                 recommendations.push("Check if external services are accessible".to_string());
-                recommendations.push("Retry the task after network issues are resolved".to_string());
+                recommendations
+                    .push("Retry the task after network issues are resolved".to_string());
             }
             FailureCategory::Unknown => {
                 recommendations.push("Review full execution logs for details".to_string());
@@ -280,15 +284,17 @@ impl TaskFailureAnalyzer {
 
         // Add execution-specific recommendations
         if let Some(exec) = execution {
-            if exec.exit_code.is_some() && exec.exit_code != Some(0) {
-                recommendations.push(format!(
-                    "Process exited with code {}. Check documentation for this exit code.",
-                    exec.exit_code.unwrap()
-                ));
+            if let Some(exit_code) = exec.exit_code {
+                if exit_code != 0 {
+                    recommendations.push(format!(
+                        "Process exited with code {}. Check documentation for this exit code.",
+                        exit_code
+                    ));
+                }
             }
 
-            if exec.duration_ms.is_some() {
-                let duration_sec = exec.duration_ms.unwrap() / 1000;
+            if let Some(duration_ms) = exec.duration_ms {
+                let duration_sec = duration_ms / 1000;
                 if duration_sec > 1800 {
                     // > 30 minutes
                     recommendations.push(

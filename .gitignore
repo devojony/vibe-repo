@@ -35,3 +35,6 @@ ui/.env
 worktrees/
 
 tmp/
+
+# backend
+backend/data/

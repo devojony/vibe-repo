@@ -19,7 +19,11 @@ pub fn detect_mention(comment_body: &str, username: &str) -> bool {
 
         // Check if there's a character after the mention
         if after_idx < comment_body.len() {
-            let next_char = comment_body.chars().nth(after_idx).unwrap();
+            // SAFETY: after_idx is guaranteed to be within bounds by the check above
+            let next_char = comment_body
+                .chars()
+                .nth(after_idx)
+                .expect("index within bounds");
             // Valid if followed by whitespace or punctuation (not alphanumeric)
             next_char.is_whitespace() || !next_char.is_alphanumeric()
         } else {

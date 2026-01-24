@@ -47,7 +47,8 @@ impl IssuePollingService {
             db,
             config,
             workspace_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(1000).unwrap(), // Max 1000 cached workspace mappings
+                // SAFETY: 1000 is a non-zero constant
+                NonZeroUsize::new(1000).expect("1000 is non-zero"),
             ))),
             workspace_locks: Arc::new(DashMap::new()),
             shutdown_tx: Arc::new(RwLock::new(None)),

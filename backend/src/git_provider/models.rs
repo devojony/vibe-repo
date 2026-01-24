@@ -68,6 +68,7 @@ pub struct GitPullRequest {
     pub title: String,
     pub body: Option<String>,
     pub state: PullRequestState,
+    pub html_url: Option<String>, // Web URL for the PR (provider-specific)
     pub source_branch: String,
     pub target_branch: String,
     pub mergeable: Option<bool>,

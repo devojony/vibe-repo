@@ -16,9 +16,8 @@ pub struct DatabaseConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
-            url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-                "sqlite:./data/vibe-repo/db/vibe-repo.db?mode=rwc".to_string()
-            }),
+            url: std::env::var("DATABASE_URL")
+                .unwrap_or_else(|_| "sqlite:./data/vibe-repo/db/vibe-repo.db?mode=rwc".to_string()),
             max_connections: std::env::var("DATABASE_MAX_CONNECTIONS")
                 .ok()
                 .and_then(|s| s.parse().ok())

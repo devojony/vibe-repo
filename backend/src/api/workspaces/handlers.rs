@@ -7,10 +7,12 @@ use std::sync::Arc;
 
 use crate::{
     api::workspaces::models::*,
+    entities::prelude::*,
     error::Result,
-    services::{InitScriptService, WorkspaceService},
+    services::{GitService, InitScriptService, WorkspaceService},
     state::AppState,
 };
+use sea_orm::EntityTrait;
 
 /// Create a new workspace
 #[utoipa::path(
@@ -30,11 +32,48 @@ pub async fn create_workspace(
 ) -> Result<(StatusCode, Json<WorkspaceResponse>)> {
     let workspace_service = WorkspaceService::new(state.db.clone(), state.docker.clone());
     let init_script_service = InitScriptService::new(state.db.clone(), state.docker.clone());
+    let git_service = GitService::new(state.db.clone(), state.config.workspace.base_dir.clone());
 
     // Create workspace
     let workspace = workspace_service
         .create_workspace(req.repository_id)
         .await?;
+
+    // Get repository for cloning
+    let repository = Repository::find_by_id(req.repository_id)
+        .one(&state.db)
+        .await
+        .map_err(crate::error::VibeRepoError::Database)?
+        .ok_or_else(|| {
+            crate::error::VibeRepoError::NotFound(format!(
+                "Repository {} not found",
+                req.repository_id
+            ))
+        })?;
+
+    // Clone repository to workspace
+    tracing::info!(
+        workspace_id = workspace.id,
+        repository_id = repository.id,
+        "Cloning repository to workspace"
+    );
+
+    match git_service.clone_repository(&workspace, &repository).await {
+        Ok(()) => {
+            tracing::info!(
+                workspace_id = workspace.id,
+                "Repository cloned successfully"
+            );
+        }
+        Err(e) => {
+            tracing::error!(
+                workspace_id = workspace.id,
+                error = %e,
+                "Failed to clone repository"
+            );
+            // Continue anyway - user can retry later
+        }
+    }
 
     // Create init script if provided
     let init_script = if let Some(script_content) = req.init_script {

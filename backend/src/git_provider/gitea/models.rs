@@ -80,7 +80,8 @@ pub struct GiteaPullRequest {
     pub number: i64,
     pub title: String,
     pub body: Option<String>,
-    pub state: String, // "open", "closed"
+    pub state: String,            // "open", "closed"
+    pub html_url: Option<String>, // Web URL for the PR
     pub head: GiteaPRBranch,
     pub base: GiteaPRBranch,
     pub mergeable: Option<bool>,
@@ -203,6 +204,7 @@ impl From<GiteaPullRequest> for GitPullRequest {
             title: gitea_pr.title,
             body: gitea_pr.body,
             state,
+            html_url: gitea_pr.html_url,
             source_branch: gitea_pr.head.ref_name,
             target_branch: gitea_pr.base.ref_name,
             mergeable: gitea_pr.mergeable,

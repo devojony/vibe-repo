@@ -141,7 +141,7 @@ impl GiteaClient {
         description: &str,
     ) -> Result<GiteaRepository, String> {
         let url = format!("{}/api/v1/user/repos", self.base_url);
-        
+
         let request_body = CreateRepoRequest {
             name: name.to_string(),
             description: description.to_string(),

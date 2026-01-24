@@ -60,7 +60,10 @@ impl AppState {
     }
 
     /// Get or create a broadcast channel for task logs
-    pub async fn get_or_create_log_channel(&self, task_id: i32) -> tokio::sync::broadcast::Receiver<String> {
+    pub async fn get_or_create_log_channel(
+        &self,
+        task_id: i32,
+    ) -> tokio::sync::broadcast::Receiver<String> {
         self.log_broadcaster.subscribe(task_id).await
     }
 
@@ -78,7 +81,10 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{DatabaseConfig, IssuePollingConfig, ServerConfig, WebhookConfig};
+    use crate::config::{
+        DatabaseConfig, IssuePollingConfig, ServerConfig, WebSocketConfig, WebhookConfig,
+        WorkspaceConfig,
+    };
     use crate::test_utils::db::create_test_database;
 
     // ============================================
@@ -103,6 +109,8 @@ mod tests {
             },
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
+            workspace: WorkspaceConfig::default(),
+            websocket: WebSocketConfig::default(),
         };
         let config_arc = Arc::new(config.clone());
         let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));

@@ -75,10 +75,7 @@ async fn create_test_repository(db: &DatabaseConnection, provider_id: i32) -> re
 }
 
 /// Create a test workspace
-async fn create_test_workspace(
-    db: &DatabaseConnection,
-    repository_id: i32,
-) -> workspace::Model {
+async fn create_test_workspace(db: &DatabaseConnection, repository_id: i32) -> workspace::Model {
     workspace::ActiveModel {
         repository_id: Set(repository_id),
         workspace_status: Set("Active".to_string()),
@@ -194,7 +191,7 @@ async fn test_create_pr_endpoint_returns_400_when_no_branch() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/tasks/{}/create-pr", task.id))
+                .uri(format!("/api/tasks/{}/create-pr", task.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -253,7 +250,7 @@ async fn test_close_issue_endpoint_returns_400_when_no_pr() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/tasks/{}/close-issue", task.id))
+                .uri(format!("/api/tasks/{}/close-issue", task.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -287,7 +284,7 @@ async fn test_create_pr_endpoint_response_format() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/tasks/{}/create-pr", task.id))
+                .uri(format!("/api/tasks/{}/create-pr", task.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -355,7 +352,7 @@ async fn test_close_issue_endpoint_response_format() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/tasks/{}/close-issue", task.id))
+                .uri(format!("/api/tasks/{}/close-issue", task.id))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -422,7 +419,7 @@ async fn test_create_pr_endpoint_skips_if_pr_exists() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/api/tasks/{}/create-pr", task.id))
+                .uri(format!("/api/tasks/{}/create-pr", task.id))
                 .body(Body::empty())
                 .unwrap(),
         )

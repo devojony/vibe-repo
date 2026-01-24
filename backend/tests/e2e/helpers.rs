@@ -108,12 +108,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_for_condition_success() {
-        use std::sync::Arc;
         use std::sync::atomic::{AtomicU32, Ordering};
-        
+        use std::sync::Arc;
+
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
-        
+
         let condition = move || {
             let counter = counter_clone.clone();
             async move {
@@ -146,10 +146,10 @@ mod tests {
     #[test]
     fn test_generate_test_name() {
         let name1 = generate_test_name("test-repo");
-        
+
         // Sleep briefly to ensure different timestamps
         std::thread::sleep(std::time::Duration::from_millis(2));
-        
+
         let name2 = generate_test_name("test-repo");
 
         // Names should start with the prefix

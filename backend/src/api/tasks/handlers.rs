@@ -413,7 +413,11 @@ pub async fn execute_task(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
 ) -> Result<(StatusCode, Json<TaskResponse>)> {
-    let executor = TaskExecutorService::new(state.db.clone());
+    let executor = TaskExecutorService::new(
+        state.db.clone(),
+        state.config.workspace.base_dir.clone(),
+        state.log_broadcaster.clone(),
+    );
     let task_service = TaskService::new(state.db.clone());
 
     // Get task before execution
@@ -1007,10 +1011,7 @@ mod tests {
 
         // Set branch_name to simulate task ready for PR creation
         let service = TaskService::new(state.db.clone());
-        service
-            .update_task(task.id, None, None)
-            .await
-            .unwrap();
+        service.update_task(task.id, None, None).await.unwrap();
 
         // Update task with branch_name
         use crate::entities::task;

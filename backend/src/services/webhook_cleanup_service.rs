@@ -103,22 +103,26 @@ impl WebhookCleanupService {
             .one(&self.db)
             .await?;
 
-        if repo.is_none() {
-            // Repository doesn't exist, webhook is orphaned
-            return Ok(false);
-        }
-        let repo = repo.unwrap();
+        let repo = match repo {
+            Some(r) => r,
+            None => {
+                // Repository doesn't exist, webhook is orphaned
+                return Ok(false);
+            }
+        };
 
         // Get provider
         let provider = RepoProvider::find_by_id(webhook.provider_id)
             .one(&self.db)
             .await?;
 
-        if provider.is_none() {
-            // Provider doesn't exist, webhook is orphaned
-            return Ok(false);
-        }
-        let provider = provider.unwrap();
+        let provider = match provider {
+            Some(p) => p,
+            None => {
+                // Provider doesn't exist, webhook is orphaned
+                return Ok(false);
+            }
+        };
 
         // Create Git client
         let client = GitClientFactory::from_provider(&provider).map_err(|e| {

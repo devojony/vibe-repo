@@ -4,8 +4,11 @@
 
 use crate::entities::{agent, prelude::*, task, workspace};
 use crate::error::{Result, VibeRepoError};
-use crate::services::{AgentService, PRCreationService, TaskExecutionHistoryService, TaskService};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use crate::services::{
+    AgentService, GitService, PRCreationService, TaskExecutionHistoryService, TaskLogBroadcaster,
+    TaskService,
+};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -53,10 +56,16 @@ pub struct TaskExecutorService {
     execution_service: TaskExecutionHistoryService,
     pr_creation_service: PRCreationService,
     concurrency_manager: ConcurrencyManager,
+    workspace_base_dir: String,
+    log_broadcaster: TaskLogBroadcaster,
 }
 
 impl TaskExecutorService {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(
+        db: DatabaseConnection,
+        workspace_base_dir: String,
+        log_broadcaster: TaskLogBroadcaster,
+    ) -> Self {
         let task_service = TaskService::new(db.clone());
         let agent_service = AgentService::new(db.clone());
         let execution_service = TaskExecutionHistoryService::new(db.clone());
@@ -68,6 +77,8 @@ impl TaskExecutorService {
             execution_service,
             pr_creation_service,
             concurrency_manager: ConcurrencyManager::new(),
+            workspace_base_dir,
+            log_broadcaster,
         }
     }
 
@@ -163,6 +174,71 @@ impl TaskExecutorService {
             ))
         })?;
 
+        // Generate branch name for this task
+        let branch_name = format!("feature/issue-{}", task.issue_number);
+
+        info!(
+            task_id = task_id,
+            branch_name = %branch_name,
+            "Generated branch name for task"
+        );
+
+        // Create git worktree for this task
+        let git_service = GitService::new(self.db.clone(), self.workspace_base_dir.clone());
+
+        info!(
+            task_id = task_id,
+            workspace_id = workspace.id,
+            branch_name = %branch_name,
+            "Creating git worktree for task"
+        );
+
+        // Get container_id from workspace
+        let container_id = workspace.container_id.as_ref().ok_or_else(|| {
+            VibeRepoError::NotFound(format!(
+                "Container ID not found for workspace {}",
+                workspace.id
+            ))
+        })?;
+
+        match git_service
+            .create_task_worktree(workspace.id, task_id, &branch_name, container_id)
+            .await
+        {
+            Ok(worktree_path) => {
+                info!(
+                    task_id = task_id,
+                    worktree_path = ?worktree_path,
+                    "Git worktree created successfully"
+                );
+
+                // Update task with branch name
+                let mut task_active: task::ActiveModel = task.clone().into();
+                task_active.branch_name = Set(Some(branch_name.clone()));
+                let _task = task_active
+                    .update(&self.db)
+                    .await
+                    .map_err(VibeRepoError::Database)?;
+
+                info!(
+                    task_id = task_id,
+                    branch_name = %branch_name,
+                    "Updated task with branch name"
+                );
+            }
+            Err(e) => {
+                error!(
+                    task_id = task_id,
+                    error = %e,
+                    "Failed to create git worktree"
+                );
+                return Err(VibeRepoError::Internal(format!(
+                    "Failed to create git worktree: {}",
+                    e
+                )));
+            }
+        }
+
         // Build command
         let command = self.build_execution_command(&agent, &task)?;
 
@@ -183,7 +259,7 @@ impl TaskExecutorService {
 
         // Execute task in container
         match self
-            .execute_in_container(workspace, &agent, &task, &command)
+            .execute_in_container(workspace, &agent, &task, &command, task_id)
             .await
         {
             Ok(result) => {
@@ -221,7 +297,7 @@ impl TaskExecutorService {
                 } else {
                     // No PR info from agent, check if we have a branch to create PR from
                     let task = self.task_service.get_task_by_id(task_id).await?;
-                    
+
                     if let Some(branch_name) = &task.branch_name {
                         // Try to create PR via PRCreationService
                         info!(
@@ -229,7 +305,7 @@ impl TaskExecutorService {
                             branch = ?branch_name,
                             "No PR from agent, attempting to create PR automatically"
                         );
-                        
+
                         match self.pr_creation_service.create_pr_for_task(task_id).await {
                             Ok(()) => {
                                 info!(task_id, "PR created successfully via PRCreationService");
@@ -249,7 +325,10 @@ impl TaskExecutorService {
                     } else {
                         // No branch and no PR - task failed
                         self.task_service
-                            .fail_task(task_id, "Task completed but no branch or PR was created".to_string())
+                            .fail_task(
+                                task_id,
+                                "Task completed but no branch or PR was created".to_string(),
+                            )
                             .await?;
                         warn!(task_id, "Task completed but no branch or PR info found");
                     }
@@ -285,6 +364,7 @@ impl TaskExecutorService {
         agent: &agent::Model,
         task: &task::Model,
         command: &str,
+        task_id: i32,
     ) -> Result<ExecutionResult> {
         info!(
             workspace_id = workspace.id,
@@ -294,23 +374,33 @@ impl TaskExecutorService {
         );
 
         // Check if container exists
-        if workspace.container_id.is_none() {
-            return Err(VibeRepoError::Validation(
-                "Workspace has no container".to_string(),
-            ));
-        }
+        let container_id = workspace
+            .container_id
+            .as_ref()
+            .ok_or_else(|| VibeRepoError::Validation("Workspace has no container".to_string()))?;
 
-        let container_id = workspace.container_id.as_ref().unwrap();
+        // Set working directory to task worktree
+        let work_dir = format!("/workspace/tasks/task-{}", task_id);
 
         info!(
             container_id = container_id,
+            work_dir = %work_dir,
             command = command,
-            "Executing command in container"
+            "Executing command in container with working directory"
         );
 
-        // Execute command in container using docker exec
+        // Execute command in container using docker exec with working directory
         let mut child = Command::new("docker")
-            .args(["exec", "-i", container_id, "sh", "-c", command])
+            .args([
+                "exec",
+                "-i",
+                "-w",
+                &work_dir, // Set working directory
+                container_id,
+                "sh",
+                "-c",
+                command,
+            ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -333,13 +423,39 @@ impl TaskExecutorService {
         let mut stdout_lines = Vec::new();
         let mut stderr_lines = Vec::new();
 
+        // Read stdout and broadcast logs
         while let Ok(Some(line)) = stdout_reader.next_line().await {
             info!(task_id = task.id, "STDOUT: {}", line);
+
+            // Broadcast log to WebSocket clients
+            let log_message = serde_json::json!({
+                "type": "log",
+                "task_id": task_id,
+                "stream": "stdout",
+                "message": line.clone(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            })
+            .to_string();
+
+            let _ = self.log_broadcaster.broadcast(task_id, log_message).await;
             stdout_lines.push(line);
         }
 
+        // Read stderr and broadcast logs
         while let Ok(Some(line)) = stderr_reader.next_line().await {
             warn!(task_id = task.id, "STDERR: {}", line);
+
+            // Broadcast log to WebSocket clients
+            let log_message = serde_json::json!({
+                "type": "log",
+                "task_id": task_id,
+                "stream": "stderr",
+                "message": line.clone(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            })
+            .to_string();
+
+            let _ = self.log_broadcaster.broadcast(task_id, log_message).await;
             stderr_lines.push(line);
         }
 
@@ -487,7 +603,11 @@ mod tests {
 
         let workspace = create_test_workspace(db).await;
         let task_service = TaskService::new(db.clone());
-        let executor = TaskExecutorService::new(db.clone());
+        let executor = TaskExecutorService::new(
+            db.clone(),
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         // Create tasks with different priorities
         let _low_task = task_service
@@ -547,7 +667,11 @@ mod tests {
         let workspace = create_test_workspace(db).await;
         let agent_service = AgentService::new(db.clone());
         let task_service = TaskService::new(db.clone());
-        let executor = TaskExecutorService::new(db.clone());
+        let executor = TaskExecutorService::new(
+            db.clone(),
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         let agent = agent_service
             .create_agent(
@@ -592,7 +716,11 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let db = &test_db.connection;
-        let executor = TaskExecutorService::new(db.clone());
+        let executor = TaskExecutorService::new(
+            db.clone(),
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         let output = vec![
             "Starting task execution...".to_string(),
@@ -620,7 +748,11 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let db = &test_db.connection;
-        let executor = TaskExecutorService::new(db.clone());
+        let executor = TaskExecutorService::new(
+            db.clone(),
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         let output = vec![
             "Starting task execution...".to_string(),
@@ -705,7 +837,11 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let db = &test_db.connection;
-        let executor = TaskExecutorService::new(db.clone());
+        let executor = TaskExecutorService::new(
+            db.clone(),
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         // Act
         let result = executor.get_available_slots(999).await;
@@ -722,7 +858,11 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let db = &test_db.connection;
-        let executor = TaskExecutorService::new(db.clone());
+        let executor = TaskExecutorService::new(
+            db.clone(),
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         // Initialize semaphore
         let _sem = executor.concurrency_manager.get_semaphore(1, 3).await;
@@ -826,7 +966,11 @@ mod tests {
         task_active.task_status = Set("assigned".to_string());
         let task = task_active.update(db).await.unwrap();
 
-        let executor = TaskExecutorService::new(db.clone());
+        let executor = TaskExecutorService::new(
+            db.clone(),
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         // Act
         // Note: This test is ignored because it requires a real Docker container
@@ -887,13 +1031,20 @@ mod tests {
         task_active.task_status = Set("assigned".to_string());
         let task = task_active.update(db).await.unwrap();
 
-        let executor = TaskExecutorService::new(db.clone());
+        let executor = TaskExecutorService::new(
+            db.clone(),
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         // Act
         let result = executor.execute_task(task.id).await;
 
         // Assert
-        assert!(result.is_ok() || result.is_err(), "Task execution completes");
+        assert!(
+            result.is_ok() || result.is_err(),
+            "Task execution completes"
+        );
         // TODO: When mock is available, verify:
         // - PRCreationService.create_pr_for_task was NOT called
     }
@@ -944,13 +1095,20 @@ mod tests {
         task_active.task_status = Set("assigned".to_string());
         let task = task_active.update(db).await.unwrap();
 
-        let executor = TaskExecutorService::new(db.clone());
+        let executor = TaskExecutorService::new(
+            db.clone(),
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         // Act
         let result = executor.execute_task(task.id).await;
 
         // Assert
-        assert!(result.is_ok() || result.is_err(), "Task execution completes");
+        assert!(
+            result.is_ok() || result.is_err(),
+            "Task execution completes"
+        );
         // TODO: When mock is available, verify:
         // - Task status is "failed" (because PR creation failed)
         // - Error message mentions PR creation failure

@@ -777,7 +777,8 @@ mod tests {
 
     #[test]
     fn test_git_client_gitea_variant() {
-        let client = GitClient::Gitea(GiteaClient::new("https://gitea.example.com", "token").unwrap());
+        let client =
+            GitClient::Gitea(GiteaClient::new("https://gitea.example.com", "token").unwrap());
         assert_eq!(client.provider_type(), "gitea");
         assert_eq!(client.base_url(), "https://gitea.example.com");
     }

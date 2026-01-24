@@ -174,6 +174,7 @@ fn arb_gitea_pull_request() -> impl Strategy<Value = GiteaPullRequest> {
                     title,
                     body,
                     state: state.to_string(),
+                    html_url: Some(format!("https://gitea.com/owner/repo/pulls/{}", number)),
                     head,
                     base,
                     mergeable,

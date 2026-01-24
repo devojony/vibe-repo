@@ -32,7 +32,10 @@ pub fn task_routes() -> Router<Arc<AppState>> {
             get(handlers::get_failure_analysis),
         )
         // Manual PR operations
-        .route("/api/tasks/:id/create-pr", post(handlers::create_pr_for_task))
+        .route(
+            "/api/tasks/:id/create-pr",
+            post(handlers::create_pr_for_task),
+        )
         .route(
             "/api/tasks/:id/close-issue",
             post(handlers::close_issue_for_task),

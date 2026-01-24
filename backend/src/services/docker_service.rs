@@ -123,19 +123,36 @@ impl DockerService {
         let memory_bytes = parse_memory_limit(memory_limit)?;
 
         // Create mounts for volumes
+        // Volume format can be:
+        // 1. "/container/path" - simple container path (legacy)
+        // 2. "/host/path:/container/path" - bind mount
         let mounts: Vec<Mount> = volumes
             .iter()
-            .map(|v| Mount {
-                target: Some(v.clone()),
-                source: Some(
-                    self.config
-                        .workspace_base_dir
-                        .join(name)
-                        .to_string_lossy()
-                        .to_string(),
-                ),
-                typ: Some(MountTypeEnum::BIND),
-                ..Default::default()
+            .map(|v| {
+                if v.contains(':') {
+                    // Parse "host_path:container_path" format
+                    let parts: Vec<&str> = v.splitn(2, ':').collect();
+                    Mount {
+                        target: Some(parts[1].to_string()),
+                        source: Some(parts[0].to_string()),
+                        typ: Some(MountTypeEnum::BIND),
+                        ..Default::default()
+                    }
+                } else {
+                    // Legacy format: just container path, use workspace_base_dir as source
+                    Mount {
+                        target: Some(v.clone()),
+                        source: Some(
+                            self.config
+                                .workspace_base_dir
+                                .join(name)
+                                .to_string_lossy()
+                                .to_string(),
+                        ),
+                        typ: Some(MountTypeEnum::BIND),
+                        ..Default::default()
+                    }
+                }
             })
             .collect();
 

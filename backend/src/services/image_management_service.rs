@@ -183,12 +183,17 @@ impl ImageManagementService {
 
         // Build new image
         tracing::info!(image_name = %image_name, force = force, "Rebuilding image");
+
+        let dockerfile_path = self.config.workspace_dockerfile.to_str().ok_or_else(|| {
+            VibeRepoError::Internal("Invalid Dockerfile path encoding".to_string())
+        })?;
+
+        let build_context_path = self.config.build_context.to_str().ok_or_else(|| {
+            VibeRepoError::Internal("Invalid build context path encoding".to_string())
+        })?;
+
         let result = docker
-            .build_image(
-                self.config.workspace_dockerfile.to_str().unwrap(),
-                image_name,
-                self.config.build_context.to_str().unwrap(),
-            )
+            .build_image(dockerfile_path, image_name, build_context_path)
             .await?;
 
         Ok(result)

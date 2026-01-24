@@ -89,7 +89,12 @@ async fn main() -> Result<()> {
     service_manager.register(issue_polling_service);
 
     // Register TaskSchedulerService for automatic task execution
-    let task_scheduler_service = TaskSchedulerService::new(db_pool.connection().clone(), None);
+    let task_scheduler_service = TaskSchedulerService::new(
+        db_pool.connection().clone(),
+        None,
+        config.workspace.base_dir.clone(),
+        state.log_broadcaster.clone(),
+    );
     service_manager.register(task_scheduler_service);
 
     service_manager.start_all(state.clone()).await?;

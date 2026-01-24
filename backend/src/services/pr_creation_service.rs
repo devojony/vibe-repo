@@ -117,14 +117,24 @@ impl PRCreationService {
         // Update task with PR information
         let mut task_active: task::ActiveModel = task.into();
         task_active.pr_number = Set(Some(pr.number as i32));
-        // Construct PR web URL (not API URL)
-        // Note: Gitea uses /pulls/, GitHub uses /pull/ (singular)
-        // We strip /api/v1 from base_url to get the web base URL
-        let web_base_url = provider.base_url.trim_end_matches("/api/v1");
-        task_active.pr_url = Set(Some(format!(
-            "{}/{}/{}/pulls/{}",
-            web_base_url, owner, repo_name, pr.number
-        )));
+
+        // Use the web URL returned by the Git provider API
+        // This works for all providers (Gitea, GitHub, GitLab) as each provider
+        // returns the correct URL format in their API response
+        task_active.pr_url = Set(pr.html_url.or_else(|| {
+            // Fallback: construct URL manually if API doesn't provide it
+            // Note: This fallback uses Gitea's format (/pulls/) and may not work for all providers
+            tracing::warn!(
+                task_id = task_active.id.as_ref(),
+                pr_number = pr.number,
+                "PR API response missing html_url, falling back to manual URL construction"
+            );
+            let web_base_url = provider.base_url.trim_end_matches("/api/v1");
+            Some(format!(
+                "{}/{}/{}/pulls/{}",
+                web_base_url, owner, repo_name, pr.number
+            ))
+        }));
         task_active.update(&self.db).await?;
 
         tracing::info!(
@@ -163,9 +173,12 @@ impl PRCreationService {
     fn parse_clone_url<'a>(&self, clone_url: &'a str) -> Result<(&'a str, &'a str)> {
         // Remove .git suffix if present
         let url = clone_url.strip_suffix(".git").unwrap_or(clone_url);
-        
+
         // Try HTTPS format first: https://gitea.com/owner/repo
-        if let Some(path) = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")) {
+        if let Some(path) = url
+            .strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))
+        {
             // Find the first slash after the domain
             if let Some(slash_pos) = path.find('/') {
                 let repo_path = &path[slash_pos + 1..];
@@ -175,7 +188,7 @@ impl PRCreationService {
                 }
             }
         }
-        
+
         // Try SSH format: git@gitea.com:owner/repo
         if let Some(path) = url.strip_prefix("git@") {
             if let Some(colon_pos) = path.find(':') {
@@ -186,7 +199,7 @@ impl PRCreationService {
                 }
             }
         }
-        
+
         Err(VibeRepoError::Internal(format!(
             "Invalid repository clone_url format: {}",
             clone_url
@@ -228,18 +241,17 @@ impl PRCreationService {
                 Err(GitProviderError::Conflict(e)) => {
                     // PR already exists - this is OK, try to fetch it
                     tracing::info!(owner, repo, head = %request.head, "PR already exists: {}", e);
-                    
+
                     // Try to fetch the existing PR by listing PRs and filtering by branch
                     // Note: This only fetches the first page of PRs. If the PR is not in the
                     // first page (due to pagination), we'll return an error. This is acceptable
                     // because the PR was successfully created (just not by us).
-                    match git_client
-                        .list_pull_requests(owner, repo, None)
-                        .await
-                    {
+                    match git_client.list_pull_requests(owner, repo, None).await {
                         Ok(prs) => {
                             // Find PR with matching source branch
-                            if let Some(existing_pr) = prs.iter().find(|pr| pr.source_branch == request.head) {
+                            if let Some(existing_pr) =
+                                prs.iter().find(|pr| pr.source_branch == request.head)
+                            {
                                 tracing::info!(
                                     owner,
                                     repo,
@@ -608,7 +620,6 @@ mod tests {
         // This test is intentionally left unimplemented pending mock infrastructure
         // See TODO comment above for implementation plan
     }
-
 
     // Helper functions
 

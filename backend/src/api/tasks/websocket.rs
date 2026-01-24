@@ -5,23 +5,70 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket},
-        Path, State, WebSocketUpgrade,
+        Path, Query, State, WebSocketUpgrade,
     },
-    response::Response,
+    http::StatusCode,
+    response::{IntoResponse, Response},
 };
 use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
 use crate::{error::VibeRepoError, services::TaskService, state::AppState};
 
+/// Query parameters for WebSocket authentication
+#[derive(Debug, Deserialize)]
+pub struct WebSocketQuery {
+    /// Authentication token
+    pub token: Option<String>,
+}
+
 /// WebSocket handler for streaming task logs
 pub async fn stream_task_logs(
     ws: WebSocketUpgrade,
     Path(task_id): Path<i32>,
+    Query(query): Query<WebSocketQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, VibeRepoError> {
-    info!(task_id = task_id, "WebSocket connection requested for task logs");
+    info!(
+        task_id = task_id,
+        "WebSocket connection requested for task logs"
+    );
+
+    // Validate authentication token if configured
+    if let Some(required_token) = &state.config.websocket.auth_token {
+        match &query.token {
+            Some(provided_token) if provided_token == required_token => {
+                info!(task_id = task_id, "WebSocket authentication successful");
+            }
+            Some(_) => {
+                warn!(
+                    task_id = task_id,
+                    "WebSocket authentication failed: invalid token"
+                );
+                return Ok(
+                    (StatusCode::UNAUTHORIZED, "Invalid authentication token").into_response()
+                );
+            }
+            None => {
+                warn!(
+                    task_id = task_id,
+                    "WebSocket authentication failed: missing token"
+                );
+                return Ok((
+                    StatusCode::UNAUTHORIZED,
+                    "Missing authentication token. Please provide token in query parameter: ?token=YOUR_TOKEN",
+                )
+                    .into_response());
+            }
+        }
+    } else {
+        info!(
+            task_id = task_id,
+            "WebSocket authentication disabled (no token configured)"
+        );
+    }
 
     // Verify task exists
     let task_service = TaskService::new(state.db.clone());
@@ -84,7 +131,10 @@ async fn handle_socket(socket: WebSocket, task_id: i32, state: Arc<AppState>) {
     let mut send_task = tokio::spawn(async move {
         while let Ok(log_message) = rx.recv().await {
             if sender.send(Message::Text(log_message)).await.is_err() {
-                warn!(task_id = task_id, "Failed to send log message, client disconnected");
+                warn!(
+                    task_id = task_id,
+                    "Failed to send log message, client disconnected"
+                );
                 break;
             }
         }
@@ -135,5 +185,84 @@ mod tests {
 
         // Assert
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_websocket_query_deserialization() {
+        // Test with token
+        let query = WebSocketQuery {
+            token: Some("test-token".to_string()),
+        };
+        assert_eq!(query.token, Some("test-token".to_string()));
+
+        // Test without token
+        let query = WebSocketQuery { token: None };
+        assert_eq!(query.token, None);
+    }
+
+    #[tokio::test]
+    async fn test_websocket_auth_validation_logic() {
+        // This test verifies the authentication logic without WebSocket upgrade
+
+        // Test case 1: No token configured (auth disabled)
+        let required_token: Option<String> = None;
+        let provided_token: Option<String> = None;
+
+        if let Some(req_token) = &required_token {
+            match &provided_token {
+                Some(prov_token) if prov_token == req_token => {
+                    // Should authenticate - test passes
+                }
+                _ => {
+                    panic!("Should not reach here when no token is required");
+                }
+            }
+        }
+        // Auth disabled - test passes
+
+        // Test case 2: Token configured and correct token provided
+        let required_token: Option<String> = Some("secret-token".to_string());
+        let provided_token: Option<String> = Some("secret-token".to_string());
+
+        let mut authenticated = false;
+        if let Some(req_token) = &required_token {
+            match &provided_token {
+                Some(prov_token) if prov_token == req_token => {
+                    authenticated = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(authenticated, "Should authenticate with correct token");
+
+        // Test case 3: Token configured but wrong token provided
+        let required_token: Option<String> = Some("secret-token".to_string());
+        let provided_token: Option<String> = Some("wrong-token".to_string());
+
+        let mut authenticated = false;
+        if let Some(req_token) = &required_token {
+            match &provided_token {
+                Some(prov_token) if prov_token == req_token => {
+                    authenticated = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(!authenticated, "Should not authenticate with wrong token");
+
+        // Test case 4: Token configured but no token provided
+        let required_token: Option<String> = Some("secret-token".to_string());
+        let provided_token: Option<String> = None;
+
+        let mut authenticated = false;
+        if let Some(req_token) = &required_token {
+            match &provided_token {
+                Some(prov_token) if prov_token == req_token => {
+                    authenticated = true;
+                }
+                _ => {}
+            }
+        }
+        assert!(!authenticated, "Should not authenticate without token");
     }
 }

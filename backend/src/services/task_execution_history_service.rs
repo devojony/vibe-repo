@@ -69,18 +69,12 @@ impl TaskExecutionService {
             .num_milliseconds();
 
         // Store stdout
-        let (stdout_summary, stdout_file_path) = self.store_output(
-            execution_id,
-            "stdout",
-            &stdout,
-        )?;
+        let (stdout_summary, stdout_file_path) =
+            self.store_output(execution_id, "stdout", &stdout)?;
 
         // Store stderr
-        let (stderr_summary, stderr_file_path) = self.store_output(
-            execution_id,
-            "stderr",
-            &stderr,
-        )?;
+        let (stderr_summary, stderr_file_path) =
+            self.store_output(execution_id, "stderr", &stderr)?;
 
         let mut execution: task_execution::ActiveModel = execution.into();
         execution.status = Set("completed".to_string());
@@ -120,18 +114,12 @@ impl TaskExecutionService {
             .num_milliseconds();
 
         // Store stdout
-        let (stdout_summary, stdout_file_path) = self.store_output(
-            execution_id,
-            "stdout",
-            &stdout,
-        )?;
+        let (stdout_summary, stdout_file_path) =
+            self.store_output(execution_id, "stdout", &stdout)?;
 
         // Store stderr
-        let (stderr_summary, stderr_file_path) = self.store_output(
-            execution_id,
-            "stderr",
-            &stderr,
-        )?;
+        let (stderr_summary, stderr_file_path) =
+            self.store_output(execution_id, "stderr", &stderr)?;
 
         let mut execution: task_execution::ActiveModel = execution.into();
         execution.status = Set("failed".to_string());
@@ -229,22 +217,19 @@ impl TaskExecutionService {
         let file_path = PathBuf::from(LOG_DIR).join(&filename);
 
         // Write content to file
-        let mut file = fs::File::create(&file_path).map_err(|e| {
-            VibeRepoError::Internal(format!("Failed to create log file: {}", e))
-        })?;
+        let mut file = fs::File::create(&file_path)
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to create log file: {}", e)))?;
 
-        file.write_all(content.as_bytes()).map_err(|e| {
-            VibeRepoError::Internal(format!("Failed to write log file: {}", e))
-        })?;
+        file.write_all(content.as_bytes())
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to write log file: {}", e)))?;
 
         Ok(file_path.to_string_lossy().to_string())
     }
 
     /// Read full output from file
     pub fn read_output_file(&self, file_path: &str) -> Result<String> {
-        fs::read_to_string(file_path).map_err(|e| {
-            VibeRepoError::Internal(format!("Failed to read log file: {}", e))
-        })
+        fs::read_to_string(file_path)
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to read log file: {}", e)))
     }
 }
 

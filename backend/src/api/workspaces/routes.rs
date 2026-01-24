@@ -16,6 +16,10 @@ pub fn workspace_routes() -> Router<Arc<AppState>> {
         .route("/api/workspaces/:id/status", patch(update_workspace_status))
         .route("/api/workspaces/:id", delete(delete_workspace))
         .route(
+            "/api/workspaces/:id/container",
+            post(lifecycle_handlers::create_container),
+        )
+        .route(
             "/api/workspaces/:id/restart",
             post(lifecycle_handlers::restart_workspace),
         )

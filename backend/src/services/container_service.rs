@@ -59,6 +59,7 @@ impl ContainerService {
         image_name: &str,
         cpu_limit: f64,
         memory_limit: &str,
+        host_workspace_dir: Option<String>,
     ) -> Result<container::Model> {
         // Check if Docker is available
         let docker = self
@@ -73,15 +74,25 @@ impl ContainerService {
             workspace_id = workspace_id,
             container_name = %container_name,
             image_name = %image_name,
+            host_workspace_dir = ?host_workspace_dir,
             "Creating container"
         );
+
+        // Build volume mounts
+        let volumes = if let Some(host_dir) = host_workspace_dir {
+            // Mount host workspace directory to /workspace in container
+            vec![format!("{}:{}", host_dir, DEFAULT_WORKSPACE_MOUNT)]
+        } else {
+            // Use default mount (no host binding)
+            vec![DEFAULT_WORKSPACE_MOUNT.to_string()]
+        };
 
         // Create container in Docker
         let docker_container_id = docker
             .create_container(
                 &container_name,
                 image_name,
-                vec![DEFAULT_WORKSPACE_MOUNT.to_string()],
+                volumes,
                 cpu_limit,
                 memory_limit,
             )
@@ -543,7 +554,7 @@ mod tests {
 
         // Act
         let result = service
-            .create_and_start_container(workspace.id, "alpine:latest", 2.0, "4GB")
+            .create_and_start_container(workspace.id, "alpine:latest", 2.0, "4GB", None)
             .await;
 
         // Assert
@@ -593,7 +604,7 @@ mod tests {
 
         // Act
         let result = service
-            .create_and_start_container(workspace.id, "alpine:latest", 2.0, "4GB")
+            .create_and_start_container(workspace.id, "alpine:latest", 2.0, "4GB", None)
             .await;
 
         // Assert - should return error when Docker is unavailable

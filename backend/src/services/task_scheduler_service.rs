@@ -12,7 +12,7 @@ use tracing::{error, info};
 
 use crate::entities::{prelude::*, task, workspace};
 use crate::error::{Result, VibeRepoError};
-use crate::services::{BackgroundService, TaskExecutorService};
+use crate::services::{BackgroundService, TaskExecutorService, TaskLogBroadcaster};
 use crate::state::AppState;
 
 /// Task scheduler configuration
@@ -38,15 +38,24 @@ pub struct TaskSchedulerService {
     db: DatabaseConnection,
     config: SchedulerConfig,
     running: Arc<RwLock<bool>>,
+    workspace_base_dir: String,
+    log_broadcaster: TaskLogBroadcaster,
 }
 
 impl TaskSchedulerService {
     /// Create a new task scheduler service
-    pub fn new(db: DatabaseConnection, config: Option<SchedulerConfig>) -> Self {
+    pub fn new(
+        db: DatabaseConnection,
+        config: Option<SchedulerConfig>,
+        workspace_base_dir: String,
+        log_broadcaster: TaskLogBroadcaster,
+    ) -> Self {
         Self {
             db,
             config: config.unwrap_or_default(),
             running: Arc::new(RwLock::new(false)),
+            workspace_base_dir,
+            log_broadcaster,
         }
     }
 
@@ -62,10 +71,7 @@ impl TaskSchedulerService {
             return Ok(());
         }
 
-        info!(
-            "Found {} workspace(s) with pending tasks",
-            workspaces.len()
-        );
+        info!("Found {} workspace(s) with pending tasks", workspaces.len());
 
         // Process each workspace
         for workspace in workspaces {
@@ -155,7 +161,11 @@ impl TaskSchedulerService {
         );
 
         // Execute tasks
-        let executor = TaskExecutorService::new(self.db.clone());
+        let executor = TaskExecutorService::new(
+            self.db.clone(),
+            self.workspace_base_dir.clone(),
+            self.log_broadcaster.clone(),
+        );
 
         for task in pending_tasks {
             info!(
@@ -184,7 +194,10 @@ impl TaskSchedulerService {
             .filter(task::Column::WorkspaceId.eq(workspace_id))
             .filter(task::Column::TaskStatus.eq("running"));
 
-        let count: u64 = query.count(&self.db).await.map_err(VibeRepoError::Database)?;
+        let count: u64 = query
+            .count(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
 
         Ok(count as i32)
     }
@@ -243,12 +256,16 @@ impl BackgroundService for TaskSchedulerService {
         let db = self.db.clone();
         let config = self.config.clone();
         let running = self.running.clone();
+        let workspace_base_dir = self.workspace_base_dir.clone();
+        let log_broadcaster = self.log_broadcaster.clone();
 
         tokio::spawn(async move {
             let scheduler = TaskSchedulerService {
                 db,
                 config: config.clone(),
                 running: running.clone(),
+                workspace_base_dir,
+                log_broadcaster,
             };
 
             let mut ticker = interval(Duration::from_secs(config.polling_interval_seconds));
@@ -315,7 +332,12 @@ mod tests {
             .await
             .unwrap();
 
-        let scheduler = TaskSchedulerService::new(db.clone(), None);
+        let scheduler = TaskSchedulerService::new(
+            db.clone(),
+            None,
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         // Act
         let result = scheduler.get_workspaces_with_pending_tasks().await;
@@ -366,7 +388,12 @@ mod tests {
         // Start task1 (make it running)
         task_service.start_task(task1.id).await.unwrap();
 
-        let scheduler = TaskSchedulerService::new(db.clone(), None);
+        let scheduler = TaskSchedulerService::new(
+            db.clone(),
+            None,
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         // Act
         let result = scheduler.get_running_tasks_count(workspace.id).await;
@@ -424,7 +451,12 @@ mod tests {
             .await
             .unwrap();
 
-        let scheduler = TaskSchedulerService::new(db.clone(), None);
+        let scheduler = TaskSchedulerService::new(
+            db.clone(),
+            None,
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         // Act
         let result = scheduler
@@ -467,7 +499,12 @@ mod tests {
                 .unwrap();
         }
 
-        let scheduler = TaskSchedulerService::new(db.clone(), None);
+        let scheduler = TaskSchedulerService::new(
+            db.clone(),
+            None,
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
 
         // Act - request only 2 tasks
         let result = scheduler
@@ -498,7 +535,12 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let scheduler = TaskSchedulerService::new(db.clone(), None);
+        let scheduler = TaskSchedulerService::new(
+            db.clone(),
+            None,
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
         *scheduler.running.write().await = true;
 
         // Act
@@ -516,7 +558,12 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let scheduler = TaskSchedulerService::new(db.clone(), None);
+        let scheduler = TaskSchedulerService::new(
+            db.clone(),
+            None,
+            "/tmp/test-workspace".to_string(),
+            TaskLogBroadcaster::new(),
+        );
         *scheduler.running.write().await = false;
 
         // Act
