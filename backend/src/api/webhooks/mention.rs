@@ -19,13 +19,16 @@ pub fn detect_mention(comment_body: &str, username: &str) -> bool {
 
         // Check if there's a character after the mention
         if after_idx < comment_body.len() {
-            // SAFETY: after_idx is guaranteed to be within bounds by the check above
-            let next_char = comment_body
-                .chars()
-                .nth(after_idx)
-                .expect("index within bounds");
-            // Valid if followed by whitespace or punctuation (not alphanumeric)
-            next_char.is_whitespace() || !next_char.is_alphanumeric()
+            // Get the character after the mention
+            // Since we've checked bounds, we can safely get the substring
+            let remaining = &comment_body[after_idx..];
+            if let Some(next_char) = remaining.chars().next() {
+                // Valid if followed by whitespace or punctuation (not alphanumeric)
+                next_char.is_whitespace() || !next_char.is_alphanumeric()
+            } else {
+                // Should not happen since we checked bounds, but handle gracefully
+                false
+            }
         } else {
             // Valid if at end of string
             true
