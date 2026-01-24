@@ -735,6 +735,149 @@ ws = websocket.WebSocketApp(
 ws.run_forever()
 ```
 
+### WebSocket Authentication
+
+For production environments, secure your WebSocket connections with authentication.
+
+#### Enabling Authentication
+
+Set the `WEBSOCKET_AUTH_TOKEN` environment variable:
+
+```bash
+# Generate a secure token
+openssl rand -hex 32
+
+# Add to .env file
+WEBSOCKET_AUTH_TOKEN="your-secure-token-here"
+```
+
+#### Connecting with Authentication
+
+**JavaScript Example:**
+```javascript
+const taskId = 123;
+const authToken = 'your-secure-token-here';
+
+// Include token in query string
+const ws = new WebSocket(
+  `ws://localhost:3000/api/tasks/${taskId}/logs/stream?token=${authToken}`
+);
+
+ws.onopen = () => {
+  console.log('Authenticated and connected');
+};
+
+ws.onerror = (error) => {
+  console.error('Authentication or connection error:', error);
+};
+```
+
+**Python Example:**
+```python
+import websocket
+import json
+
+task_id = 123
+auth_token = 'your-secure-token-here'
+
+# Include token in URL
+url = f"ws://localhost:3000/api/tasks/{task_id}/logs/stream?token={auth_token}"
+
+ws = websocket.WebSocketApp(
+    url,
+    on_open=lambda ws: print("Authenticated and connected"),
+    on_message=lambda ws, msg: print(json.loads(msg)),
+    on_error=lambda ws, err: print(f"Error: {err}")
+)
+
+ws.run_forever()
+```
+
+**cURL Example (for testing):**
+```bash
+# Test WebSocket connection with authentication
+curl -i -N \
+  -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" \
+  -H "Sec-WebSocket-Key: $(openssl rand -base64 16)" \
+  "http://localhost:3000/api/tasks/123/logs/stream?token=your-token"
+```
+
+#### Authentication Errors
+
+**Missing Token:**
+```json
+{
+  "type": "error",
+  "message": "Authentication required. Please provide a valid token.",
+  "code": "AUTH_REQUIRED"
+}
+```
+
+**Invalid Token:**
+```json
+{
+  "type": "error",
+  "message": "Invalid authentication token.",
+  "code": "AUTH_INVALID"
+}
+```
+
+#### Security Best Practices
+
+1. **Always use WSS in production:**
+   ```javascript
+   // Production
+   const ws = new WebSocket(
+     `wss://vibe-repo.example.com/api/tasks/${taskId}/logs/stream?token=${token}`
+   );
+   ```
+
+2. **Never hardcode tokens:**
+   ```javascript
+   // Bad
+   const token = 'my-secret-token';
+   
+   // Good
+   const token = process.env.WEBSOCKET_AUTH_TOKEN;
+   ```
+
+3. **Rotate tokens periodically:**
+   ```bash
+   # Generate new token monthly
+   openssl rand -hex 32 > .websocket-token
+   ```
+
+4. **Use different tokens per environment:**
+   ```bash
+   # Development
+   WEBSOCKET_AUTH_TOKEN="dev-token-123"
+   
+   # Staging
+   WEBSOCKET_AUTH_TOKEN="staging-token-456"
+   
+   # Production
+   WEBSOCKET_AUTH_TOKEN="prod-token-789"
+   ```
+
+5. **Monitor failed authentication attempts:**
+   ```bash
+   # Check logs for authentication failures
+   grep "AUTH_INVALID" logs/vibe-repo.log
+   ```
+
+#### Disabling Authentication (Development Only)
+
+For local development, you can disable authentication by not setting `WEBSOCKET_AUTH_TOKEN`:
+
+```bash
+# .env (development only)
+# WEBSOCKET_AUTH_TOKEN not set = authentication disabled
+```
+
+**Warning:** Never disable authentication in production environments.
+
 ### Failure Analysis
 
 **Get failure analysis:**
