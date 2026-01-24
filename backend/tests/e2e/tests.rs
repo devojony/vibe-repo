@@ -277,7 +277,7 @@ impl TestContext {
 
         let response = self
             .vibe_client
-            .post(&format!(
+            .post(format!(
                 "{}/api/repositories/{}/initialize",
                 VIBE_REPO_BASE_URL, repository_id
             ))
@@ -309,7 +309,7 @@ impl TestContext {
         println!("✓ Creating workspace for repository {}", repository_id);
 
         let response = self.vibe_client
-            .post(&format!("{}/api/workspaces", VIBE_REPO_BASE_URL))
+            .post(format!("{}/api/workspaces", VIBE_REPO_BASE_URL))
             .json(&json!({
                 "repository_id": repository_id,
                 "init_script": "#!/bin/bash\necho 'Workspace initialized'\napt-get update -qq\napt-get install -y -qq git curl\necho 'Setup complete'",
@@ -351,7 +351,7 @@ impl TestContext {
 
         let response = self
             .vibe_client
-            .post(&format!("{}/api/agents", VIBE_REPO_BASE_URL))
+            .post(format!("{}/api/agents", VIBE_REPO_BASE_URL))
             .json(&json!({
                 "workspace_id": workspace_id,
                 "name": "E2E Test Agent",
@@ -397,7 +397,7 @@ impl TestContext {
 
         let response = self
             .vibe_client
-            .post(&format!("{}/api/tasks", VIBE_REPO_BASE_URL))
+            .post(format!("{}/api/tasks", VIBE_REPO_BASE_URL))
             .json(&json!({
                 "workspace_id": workspace_id,
                 "issue_number": issue_number,
@@ -437,7 +437,7 @@ impl TestContext {
 
         let response = self
             .vibe_client
-            .post(&format!(
+            .post(format!(
                 "{}/api/tasks/{}/assign",
                 VIBE_REPO_BASE_URL, task_id
             ))
@@ -466,7 +466,7 @@ impl TestContext {
 
         let response = self
             .vibe_client
-            .post(&format!(
+            .post(format!(
                 "{}/api/tasks/{}/execute",
                 VIBE_REPO_BASE_URL, task_id
             ))
@@ -500,7 +500,7 @@ impl TestContext {
             || async {
                 let response = self
                     .vibe_client
-                    .get(&format!("{}/api/tasks/{}", VIBE_REPO_BASE_URL, task_id))
+                    .get(format!("{}/api/tasks/{}", VIBE_REPO_BASE_URL, task_id))
                     .send()
                     .await;
 
@@ -521,7 +521,7 @@ impl TestContext {
         // Get final task state
         let response = self
             .vibe_client
-            .get(&format!("{}/api/tasks/{}", VIBE_REPO_BASE_URL, task_id))
+            .get(format!("{}/api/tasks/{}", VIBE_REPO_BASE_URL, task_id))
             .send()
             .await
             .map_err(|e| format!("Failed to get task: {}", e))?;
@@ -684,7 +684,7 @@ async fn test_e2e_repository_setup() {
     let repository_id = ctx.repository_id.expect("Repository ID not set");
     let response = ctx
         .vibe_client
-        .get(&format!(
+        .get(format!(
             "{}/api/repositories/{}",
             VIBE_REPO_BASE_URL, repository_id
         ))
@@ -730,7 +730,7 @@ async fn test_e2e_workspace_setup() {
     let workspace_id = ctx.workspace_id.expect("Workspace ID not set");
     let response = ctx
         .vibe_client
-        .get(&format!(
+        .get(format!(
             "{}/api/workspaces/{}",
             VIBE_REPO_BASE_URL, workspace_id
         ))
@@ -747,7 +747,7 @@ async fn test_e2e_workspace_setup() {
     let agent_id = ctx.agent_id.expect("Agent ID not set");
     let response = ctx
         .vibe_client
-        .get(&format!("{}/api/agents/{}", VIBE_REPO_BASE_URL, agent_id))
+        .get(format!("{}/api/agents/{}", VIBE_REPO_BASE_URL, agent_id))
         .send()
         .await
         .expect("Failed to get agent");
