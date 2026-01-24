@@ -7,6 +7,7 @@ use super::gitea_client::GiteaClient;
 use super::helpers::generate_test_name;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 // Test environment constants
 const GITEA_BASE_URL: &str = "https://gitea.devo.top:66";
@@ -251,6 +252,39 @@ impl TestContext {
         Ok(())
     }
 
+    /// Setup: Initialize repository with branch and labels
+    ///
+    /// Initializes the repository in VibeRepo by creating a development branch
+    /// and setting up labels for issue management
+    ///
+    /// # Returns
+    ///
+    /// Returns Ok(()) on success or an error message
+    async fn initialize_repository(&mut self) -> Result<(), String> {
+        let repository_id = self.repository_id.ok_or("Repository ID not set")?;
+        
+        println!("✓ Initializing repository {}", repository_id);
+        
+        let response = self.vibe_client
+            .post(&format!("{}/api/repositories/{}/initialize", VIBE_REPO_BASE_URL, repository_id))
+            .json(&json!({
+                "branch_name": "vibe-dev",
+                "create_labels": true,
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to initialize repository: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Failed to initialize repository: {} - {}", status, body));
+        }
+
+        println!("✓ Repository initialized successfully");
+        Ok(())
+    }
+
     /// Cleans up all test resources
     ///
     /// Deletes workspace, repository, provider, and Gitea repository.
@@ -297,4 +331,34 @@ impl TestContext {
         println!("✓ Cleanup complete");
         Ok(())
     }
+}
+
+#[tokio::test]
+#[ignore] // Run with: cargo test --test e2e -- --ignored
+async fn test_e2e_repository_setup() {
+    let mut ctx = TestContext::new("repo-setup");
+    
+    // Setup
+    ctx.setup_gitea_repository().await.expect("Failed to create Gitea repository");
+    ctx.setup_vibe_provider().await.expect("Failed to create VibeRepo provider");
+    ctx.sync_repositories().await.expect("Failed to sync repositories");
+    ctx.initialize_repository().await.expect("Failed to initialize repository");
+    
+    // Verify repository is initialized
+    let repository_id = ctx.repository_id.expect("Repository ID not set");
+    let response = ctx.vibe_client
+        .get(&format!("{}/api/repositories/{}", VIBE_REPO_BASE_URL, repository_id))
+        .send()
+        .await
+        .expect("Failed to get repository");
+    
+    assert!(response.status().is_success());
+    
+    let repo: serde_json::Value = response.json().await.expect("Failed to parse repository");
+    assert_eq!(repo["is_initialized"].as_bool(), Some(true));
+    
+    // Cleanup
+    ctx.cleanup().await.expect("Failed to cleanup");
+    
+    println!("✅ E2E repository setup test passed");
 }
