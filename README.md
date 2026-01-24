@@ -17,12 +17,32 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 
 ### Prerequisites
 
-- Rust 1.70+ ([rustup.rs](https://rustup.rs))
+- Rust 1.70+ ([rustup.rs](https://rustup.rs)) or Docker
 - SQLite 3 or PostgreSQL
 - Docker (for workspace features)
 - Git provider account (Gitea/GitHub/GitLab)
 
-### Installation
+### Option 1: Docker (推荐)
+
+```bash
+# Clone repository
+git clone https://github.com/yourusername/vibe-repo.git
+cd vibe-repo
+
+# Copy and configure environment
+cp .env.docker .env
+# Edit .env and set WEBHOOK_SECRET_KEY
+
+# Start with Docker Compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+```
+
+📖 **详细说明**: [Docker 部署指南](./docs/deployment/docker.md)
+
+### Option 2: 本地开发
 
 ```bash
 # Clone repository
@@ -134,6 +154,16 @@ cargo test test_name
 - Coverage: 100% passing
 
 See [Testing Guide](./docs/tests/README.md) for details.
+
+### End-to-End Tests
+
+Run E2E tests with real Gitea instance:
+
+```bash
+./scripts/run_e2e_tests.sh
+```
+
+See [E2E Testing Guide](docs/testing/e2e-testing.md) for details.
 
 ## 🤝 Contributing
 
