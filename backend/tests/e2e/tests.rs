@@ -337,9 +337,9 @@ impl TestContext {
                 "workspace_id": workspace_id,
                 "name": "E2E Test Agent",
                 "tool_type": "OpenCode",
-                "model_name": "glm-4-flash",
-                "timeout_seconds": 600,
-                "environment_variables": {
+                "command": "opencode --model glm-4-flash",
+                "timeout": 600,
+                "env_vars": {
                     "TEST_MODE": "true"
                 },
             }))
