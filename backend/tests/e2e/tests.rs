@@ -4,7 +4,7 @@
 //! and the VibeRepo API to test the complete workflow.
 
 use super::gitea_client::GiteaClient;
-use super::helpers::generate_test_name;
+use super::helpers::{generate_test_name, wait_for_condition};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -358,6 +358,129 @@ impl TestContext {
         Ok(())
     }
 
+    /// Create a task from issue
+    async fn create_task(&mut self, issue_number: i64, issue_title: &str, issue_body: &str, issue_url: &str) -> Result<(), String> {
+        let workspace_id = self.workspace_id.ok_or("Workspace ID not set")?;
+        
+        println!("✓ Creating task for issue #{}", issue_number);
+        
+        let response = self.vibe_client
+            .post(&format!("{}/api/tasks", VIBE_REPO_BASE_URL))
+            .json(&json!({
+                "workspace_id": workspace_id,
+                "issue_number": issue_number,
+                "issue_title": issue_title,
+                "issue_body": issue_body,
+                "issue_url": issue_url,
+                "priority": "High",
+                "max_retries": 1,
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to create task: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Failed to create task: {} - {}", status, body));
+        }
+
+        let task: serde_json::Value = response.json().await
+            .map_err(|e| format!("Failed to parse task response: {}", e))?;
+        
+        self.task_id = Some(task["id"].as_i64().unwrap() as i32);
+        println!("✓ Created task with ID: {}", self.task_id.unwrap());
+        
+        Ok(())
+    }
+
+    /// Assign agent to task
+    async fn assign_agent_to_task(&self) -> Result<(), String> {
+        let task_id = self.task_id.ok_or("Task ID not set")?;
+        let agent_id = self.agent_id.ok_or("Agent ID not set")?;
+        
+        println!("✓ Assigning agent {} to task {}", agent_id, task_id);
+        
+        let response = self.vibe_client
+            .post(&format!("{}/api/tasks/{}/assign", VIBE_REPO_BASE_URL, task_id))
+            .json(&json!({
+                "agent_id": agent_id,
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to assign agent: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Failed to assign agent: {} - {}", status, body));
+        }
+
+        println!("✓ Agent assigned successfully");
+        Ok(())
+    }
+
+    /// Execute task
+    async fn execute_task(&self) -> Result<(), String> {
+        let task_id = self.task_id.ok_or("Task ID not set")?;
+        
+        println!("✓ Executing task {}", task_id);
+        
+        let response = self.vibe_client
+            .post(&format!("{}/api/tasks/{}/execute", VIBE_REPO_BASE_URL, task_id))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to execute task: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Failed to execute task: {} - {}", status, body));
+        }
+
+        println!("✓ Task execution started");
+        Ok(())
+    }
+
+    /// Wait for task to complete
+    async fn wait_for_task_completion(&self, timeout_secs: u64) -> Result<serde_json::Value, String> {
+        let task_id = self.task_id.ok_or("Task ID not set")?;
+        
+        println!("✓ Waiting for task {} to complete (timeout: {}s)", task_id, timeout_secs);
+        
+        wait_for_condition(
+            || async {
+                let response = self.vibe_client
+                    .get(&format!("{}/api/tasks/{}", VIBE_REPO_BASE_URL, task_id))
+                    .send()
+                    .await;
+                
+                if let Ok(resp) = response {
+                    if let Ok(task) = resp.json::<serde_json::Value>().await {
+                        let status = task["status"].as_str().unwrap_or("");
+                        println!("  Task status: {}", status);
+                        return status == "Completed" || status == "Failed";
+                    }
+                }
+                false
+            },
+            timeout_secs,
+            5000, // Check every 5 seconds
+        ).await?;
+
+        // Get final task state
+        let response = self.vibe_client
+            .get(&format!("{}/api/tasks/{}", VIBE_REPO_BASE_URL, task_id))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to get task: {}", e))?;
+
+        let task: serde_json::Value = response.json().await
+            .map_err(|e| format!("Failed to parse task: {}", e))?;
+
+        Ok(task)
+    }
+
     /// Cleans up all test resources
     ///
     /// Deletes workspace, repository, provider, and Gitea repository.
@@ -476,4 +599,98 @@ async fn test_e2e_workspace_setup() {
     ctx.cleanup().await.expect("Failed to cleanup");
     
     println!("✅ E2E workspace setup test passed");
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_e2e_complete_issue_to_pr_workflow() {
+    let mut ctx = TestContext::new("issue-to-pr");
+    
+    // Phase 1: Setup
+    println!("\n=== Phase 1: Setup ===");
+    ctx.setup_gitea_repository().await.expect("Failed to create Gitea repository");
+    ctx.setup_vibe_provider().await.expect("Failed to create VibeRepo provider");
+    ctx.sync_repositories().await.expect("Failed to sync repositories");
+    ctx.initialize_repository().await.expect("Failed to initialize repository");
+    ctx.create_workspace().await.expect("Failed to create workspace");
+    ctx.create_agent().await.expect("Failed to create agent");
+    
+    // Phase 2: Create issue in Gitea
+    println!("\n=== Phase 2: Create Issue ===");
+    let issue_title = "Add hello world function";
+    let issue_body = "Create a simple hello_world() function that prints 'Hello, World!' to stdout.";
+    
+    let issue = ctx.gitea_client
+        .create_issue(
+            &ctx.test_repo_owner,
+            &ctx.test_repo_name,
+            issue_title,
+            issue_body,
+            vec![], // No labels for now
+        )
+        .await
+        .expect("Failed to create issue");
+    
+    println!("✓ Created issue #{}: {}", issue.number, issue.html_url);
+    
+    // Phase 3: Create and execute task
+    println!("\n=== Phase 3: Execute Task ===");
+    ctx.create_task(issue.number, issue_title, issue_body, &issue.html_url)
+        .await
+        .expect("Failed to create task");
+    
+    ctx.assign_agent_to_task().await.expect("Failed to assign agent");
+    ctx.execute_task().await.expect("Failed to execute task");
+    
+    // Phase 4: Wait for completion
+    println!("\n=== Phase 4: Wait for Completion ===");
+    let task = ctx.wait_for_task_completion(600) // 10 minutes timeout
+        .await
+        .expect("Task did not complete in time");
+    
+    let status = task["status"].as_str().expect("Task status not found");
+    println!("✓ Task completed with status: {}", status);
+    
+    // Phase 5: Verify PR was created
+    println!("\n=== Phase 5: Verify PR ===");
+    assert_eq!(status, "Completed", "Task should complete successfully");
+    
+    let pr_number = task["pr_number"].as_i64().expect("PR number not found");
+    let pr_url = task["pr_url"].as_str().expect("PR URL not found");
+    let branch_name = task["branch_name"].as_str().expect("Branch name not found");
+    
+    println!("✓ PR created: #{} - {}", pr_number, pr_url);
+    println!("✓ Branch: {}", branch_name);
+    
+    // Verify PR exists in Gitea
+    let pr = ctx.gitea_client
+        .get_pull_request(&ctx.test_repo_owner, &ctx.test_repo_name, pr_number)
+        .await
+        .expect("Failed to get PR from Gitea");
+    
+    assert_eq!(pr.title, issue_title);
+    assert_eq!(pr.state, "open");
+    assert!(pr.body.contains(&format!("#{}", issue.number)), "PR should reference issue");
+    
+    println!("✓ PR verified in Gitea");
+    
+    // Phase 6: Cleanup
+    println!("\n=== Phase 6: Cleanup ===");
+    
+    // Close PR
+    ctx.gitea_client
+        .close_pull_request(&ctx.test_repo_owner, &ctx.test_repo_name, pr_number)
+        .await
+        .expect("Failed to close PR");
+    
+    // Delete branch
+    ctx.gitea_client
+        .delete_branch(&ctx.test_repo_owner, &ctx.test_repo_name, branch_name)
+        .await
+        .expect("Failed to delete branch");
+    
+    // Cleanup all resources
+    ctx.cleanup().await.expect("Failed to cleanup");
+    
+    println!("\n✅ E2E complete Issue-to-PR workflow test passed");
 }
