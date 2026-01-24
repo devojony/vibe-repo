@@ -285,6 +285,79 @@ impl TestContext {
         Ok(())
     }
 
+    /// Setup: Create workspace with Docker container
+    async fn create_workspace(&mut self) -> Result<(), String> {
+        let repository_id = self.repository_id.ok_or("Repository ID not set")?;
+        
+        println!("✓ Creating workspace for repository {}", repository_id);
+        
+        let response = self.vibe_client
+            .post(&format!("{}/api/workspaces", VIBE_REPO_BASE_URL))
+            .json(&json!({
+                "repository_id": repository_id,
+                "init_script": "#!/bin/bash\necho 'Workspace initialized'\napt-get update -qq\napt-get install -y -qq git curl\necho 'Setup complete'",
+                "script_timeout_seconds": 300,
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to create workspace: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Failed to create workspace: {} - {}", status, body));
+        }
+
+        let workspace: serde_json::Value = response.json().await
+            .map_err(|e| format!("Failed to parse workspace response: {}", e))?;
+        
+        self.workspace_id = Some(workspace["id"].as_i64().unwrap() as i32);
+        println!("✓ Created workspace with ID: {}", self.workspace_id.unwrap());
+        
+        // Wait for container to be ready
+        println!("✓ Waiting for container to be ready...");
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        
+        Ok(())
+    }
+
+    /// Setup: Create AI agent configuration
+    async fn create_agent(&mut self) -> Result<(), String> {
+        let workspace_id = self.workspace_id.ok_or("Workspace ID not set")?;
+        
+        println!("✓ Creating agent for workspace {}", workspace_id);
+        
+        let response = self.vibe_client
+            .post(&format!("{}/api/agents", VIBE_REPO_BASE_URL))
+            .json(&json!({
+                "workspace_id": workspace_id,
+                "name": "E2E Test Agent",
+                "tool_type": "OpenCode",
+                "model_name": "glm-4-flash",
+                "timeout_seconds": 600,
+                "environment_variables": {
+                    "TEST_MODE": "true"
+                },
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to create agent: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Failed to create agent: {} - {}", status, body));
+        }
+
+        let agent: serde_json::Value = response.json().await
+            .map_err(|e| format!("Failed to parse agent response: {}", e))?;
+        
+        self.agent_id = Some(agent["id"].as_i64().unwrap() as i32);
+        println!("✓ Created agent with ID: {}", self.agent_id.unwrap());
+        
+        Ok(())
+    }
+
     /// Cleans up all test resources
     ///
     /// Deletes workspace, repository, provider, and Gitea repository.
@@ -361,4 +434,46 @@ async fn test_e2e_repository_setup() {
     ctx.cleanup().await.expect("Failed to cleanup");
     
     println!("✅ E2E repository setup test passed");
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_e2e_workspace_setup() {
+    let mut ctx = TestContext::new("workspace-setup");
+    
+    // Setup
+    ctx.setup_gitea_repository().await.expect("Failed to create Gitea repository");
+    ctx.setup_vibe_provider().await.expect("Failed to create VibeRepo provider");
+    ctx.sync_repositories().await.expect("Failed to sync repositories");
+    ctx.initialize_repository().await.expect("Failed to initialize repository");
+    ctx.create_workspace().await.expect("Failed to create workspace");
+    ctx.create_agent().await.expect("Failed to create agent");
+    
+    // Verify workspace exists and is running
+    let workspace_id = ctx.workspace_id.expect("Workspace ID not set");
+    let response = ctx.vibe_client
+        .get(&format!("{}/api/workspaces/{}", VIBE_REPO_BASE_URL, workspace_id))
+        .send()
+        .await
+        .expect("Failed to get workspace");
+    
+    assert!(response.status().is_success());
+    
+    let workspace: serde_json::Value = response.json().await.expect("Failed to parse workspace");
+    assert_eq!(workspace["status"].as_str(), Some("Running"));
+    
+    // Verify agent exists
+    let agent_id = ctx.agent_id.expect("Agent ID not set");
+    let response = ctx.vibe_client
+        .get(&format!("{}/api/agents/{}", VIBE_REPO_BASE_URL, agent_id))
+        .send()
+        .await
+        .expect("Failed to get agent");
+    
+    assert!(response.status().is_success());
+    
+    // Cleanup
+    ctx.cleanup().await.expect("Failed to cleanup");
+    
+    println!("✅ E2E workspace setup test passed");
 }
