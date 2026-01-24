@@ -103,3 +103,4 @@ serde_yaml = "0.9"
 vibe-repo = { path = ".", features = ["test-utils"] }
 http-body-util = "0.1"
 wiremock = "0.6"
+tokio-tungstenite = "0.21"
