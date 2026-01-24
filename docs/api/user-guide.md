@@ -10,6 +10,7 @@ This guide provides comprehensive instructions for using VibeRepo features.
 - [Getting Started](#getting-started)
 - [Repository Management](#repository-management)
 - [Workspace Management](#workspace-management)
+- [Agent Management](#agent-management)
 - [Task Management](#task-management)
 - [Issue Polling](#issue-polling)
 - [Container Management](#container-management)
@@ -165,6 +166,245 @@ curl -X POST http://localhost:3000/api/workspaces/1/init-script/execute \
 **Check script logs:**
 ```bash
 curl http://localhost:3000/api/workspaces/1/init-script/logs
+```
+
+---
+
+## Agent Management
+
+Agents are AI-powered automation tools that execute tasks in workspaces. Each workspace can have multiple agents configured with different tools and models.
+
+### Creating an Agent
+
+**Basic agent creation:**
+```bash
+curl -X POST http://localhost:3000/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspace_id": 1,
+    "name": "OpenCode Agent",
+    "tool_type": "OpenCode",
+    "command": "opencode --model glm-4-flash",
+    "timeout": 600
+  }'
+```
+
+**Agent with environment variables:**
+```bash
+curl -X POST http://localhost:3000/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspace_id": 1,
+    "name": "Aider GPT-4",
+    "tool_type": "Aider",
+    "command": "aider --model gpt-4 --yes",
+    "timeout": 1800,
+    "env_vars": {
+      "OPENAI_API_KEY": "sk-...",
+      "OPENAI_BASE_URL": "https://api.openai.com/v1"
+    }
+  }'
+```
+
+### Agent Configuration Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `workspace_id` | integer | Yes | ID of the workspace |
+| `name` | string | Yes | Human-readable agent name |
+| `tool_type` | string | Yes | Tool type (OpenCode, Aider, Custom) |
+| `command` | string | Yes | Full command to execute |
+| `timeout` | integer | No | Timeout in seconds (default: 1800) |
+| `env_vars` | object | No | Environment variables |
+
+### Supported Tool Types
+
+#### OpenCode
+
+OpenCode is an AI coding assistant that can work with various models.
+
+**Example configuration:**
+```json
+{
+  "workspace_id": 1,
+  "name": "OpenCode GLM-4",
+  "tool_type": "OpenCode",
+  "command": "opencode --model glm-4-flash",
+  "timeout": 600,
+  "env_vars": {
+    "OPENAI_API_KEY": "your-api-key"
+  }
+}
+```
+
+**Common OpenCode commands:**
+- `opencode --model glm-4-flash` - Use GLM-4 Flash model
+- `opencode --model gpt-4` - Use GPT-4 model
+- `opencode --model claude-3-opus` - Use Claude 3 Opus
+
+#### Aider
+
+Aider is an AI pair programming tool in your terminal.
+
+**Example configuration:**
+```json
+{
+  "workspace_id": 1,
+  "name": "Aider GPT-4",
+  "tool_type": "Aider",
+  "command": "aider --model gpt-4 --yes --no-git",
+  "timeout": 1800,
+  "env_vars": {
+    "OPENAI_API_KEY": "your-api-key"
+  }
+}
+```
+
+**Common Aider commands:**
+- `aider --model gpt-4 --yes` - Use GPT-4 with auto-confirm
+- `aider --model claude-3-opus --yes` - Use Claude 3 Opus
+- `aider --model gpt-3.5-turbo --yes --no-git` - Use GPT-3.5 without git
+
+#### Custom Tools
+
+You can configure any custom automation tool.
+
+**Example configuration:**
+```json
+{
+  "workspace_id": 1,
+  "name": "Custom Script",
+  "tool_type": "Custom",
+  "command": "/usr/local/bin/my-automation-tool --config /etc/config.json",
+  "timeout": 3600,
+  "env_vars": {
+    "CUSTOM_VAR": "value"
+  }
+}
+```
+
+### Listing Agents
+
+**List all agents for a workspace:**
+```bash
+curl http://localhost:3000/api/workspaces/1/agents
+```
+
+**Response:**
+```json
+[
+  {
+    "id": 1,
+    "workspace_id": 1,
+    "name": "OpenCode Agent",
+    "tool_type": "OpenCode",
+    "enabled": true,
+    "command": "opencode --model glm-4-flash",
+    "env_vars": {},
+    "timeout": 600,
+    "created_at": "2026-01-24T10:30:00Z",
+    "updated_at": "2026-01-24T10:30:00Z"
+  }
+]
+```
+
+### Getting Agent Details
+
+**Get specific agent:**
+```bash
+curl http://localhost:3000/api/agents/1
+```
+
+### Enabling/Disabling Agents
+
+**Disable an agent:**
+```bash
+curl -X PATCH http://localhost:3000/api/agents/1/enabled \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": false
+  }'
+```
+
+**Enable an agent:**
+```bash
+curl -X PATCH http://localhost:3000/api/agents/1/enabled \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true
+  }'
+```
+
+**Note:** Disabled agents cannot be assigned to new tasks, but existing task assignments are not affected.
+
+### Deleting Agents
+
+**Delete an agent:**
+```bash
+curl -X DELETE http://localhost:3000/api/agents/1
+```
+
+**Important:** Deleting an agent will not affect existing tasks that were assigned to it. Those tasks will continue to reference the deleted agent.
+
+### Agent Best Practices
+
+1. **Use Descriptive Names**: Name agents clearly to indicate their purpose
+   - Good: "OpenCode GLM-4 for Python"
+   - Bad: "Agent 1"
+
+2. **Set Appropriate Timeouts**: Consider task complexity
+   - Simple tasks: 600 seconds (10 minutes)
+   - Complex tasks: 1800 seconds (30 minutes)
+   - Very complex: 3600 seconds (1 hour)
+
+3. **Secure Environment Variables**: Store sensitive data in `env_vars`
+   - API keys
+   - Access tokens
+   - Configuration URLs
+
+4. **Test Agent Configuration**: Create a test task to verify agent works correctly
+
+5. **Use Multiple Agents**: Configure different agents for different types of tasks
+   - Fast model for simple tasks
+   - Powerful model for complex tasks
+   - Specialized tools for specific domains
+
+### Common Issues
+
+#### Agent Command Not Found
+
+**Problem:** Agent fails with "command not found" error
+
+**Solution:** Use absolute path in command:
+```json
+{
+  "command": "/usr/local/bin/opencode --model glm-4-flash"
+}
+```
+
+#### Timeout Too Short
+
+**Problem:** Tasks fail due to timeout
+
+**Solution:** Increase timeout value:
+```json
+{
+  "timeout": 3600
+}
+```
+
+#### Missing Environment Variables
+
+**Problem:** Agent fails due to missing API keys
+
+**Solution:** Add required environment variables:
+```json
+{
+  "env_vars": {
+    "OPENAI_API_KEY": "sk-...",
+    "OPENAI_BASE_URL": "https://api.openai.com/v1"
+  }
+}
 ```
 
 ---

@@ -262,6 +262,175 @@ Execute init script manually.
 
 ---
 
+## Agent Management
+
+Agents are AI-powered automation tools that execute tasks in workspaces. Each agent is configured with a specific tool type (e.g., OpenCode, Aider) and command.
+
+### Create Agent
+
+#### POST /api/agents
+
+Create a new AI agent for a workspace.
+
+**Request:**
+```json
+{
+  "workspace_id": 1,
+  "name": "OpenCode Agent",
+  "tool_type": "OpenCode",
+  "command": "opencode --model glm-4-flash",
+  "timeout": 600,
+  "env_vars": {
+    "TEST_MODE": "true",
+    "OPENAI_API_KEY": "sk-..."
+  }
+}
+```
+
+**Request Fields:**
+- `workspace_id` (integer, required) - ID of the workspace
+- `name` (string, required) - Human-readable agent name
+- `tool_type` (string, required) - Tool type (e.g., "OpenCode", "Aider", "Custom")
+- `command` (string, required) - Full command to execute the tool
+- `timeout` (integer, optional) - Timeout in seconds (default: 1800)
+- `env_vars` (object, optional) - Environment variables as JSON object
+
+**Response:** `201 Created`
+```json
+{
+  "id": 1,
+  "workspace_id": 1,
+  "name": "OpenCode Agent",
+  "tool_type": "OpenCode",
+  "enabled": true,
+  "command": "opencode --model glm-4-flash",
+  "env_vars": {
+    "TEST_MODE": "true",
+    "OPENAI_API_KEY": "sk-..."
+  },
+  "timeout": 600,
+  "created_at": "2026-01-24T10:30:00Z",
+  "updated_at": "2026-01-24T10:30:00Z"
+}
+```
+
+**Example - Aider Agent:**
+```bash
+curl -X POST http://localhost:3000/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspace_id": 1,
+    "name": "Aider GPT-4",
+    "tool_type": "Aider",
+    "command": "aider --model gpt-4 --yes",
+    "timeout": 1800,
+    "env_vars": {
+      "OPENAI_API_KEY": "sk-..."
+    }
+  }'
+```
+
+### Get Agent
+
+#### GET /api/agents/:id
+
+Get agent details by ID.
+
+**Response:** `200 OK`
+```json
+{
+  "id": 1,
+  "workspace_id": 1,
+  "name": "OpenCode Agent",
+  "tool_type": "OpenCode",
+  "enabled": true,
+  "command": "opencode --model glm-4-flash",
+  "env_vars": {
+    "TEST_MODE": "true"
+  },
+  "timeout": 600,
+  "created_at": "2026-01-24T10:30:00Z",
+  "updated_at": "2026-01-24T10:30:00Z"
+}
+```
+
+### List Agents by Workspace
+
+#### GET /api/workspaces/:workspace_id/agents
+
+List all agents for a specific workspace.
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "id": 1,
+    "workspace_id": 1,
+    "name": "OpenCode Agent",
+    "tool_type": "OpenCode",
+    "enabled": true,
+    "command": "opencode --model glm-4-flash",
+    "env_vars": {},
+    "timeout": 600,
+    "created_at": "2026-01-24T10:30:00Z",
+    "updated_at": "2026-01-24T10:30:00Z"
+  },
+  {
+    "id": 2,
+    "workspace_id": 1,
+    "name": "Aider Agent",
+    "tool_type": "Aider",
+    "enabled": false,
+    "command": "aider --model gpt-4",
+    "env_vars": {},
+    "timeout": 1800,
+    "created_at": "2026-01-24T11:00:00Z",
+    "updated_at": "2026-01-24T11:00:00Z"
+  }
+]
+```
+
+### Update Agent Status
+
+#### PATCH /api/agents/:id/enabled
+
+Enable or disable an agent.
+
+**Request:**
+```json
+{
+  "enabled": false
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "id": 1,
+  "workspace_id": 1,
+  "name": "OpenCode Agent",
+  "tool_type": "OpenCode",
+  "enabled": false,
+  "command": "opencode --model glm-4-flash",
+  "env_vars": {},
+  "timeout": 600,
+  "created_at": "2026-01-24T10:30:00Z",
+  "updated_at": "2026-01-24T12:00:00Z"
+}
+```
+
+### Delete Agent
+
+#### DELETE /api/agents/:id
+
+Delete an agent.
+
+**Response:** `204 No Content`
+
+**Note:** Deleting an agent will not affect existing tasks that were assigned to it.
+
+---
+
 ## Task Module
 
 ### CRUD Operations
