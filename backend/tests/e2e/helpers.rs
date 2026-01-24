@@ -93,7 +93,10 @@ where
 pub fn generate_test_name(prefix: &str) -> String {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards")
+        // This is safe: SystemTime::now() is always after UNIX_EPOCH on all supported platforms.
+        // The only way this could fail is if the system clock is set before 1970-01-01,
+        // which would indicate a serious system misconfiguration.
+        .unwrap_or_else(|_| Duration::from_secs(0))
         .as_millis();
 
     format!("{}-{}", prefix, timestamp)
