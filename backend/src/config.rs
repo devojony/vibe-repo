@@ -141,8 +141,7 @@ impl Default for WebhookConfig {
         Self {
             domain: std::env::var("WEBHOOK_DOMAIN")
                 .unwrap_or_else(|_| "http://localhost:3000".to_string()),
-            secret_key: std::env::var("WEBHOOK_SECRET_KEY")
-                .unwrap_or_else(|_| "default-webhook-secret-change-in-production".to_string()),
+            secret_key: std::env::var("WEBHOOK_SECRET_KEY").unwrap_or_default(),
             bot_username: std::env::var("WEBHOOK_BOT_USERNAME")
                 .unwrap_or_else(|_| "vibe-repo-bot".to_string()),
             retry: WebhookRetryConfig::default(),
@@ -280,11 +279,42 @@ impl AppConfig {
             });
         }
 
-        // Warn if using default webhook secret key (security issue)
-        if self.webhook.secret_key == "default-webhook-secret-change-in-production" {
+        // Validate webhook secret key
+        const WEAK_SECRETS: &[&str] = &[
+            "change-this-in-production",
+            "default-webhook-secret-change-in-production",
+            "secret",
+            "password",
+            "test",
+            "webhook-secret",
+        ];
+
+        if WEAK_SECRETS.contains(&self.webhook.secret_key.as_str()) {
+            return Err(ConfigError::InvalidValue {
+                field: "WEBHOOK_SECRET_KEY".to_string(),
+                message: format!(
+                    "Weak or default webhook secret detected: '{}'. \
+                     Please set WEBHOOK_SECRET_KEY to a strong random value. \
+                     Generate one with: openssl rand -hex 32",
+                    self.webhook.secret_key
+                ),
+            });
+        }
+
+        // Warn if webhook secret is empty or too short
+        if self.webhook.secret_key.is_empty() {
             tracing::warn!(
-                "SECURITY WARNING: Using default webhook secret key. \
-                 Please set WEBHOOK_SECRET_KEY environment variable to a secure random value."
+                "SECURITY WARNING: WEBHOOK_SECRET_KEY is not set. \
+                 Webhook signature verification will be disabled. \
+                 This is not recommended for production. \
+                 Generate a secure key with: openssl rand -hex 32"
+            );
+        } else if self.webhook.secret_key.len() < 32 {
+            tracing::warn!(
+                "SECURITY WARNING: WEBHOOK_SECRET_KEY is too short ({} characters). \
+                 Recommended minimum is 32 characters. \
+                 Generate a secure key with: openssl rand -hex 32",
+                self.webhook.secret_key.len()
             );
         }
 
