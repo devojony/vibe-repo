@@ -387,14 +387,14 @@ let tasks = Task::find()
 let new_task = task::ActiveModel {
     workspace_id: Set(1),
     issue_number: Set(42),
-    task_status: Set("Pending".to_string()),
+    task_status: Set(TaskStatus::Pending),
     ..Default::default()
 };
 let result = Task::insert(new_task).exec(&db).await?;
 
 // Update
 let mut task: task::ActiveModel = task.into();
-task.task_status = Set("Running".to_string());
+task.task_status = Set(TaskStatus::Running);
 task.update(&db).await?;
 ```
 

@@ -433,6 +433,30 @@ Delete an agent.
 
 ## Task Module
 
+Automated task execution from GitHub/Gitea issues.
+
+### TaskStatus Enum
+
+Task status is represented as a type-safe enum with state machine validation:
+
+**Possible Values:**
+- `pending` - Task created, waiting for agent assignment
+- `assigned` - Agent assigned, ready to execute
+- `running` - Task execution in progress
+- `completed` - Task successfully completed with PR created
+- `failed` - Task failed after exhausting retries
+- `cancelled` - Task manually cancelled
+
+**State Transitions:**
+- `pending` → `assigned`, `cancelled`
+- `assigned` → `running`, `cancelled`
+- `running` → `completed`, `failed`, `cancelled`
+- `failed` → `pending` (retry only)
+- `completed` and `cancelled` are terminal states
+
+**Validation:**
+Invalid state transitions return `400 Bad Request` with error details.
+
 ### CRUD Operations
 
 #### POST /api/tasks
@@ -594,7 +618,7 @@ Execute task in workspace container with assigned agent.
 ```json
 {
   "id": 1,
-  "task_status": "Running",
+  "task_status": "running",
   "started_at": "2026-01-21T12:00:00Z"
 }
 ```

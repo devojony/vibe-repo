@@ -15,6 +15,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### Task State Management Refactor
+- **BREAKING**: Task status changed from String to TaskStatus enum
+  - **Old**: `task_status: String` with arbitrary string values
+  - **New**: `task_status: TaskStatus` with type-safe enum and state machine validation
+  - **API Impact**: API responses now return lowercase enum values (e.g., `"pending"`, `"running"`, `"completed"`)
+  - **Validation**: Invalid state transitions now return `400 Bad Request` with detailed error message
+  - **State Transitions**:
+    - `pending` → `assigned`, `cancelled`
+    - `assigned` → `running`, `cancelled`
+    - `running` → `completed`, `failed`, `cancelled`
+    - `failed` → `pending` (retry only, if retry_count < max_retries)
+    - `completed` and `cancelled` are terminal states (no further transitions)
+  - **Migration**: Existing string values automatically converted to enum during migration
+  - **Error Handling**: New `InvalidStateTransition` error variant with current state, target state, and allowed transitions
+  - **Benefits**: Compile-time type safety, prevents data corruption from illegal state changes, self-documenting state machine
+
 ### Planned
 - Agent configuration management
 - Task automation system

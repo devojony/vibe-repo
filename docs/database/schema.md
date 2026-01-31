@@ -272,7 +272,7 @@ Automated development tasks created from issues.
 - `issue_number` (INTEGER, NOT NULL) - Source issue number
 - `issue_title` (TEXT, NOT NULL) - Issue title
 - `issue_body` (TEXT, NULLABLE) - Issue description
-- `task_status` (TEXT) - Task status ('Pending', 'Assigned', 'Running', 'Completed', 'Failed', 'Cancelled')
+- `task_status` (TaskStatus enum, stored as TEXT) - Task status with state machine validation
 - `priority` (TEXT, DEFAULT 'Medium') - Priority level ('Low', 'Medium', 'High')
 - `assigned_agent_id` (INTEGER, FOREIGN KEY → agents.id, NULLABLE) - Assigned AI agent
 - `branch_name` (TEXT, NULLABLE) - Git branch name
@@ -295,13 +295,23 @@ Automated development tasks created from issues.
 - Many-to-one with `agents` (via `assigned_agent_id`, SET NULL on delete)
 - One-to-many with `task_executions` (CASCADE DELETE)
 
-**Task Status Values:**
-- `Pending` - Task created, waiting to be assigned
-- `Assigned` - Agent assigned, ready to start
-- `Running` - Task execution in progress
-- `Completed` - Task successfully completed with PR created
-- `Failed` - Task failed after exhausting retries
-- `Cancelled` - Task manually cancelled
+**Task Status Values (TaskStatus Enum):**
+
+The `task_status` field uses a type-safe enum with state machine validation. Values are stored as lowercase strings in the database.
+
+- `pending` - Task created, waiting to be assigned
+- `assigned` - Agent assigned, ready to start
+- `running` - Task execution in progress
+- `completed` - Task successfully completed with PR created
+- `failed` - Task failed after exhausting retries
+- `cancelled` - Task manually cancelled
+
+**State Transition Rules:**
+- `pending` → `assigned`, `cancelled`
+- `assigned` → `running`, `cancelled`
+- `running` → `completed`, `failed`, `cancelled`
+- `failed` → `pending` (retry only, if retry_count < max_retries)
+- `completed` and `cancelled` are terminal states (no further transitions)
 
 **Priority Levels:**
 - `High` - Critical tasks executed first

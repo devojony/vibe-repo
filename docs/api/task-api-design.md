@@ -28,7 +28,7 @@ Response: 201 Created
   "issue_url": "https://git.example.com/owner/repo/issues/123",
   "issue_title": "Fix bug in authentication",
   "issue_body": "Detailed description...",
-  "task_status": "Pending",
+  "task_status": "pending",
   "priority": "High",
   "assigned_agent_id": 1,
   "branch_name": null,
@@ -123,7 +123,7 @@ Request Body:
 Response: 200 OK
 {
   "id": 1,
-  "task_status": "Assigned",
+  "task_status": "assigned",
   "assigned_agent_id": 1,
   ...
 }
@@ -136,7 +136,7 @@ POST /api/tasks/:id/start
 Response: 200 OK
 {
   "id": 1,
-  "task_status": "Running",
+  "task_status": "running",
   "started_at": "2026-01-21T10:05:00Z",
   ...
 }
@@ -157,7 +157,7 @@ Request Body:
 Response: 200 OK
 {
   "id": 1,
-  "task_status": "Completed",
+  "task_status": "completed",
   "pr_number": 456,
   "pr_url": "https://git.example.com/owner/repo/pulls/456",
   "branch_name": "fix/auth-bug",
@@ -180,7 +180,7 @@ Request Body:
 Response: 200 OK
 {
   "id": 1,
-  "task_status": "Failed",  // or "Pending" if retry_count < max_retries
+  "task_status": "failed",  // or "pending" if retry_count < max_retries
   "error_message": "Failed to create branch",
   "retry_count": 1,
   ...
@@ -194,7 +194,7 @@ POST /api/tasks/:id/retry
 Response: 200 OK
 {
   "id": 1,
-  "task_status": "Pending",
+  "task_status": "pending",
   "retry_count": 1,
   "error_message": null,
   ...
@@ -208,7 +208,7 @@ POST /api/tasks/:id/cancel
 Response: 200 OK
 {
   "id": 1,
-  "task_status": "Cancelled",
+  "task_status": "cancelled",
   ...
 }
 ```
@@ -216,17 +216,26 @@ Response: 200 OK
 ## 数据模型
 
 ### TaskStatus 枚举
+
 ```rust
 pub enum TaskStatus {
     Pending,    // 待处理
     Assigned,   // 已分配 Agent
     Running,    // 执行中
-    Review,     // PR 已创建，等待审核
     Completed,  // 已完成
     Failed,     // 失败 (达到最大重试次数)
     Cancelled,  // 已取消
 }
 ```
+
+**状态转换规则：**
+- `Pending` → `Assigned`, `Cancelled`
+- `Assigned` → `Running`, `Cancelled`
+- `Running` → `Completed`, `Failed`, `Cancelled`
+- `Failed` → `Pending` (仅重试，如果 retry_count < max_retries)
+- `Completed` 和 `Cancelled` 是终态，不能再转换
+
+**API 序列化：** 枚举值在 API 响应中序列化为小写字符串（如 "pending", "running", "completed"）
 
 ### TaskPriority 枚举
 ```rust
@@ -267,7 +276,7 @@ pub struct TaskResponse {
     pub issue_url: String,
     pub issue_title: String,
     pub issue_body: Option<String>,
-    pub task_status: String,
+    pub task_status: String,  // TaskStatus enum serialized as lowercase string
     pub priority: String,
     pub assigned_agent_id: Option<i32>,
     pub branch_name: Option<String>,
@@ -297,6 +306,21 @@ pub struct TaskListResponse {
 ## 错误响应
 
 ### 400 Bad Request
+
+**无效的状态转换：**
+```json
+{
+  "error": "Invalid state transition",
+  "code": "INVALID_STATE_TRANSITION",
+  "details": {
+    "current_status": "completed",
+    "target_status": "failed",
+    "allowed_transitions": []
+  }
+}
+```
+
+**其他验证错误：**
 ```json
 {
   "error": "Invalid request",
@@ -325,14 +349,6 @@ pub struct TaskListResponse {
 ```
 
 ### 422 Unprocessable Entity
-```json
-{
-  "error": "Cannot start task in current status",
-  "code": "INVALID_STATUS_TRANSITION",
-  "details": {
-    "current_status": "Completed",
-    "requested_action": "start"
-  }
-}
-```
+
+**已弃用：** 状态转换错误现在返回 400 Bad Request（见上文）。此错误码保留用于其他业务逻辑错误。
 

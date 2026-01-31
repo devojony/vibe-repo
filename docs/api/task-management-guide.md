@@ -42,26 +42,32 @@ Tasks in VibeRepo represent automated development work triggered by GitHub/GitLa
 
 ### Task States
 
-Tasks progress through the following states:
+Tasks progress through the following states with **state machine validation**:
 
 ```
-Pending → Assigned → Running → Completed
+pending → assigned → running → completed
                               ↓
-                           Failed → (Retry) → Running
-                              ↓
-                         Cancelled
+                           failed → (retry) → pending
+            ↓                 ↓
+        cancelled         cancelled
 ```
 
 **State Descriptions:**
 
-| State | Description | Next States |
-|-------|-------------|-------------|
-| `Pending` | Task created, waiting for agent assignment | `Assigned`, `Cancelled` |
-| `Assigned` | Agent assigned, ready to execute | `Running`, `Cancelled` |
-| `Running` | Task execution in progress | `Completed`, `Failed` |
-| `Completed` | Task successfully completed, PR created | - |
-| `Failed` | Task failed after exhausting retries | `Running` (manual retry) |
-| `Cancelled` | Task manually cancelled | - |
+| State | Description | Next States | API Value |
+|-------|-------------|-------------|-----------|
+| `Pending` | Task created, waiting for agent assignment | `Assigned`, `Cancelled` | `"pending"` |
+| `Assigned` | Agent assigned, ready to execute | `Running`, `Cancelled` | `"assigned"` |
+| `Running` | Task execution in progress | `Completed`, `Failed`, `Cancelled` | `"running"` |
+| `Completed` | Task successfully completed, PR created | None (terminal) | `"completed"` |
+| `Failed` | Task failed after exhausting retries | `Pending` (retry only) | `"failed"` |
+| `Cancelled` | Task manually cancelled | None (terminal) | `"cancelled"` |
+
+**State Machine Validation:**
+- All state transitions are validated before execution
+- Invalid transitions return `400 Bad Request` with detailed error message
+- Terminal states (`Completed`, `Cancelled`) cannot transition to any other state
+- Retry from `Failed` to `Pending` only allowed if `retry_count < max_retries`
 
 ### State Transitions
 
@@ -133,7 +139,7 @@ curl http://localhost:3000/api/tasks?workspace_id=1&status=Running
       "workspace_id": 1,
       "issue_number": 42,
       "issue_title": "Add user authentication",
-      "task_status": "Running",
+      "task_status": "running",
       "priority": "High",
       "assigned_agent_id": 3,
       "retry_count": 0,
@@ -212,7 +218,7 @@ curl -X POST http://localhost:3000/api/tasks \
   "id": 1,
   "workspace_id": 1,
   "issue_number": 42,
-  "task_status": "Pending",
+  "task_status": "pending",
   "created_at": "2026-01-24T10:00:00Z"
 }
 ```
@@ -273,7 +279,7 @@ curl -X POST http://localhost:3000/api/tasks/1/retry
 ```json
 {
   "id": 1,
-  "task_status": "Pending",
+  "task_status": "pending",
   "retry_count": 1,
   "updated_at": "2026-01-24T10:35:00Z"
 }
@@ -387,7 +393,7 @@ asyncio.run(stream_task_logs(1, 'your-auth-token'))
 ```json
 {
   "type": "status",
-  "status": "Running",
+  "status": "running",
   "timestamp": "2026-01-24T10:05:00Z"
 }
 ```
@@ -405,7 +411,7 @@ asyncio.run(stream_task_logs(1, 'your-auth-token'))
 ```json
 {
   "type": "complete",
-  "status": "Completed",
+  "status": "completed",
   "pr_url": "https://github.com/owner/repo/pull/123",
   "timestamp": "2026-01-24T10:30:00Z"
 }
@@ -762,10 +768,10 @@ async function getTaskStats() {
   
   const stats = {
     total: tasks.length,
-    pending: tasks.filter(t => t.task_status === 'Pending').length,
-    running: tasks.filter(t => t.task_status === 'Running').length,
-    completed: tasks.filter(t => t.task_status === 'Completed').length,
-    failed: tasks.filter(t => t.task_status === 'Failed').length
+    pending: tasks.filter(t => t.task_status === 'pending').length,
+    running: tasks.filter(t => t.task_status === 'running').length,
+    completed: tasks.filter(t => t.task_status === 'completed').length,
+    failed: tasks.filter(t => t.task_status === 'failed').length
   };
   
   return stats;
