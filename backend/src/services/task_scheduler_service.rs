@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use tokio::time::interval;
 use tracing::{error, info};
 
-use crate::entities::{prelude::*, task, workspace};
+use crate::entities::{prelude::*, task::{self, TaskStatus}, workspace};
 use crate::error::{Result, VibeRepoError};
 use crate::services::{BackgroundService, TaskExecutorService, TaskLogBroadcaster};
 use crate::state::AppState;
@@ -91,7 +91,7 @@ impl TaskSchedulerService {
     async fn get_workspaces_with_pending_tasks(&self) -> Result<Vec<workspace::Model>> {
         // Find all workspaces that have at least one pending task
         let tasks = Task::find()
-            .filter(task::Column::TaskStatus.eq("pending"))
+            .filter(task::Column::TaskStatus.eq(TaskStatus::Pending))
             .all(&self.db)
             .await
             .map_err(VibeRepoError::Database)?;
@@ -192,7 +192,7 @@ impl TaskSchedulerService {
     async fn get_running_tasks_count(&self, workspace_id: i32) -> Result<i32> {
         let query = Task::find()
             .filter(task::Column::WorkspaceId.eq(workspace_id))
-            .filter(task::Column::TaskStatus.eq("running"));
+            .filter(task::Column::TaskStatus.eq(TaskStatus::Running));
 
         let count: u64 = query
             .count(&self.db)
@@ -210,7 +210,7 @@ impl TaskSchedulerService {
     ) -> Result<Vec<task::Model>> {
         let tasks = Task::find()
             .filter(task::Column::WorkspaceId.eq(workspace_id))
-            .filter(task::Column::TaskStatus.eq("pending"))
+            .filter(task::Column::TaskStatus.eq(TaskStatus::Pending))
             .all(&self.db)
             .await
             .map_err(VibeRepoError::Database)?;
@@ -385,7 +385,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Start task1 (make it running)
+        // Assign and start task1 (make it running)
+        task_service.assign_agent(task1.id, None).await.unwrap();
         task_service.start_task(task1.id).await.unwrap();
 
         let scheduler = TaskSchedulerService::new(

@@ -2,7 +2,7 @@
 //!
 //! Handles creating pull requests for completed tasks via Git Provider API.
 
-use crate::entities::{prelude::*, repository, task};
+use crate::entities::{prelude::*, repository, task::{self, TaskStatus}};
 use crate::error::{Result, VibeRepoError};
 use crate::git_provider::{
     models::CreatePullRequestRequest, traits::GitProvider, GitClientFactory,
@@ -638,7 +638,7 @@ mod tests {
             issue_number: Set(123),
             issue_title: Set("Test Issue".to_string()),
             issue_body: Set(Some("Test issue body".to_string())),
-            task_status: Set("completed".to_string()),
+            task_status: Set(TaskStatus::Completed),
             priority: Set("high".to_string()),
             branch_name: Set(Some("feature/test-branch".to_string())),
             retry_count: Set(0),
@@ -669,7 +669,7 @@ mod tests {
             issue_number: Set(456),
             issue_title: Set("Test Issue Without Branch".to_string()),
             issue_body: Set(None),
-            task_status: Set("pending".to_string()),
+            task_status: Set(TaskStatus::Pending),
             priority: Set("medium".to_string()),
             branch_name: Set(None), // No branch name
             retry_count: Set(0),

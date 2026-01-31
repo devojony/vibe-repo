@@ -17,7 +17,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::config::IssuePollingConfig;
 use crate::entities::prelude::*;
-use crate::entities::{repository, task, workspace};
+use crate::entities::{repository, task::{self, TaskStatus}, workspace};
 use crate::error::{Result, VibeRepoError};
 use crate::git_provider::error::GitProviderError;
 use crate::git_provider::traits::GitProvider;
@@ -448,7 +448,7 @@ impl IssuePollingService {
             issue_number: Set(issue.number as i32),
             issue_title: Set(issue.title.clone()),
             issue_body: Set(issue.body.clone()),
-            task_status: Set("Pending".to_string()),
+            task_status: Set(TaskStatus::Pending),
             priority: Set("Medium".to_string()),
             retry_count: Set(0),
             max_retries: Set(3),

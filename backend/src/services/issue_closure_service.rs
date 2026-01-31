@@ -2,7 +2,7 @@
 //!
 //! Handles closing issues when PRs are merged.
 
-use crate::entities::{prelude::*, task};
+use crate::entities::{prelude::*, task::{self, TaskStatus}};
 use crate::error::{Result, VibeRepoError};
 use crate::git_provider::{GitClientFactory, GitProvider, IssueState, UpdateIssueRequest};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
@@ -140,7 +140,7 @@ impl IssueClosureService {
 
         // Update task status to completed
         let mut task: task::ActiveModel = task.into();
-        task.task_status = Set("completed".to_string());
+        task.task_status = Set(TaskStatus::Completed);
         task.updated_at = Set(chrono::Utc::now());
 
         task.update(&self.db)
@@ -389,7 +389,7 @@ mod tests {
             issue_number: Set(123),
             issue_title: Set("Test Issue".to_string()),
             issue_body: Set(Some("Test body".to_string())),
-            task_status: Set("running".to_string()),
+            task_status: Set(TaskStatus::Running),
             priority: Set("high".to_string()),
             assigned_agent_id: Set(None),
             pr_number: Set(Some(456)),
@@ -425,7 +425,7 @@ mod tests {
             issue_number: Set(789),
             issue_title: Set("Test Issue Without PR".to_string()),
             issue_body: Set(Some("Test body".to_string())),
-            task_status: Set("pending".to_string()),
+            task_status: Set(TaskStatus::Pending),
             priority: Set("medium".to_string()),
             assigned_agent_id: Set(None),
             pr_number: Set(None), // No PR number

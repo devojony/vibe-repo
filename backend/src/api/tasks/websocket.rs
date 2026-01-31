@@ -76,7 +76,7 @@ pub async fn stream_task_logs(
 
     info!(
         task_id = task_id,
-        task_status = task.task_status,
+        task_status = %task.task_status,
         "Task found, upgrading to WebSocket"
     );
 

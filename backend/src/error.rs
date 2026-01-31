@@ -9,6 +9,8 @@ use axum::{
 };
 use serde::Serialize;
 
+use crate::entities::task::TaskStatus;
+
 /// Unified error type for the application
 #[derive(Debug, thiserror::Error)]
 pub enum VibeRepoError {
@@ -38,6 +40,21 @@ pub enum VibeRepoError {
 
     #[error("Git provider error: {0}")]
     GitProvider(#[from] crate::git_provider::error::GitProviderError),
+
+    #[error("Invalid state transition from {current} to {target}. Allowed transitions: {}", format_allowed_transitions(.allowed))]
+    InvalidStateTransition {
+        current: TaskStatus,
+        target: TaskStatus,
+        allowed: Vec<TaskStatus>,
+    },
+}
+
+fn format_allowed_transitions(allowed: &[TaskStatus]) -> String {
+    allowed
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Error response format for API
@@ -81,6 +98,11 @@ impl IntoResponse for VibeRepoError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "SERVICE_UNAVAILABLE",
                 msg.clone(),
+            ),
+            VibeRepoError::InvalidStateTransition { .. } => (
+                StatusCode::BAD_REQUEST,
+                "INVALID_STATE_TRANSITION",
+                self.to_string(),
             ),
             VibeRepoError::GitProvider(e) => {
                 // Map Git provider errors to appropriate HTTP status codes
@@ -247,6 +269,47 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_state_transition_error_variant_exists() {
+        let error = VibeRepoError::InvalidStateTransition {
+            current: crate::entities::task::TaskStatus::Completed,
+            target: crate::entities::task::TaskStatus::Failed,
+            allowed: vec![],
+        };
+        assert!(matches!(error, VibeRepoError::InvalidStateTransition { .. }));
+    }
+
+    #[test]
+    fn test_invalid_state_transition_error_message_includes_states() {
+        let error = VibeRepoError::InvalidStateTransition {
+            current: crate::entities::task::TaskStatus::Completed,
+            target: crate::entities::task::TaskStatus::Failed,
+            allowed: vec![],
+        };
+        let message = error.to_string();
+        assert!(message.contains("Invalid state transition"));
+        assert!(message.contains("completed"));
+        assert!(message.contains("failed"));
+        assert!(message.contains("Allowed transitions"));
+    }
+
+    #[test]
+    fn test_invalid_state_transition_error_message_includes_allowed_transitions() {
+        let error = VibeRepoError::InvalidStateTransition {
+            current: crate::entities::task::TaskStatus::Pending,
+            target: crate::entities::task::TaskStatus::Running,
+            allowed: vec![
+                crate::entities::task::TaskStatus::Assigned,
+                crate::entities::task::TaskStatus::Cancelled,
+            ],
+        };
+        let message = error.to_string();
+        assert!(message.contains("pending"));
+        assert!(message.contains("running"));
+        assert!(message.contains("assigned"));
+        assert!(message.contains("cancelled"));
+    }
+
+    #[test]
     fn test_database_error_from_sea_orm_db_err() {
         let db_err = sea_orm::DbErr::Custom("test".to_string());
         let error: VibeRepoError = db_err.into();
@@ -355,6 +418,23 @@ mod tests {
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(body.code, Some("SERVICE_UNAVAILABLE".to_string()));
         assert!(body.error.contains("Git provider unreachable"));
+    }
+
+    #[test]
+    fn test_invalid_state_transition_error_returns_400() {
+        let error = VibeRepoError::InvalidStateTransition {
+            current: crate::entities::task::TaskStatus::Completed,
+            target: crate::entities::task::TaskStatus::Failed,
+            allowed: vec![],
+        };
+        let response = error.into_response();
+        let (status, body) = extract_status_and_body(response);
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body.code, Some("INVALID_STATE_TRANSITION".to_string()));
+        assert!(body.error.contains("Invalid state transition"));
+        assert!(body.error.contains("completed"));
+        assert!(body.error.contains("failed"));
     }
 
     #[test]

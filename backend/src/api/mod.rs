@@ -123,6 +123,7 @@ use crate::{logging, state::AppState};
         tasks::TaskResponse,
         tasks::CreateTaskRequest,
         tasks::UpdateTaskStatusRequest,
+        crate::entities::task::TaskStatus,
     ))
 )]
 pub struct ApiDoc;

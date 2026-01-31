@@ -12,7 +12,7 @@ use tower::ServiceExt;
 use vibe_repo::api::agents::models::{
     AgentResponse, CreateAgentRequest, UpdateAgentEnabledRequest,
 };
-use vibe_repo::api::tasks::models::{CreateTaskRequest, TaskResponse, UpdateTaskStatusRequest};
+use vibe_repo::api::tasks::models::{CreateTaskRequest, TaskListResponse, TaskResponse, UpdateTaskStatusRequest};
 use vibe_repo::api::workspaces::models::{
     CreateWorkspaceRequest, UpdateWorkspaceStatusRequest, WorkspaceResponse,
 };
@@ -765,8 +765,8 @@ async fn test_list_tasks_by_workspace_returns_200() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = response.into_body().collect().await.unwrap().to_bytes();
-    let tasks: Vec<TaskResponse> = serde_json::from_slice(&body).unwrap();
-    assert_eq!(tasks.len(), 2, "Should have 2 tasks");
+    let response: TaskListResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(response.tasks.len(), 2, "Should have 2 tasks");
 }
 
 /// Test PATCH /api/tasks/:id/status updates task status
@@ -815,7 +815,7 @@ async fn test_update_task_status_returns_200() {
     let task: TaskResponse = serde_json::from_slice(&body).unwrap();
 
     let update_request = UpdateTaskStatusRequest {
-        status: "in_progress".to_string(),
+        status: vibe_repo::entities::task::TaskStatus::Assigned,
     };
 
     // Act: Update task status
@@ -836,5 +836,5 @@ async fn test_update_task_status_returns_200() {
 
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let updated: TaskResponse = serde_json::from_slice(&body).unwrap();
-    assert_eq!(updated.task_status, "in_progress");
+    assert_eq!(updated.task_status, "assigned");
 }

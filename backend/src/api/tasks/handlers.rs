@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::{
     api::tasks::models::*,
+    entities::task::TaskStatus,
     error::Result,
     services::{
         IssueClosureService, PRCreationService, TaskExecutorService, TaskFailureAnalyzer,
@@ -76,7 +77,7 @@ pub async fn get_task(
 #[derive(Debug, Deserialize)]
 pub struct ListTasksQuery {
     pub workspace_id: i32,
-    pub status: Option<String>,
+    pub status: Option<TaskStatus>,
     pub priority: Option<String>,
     pub assigned_agent_id: Option<i32>,
     #[serde(default = "default_page")]
@@ -635,16 +636,16 @@ mod tests {
         let task = create_test_task(&state, workspace.id).await;
 
         let req = UpdateTaskStatusRequest {
-            status: "in_progress".to_string(),
+            status: TaskStatus::Assigned,
         };
 
         // Act
-        let result = update_task_status(State(state), Path(task.id), Json(req)).await;
+        let result = update_task_status(State(state.clone()), Path(task.id), Json(req)).await;
 
         // Assert
         assert!(result.is_ok());
         let Json(response) = result.unwrap();
-        assert_eq!(response.task_status, "in_progress");
+        assert_eq!(response.task_status, "assigned");
     }
 
     /// Test update_task handler updates priority
@@ -730,6 +731,10 @@ mod tests {
         let workspace = create_test_workspace(&state).await;
         let task = create_test_task(&state, workspace.id).await;
 
+        // Assign the task first (required before starting)
+        let task_service = TaskService::new(state.db.clone());
+        task_service.assign_agent(task.id, None).await.unwrap();
+
         // Act
         let result = start_task(State(state), Path(task.id)).await;
 
@@ -750,6 +755,11 @@ mod tests {
             .expect("Failed to create test state");
         let workspace = create_test_workspace(&state).await;
         let task = create_test_task(&state, workspace.id).await;
+
+        // Assign and start the task first (required before completing)
+        let task_service = TaskService::new(state.db.clone());
+        task_service.assign_agent(task.id, None).await.unwrap();
+        task_service.start_task(task.id).await.unwrap();
 
         let req = CompleteTaskRequest {
             pr_number: 456,
@@ -784,6 +794,11 @@ mod tests {
         let workspace = create_test_workspace(&state).await;
         let task = create_test_task(&state, workspace.id).await;
 
+        // Assign and start the task first (required before failing)
+        let task_service = TaskService::new(state.db.clone());
+        task_service.assign_agent(task.id, None).await.unwrap();
+        task_service.start_task(task.id).await.unwrap();
+
         let req = FailTaskRequest {
             error_message: "Test error".to_string(),
         };
@@ -795,7 +810,8 @@ mod tests {
         assert!(result.is_ok());
         let Json(response) = result.unwrap();
         assert_eq!(response.retry_count, 1);
-        assert_eq!(response.error_message, Some("Test error".to_string()));
+        // Error message is cleared when task is retried (transitioned to Pending)
+        assert_eq!(response.error_message, None);
         assert_eq!(response.task_status, "pending"); // Should retry
     }
 
@@ -810,14 +826,23 @@ mod tests {
         let workspace = create_test_workspace(&state).await;
         let task = create_test_task(&state, workspace.id).await;
 
-        // Fail the task first
+        // Assign, start, and fail the task multiple times to reach max retries
         let service = TaskService::new(state.db.clone());
-        service
-            .fail_task(task.id, "Test error".to_string())
-            .await
-            .unwrap();
+        
+        // Fail 3 times to reach max_retries (default is 3)
+        for _ in 0..3 {
+            let current_task = service.get_task_by_id(task.id).await.unwrap();
+            if current_task.task_status == crate::entities::task::TaskStatus::Pending {
+                service.assign_agent(task.id, None).await.unwrap();
+                service.start_task(task.id).await.unwrap();
+            }
+            service
+                .fail_task(task.id, "Test error".to_string())
+                .await
+                .unwrap();
+        }
 
-        // Act
+        // Act - Now retry the failed task
         let result = retry_task(State(state), Path(task.id)).await;
 
         // Assert
@@ -883,12 +908,13 @@ mod tests {
             .await
             .unwrap();
 
-        // Start one task
+        // Assign and start one task
+        service.assign_agent(task2.id, None).await.unwrap();
         service.start_task(task2.id).await.unwrap();
 
         let query = ListTasksQuery {
             workspace_id: workspace.id,
-            status: Some("pending".to_string()),
+            status: Some(TaskStatus::Pending),
             priority: None,
             assigned_agent_id: None,
             page: 1,

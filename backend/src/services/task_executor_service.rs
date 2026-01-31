@@ -2,7 +2,7 @@
 //!
 //! Executes tasks in Docker containers using AI agents with concurrency control.
 
-use crate::entities::{agent, prelude::*, task, workspace};
+use crate::entities::{agent, prelude::*, task::{self, TaskStatus}, workspace};
 use crate::error::{Result, VibeRepoError};
 use crate::services::{
     AgentService, GitService, PRCreationService, TaskExecutionHistoryService, TaskLogBroadcaster,
@@ -103,7 +103,7 @@ impl TaskExecutorService {
         let task = self.task_service.get_task_by_id(task_id).await?;
 
         // Validate task status
-        if task.task_status != "assigned" && task.task_status != "pending" {
+        if task.task_status != TaskStatus::Assigned && task.task_status != TaskStatus::Pending {
             return Err(VibeRepoError::Validation(format!(
                 "Task {} is not in a valid state for execution (current: {})",
                 task_id, task.task_status
@@ -551,7 +551,7 @@ impl TaskExecutorService {
     pub async fn get_next_pending_task(&self, workspace_id: i32) -> Result<Option<task::Model>> {
         let tasks = Task::find()
             .filter(task::Column::WorkspaceId.eq(workspace_id))
-            .filter(task::Column::TaskStatus.eq("pending"))
+            .filter(task::Column::TaskStatus.eq(TaskStatus::Pending))
             .all(&self.db)
             .await
             .map_err(VibeRepoError::Database)?;
@@ -963,7 +963,7 @@ mod tests {
 
         // Update task to assigned status
         let mut task_active: task::ActiveModel = task.into();
-        task_active.task_status = Set("assigned".to_string());
+        task_active.task_status = Set(TaskStatus::Assigned);
         let task = task_active.update(db).await.unwrap();
 
         let executor = TaskExecutorService::new(
@@ -1028,7 +1028,7 @@ mod tests {
 
         // Update task to assigned status
         let mut task_active: task::ActiveModel = task.into();
-        task_active.task_status = Set("assigned".to_string());
+        task_active.task_status = Set(TaskStatus::Assigned);
         let task = task_active.update(db).await.unwrap();
 
         let executor = TaskExecutorService::new(
@@ -1092,7 +1092,7 @@ mod tests {
 
         // Update task to assigned status
         let mut task_active: task::ActiveModel = task.into();
-        task_active.task_status = Set("assigned".to_string());
+        task_active.task_status = Set(TaskStatus::Assigned);
         let task = task_active.update(db).await.unwrap();
 
         let executor = TaskExecutorService::new(

@@ -2,7 +2,7 @@
 //!
 //! Analyzes task failures and provides actionable recommendations.
 
-use crate::entities::{prelude::*, task, task_execution};
+use crate::entities::{prelude::*, task::{self, TaskStatus}, task_execution};
 use crate::error::{Result, VibeRepoError};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
@@ -488,7 +488,7 @@ mod tests {
             issue_number: Set(123),
             issue_title: Set("Test task".to_string()),
             issue_body: Set(None),
-            task_status: Set("failed".to_string()),
+            task_status: Set(TaskStatus::Failed),
             priority: Set("medium".to_string()),
             ..Default::default()
         };

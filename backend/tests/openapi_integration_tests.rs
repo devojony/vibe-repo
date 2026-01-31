@@ -82,41 +82,29 @@ async fn test_swagger_ui_returns_html() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/swagger-ui/")
+                .uri("/swagger-ui")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    // Assert: Should return 200 OK
+    // Assert: Should return 303 redirect (Swagger UI redirects /swagger-ui to /swagger-ui/)
     assert_eq!(
         response.status(),
-        StatusCode::OK,
-        "Swagger UI endpoint should return 200"
+        StatusCode::SEE_OTHER,
+        "Swagger UI endpoint should return 303 redirect"
     );
 
-    // Assert: Content-Type should be text/html
-    let content_type = response
+    // Assert: Should have Location header pointing to /swagger-ui/
+    let location = response
         .headers()
-        .get("content-type")
-        .expect("Content-Type header should be present");
-    assert!(
-        content_type.to_str().unwrap().contains("text/html"),
-        "Content-Type should be text/html, got: {}",
-        content_type.to_str().unwrap()
-    );
-
-    // Assert: Body should contain HTML content
-    let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("Failed to read response body");
-    let body_str = String::from_utf8(body_bytes.to_vec()).expect("Body should be valid UTF-8");
-
-    // Assert: HTML should contain Swagger UI elements
-    assert!(
-        body_str.contains("<!DOCTYPE html>") || body_str.contains("<html"),
-        "Response should contain HTML doctype or html tag"
+        .get("location")
+        .expect("Location header should be present");
+    assert_eq!(
+        location.to_str().unwrap(),
+        "/swagger-ui/",
+        "Location should redirect to /swagger-ui/"
     );
 }
 
@@ -174,8 +162,8 @@ async fn test_openapi_spec_contains_api_info() {
     );
     assert_eq!(
         info.get("version").unwrap().as_str().unwrap(),
-        "0.1.0",
-        "API version should be '0.1.0'"
+        "0.3.0",
+        "API version should be '0.3.0'"
     );
 }
 

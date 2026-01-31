@@ -89,7 +89,7 @@ async fn test_webhook_closes_issue_on_pr_merge() {
         issue_number: Set(123),
         issue_title: Set("Test Issue".to_string()),
         issue_body: Set(Some("Test body".to_string())),
-        task_status: Set("running".to_string()),
+        task_status: Set(vibe_repo::entities::task::TaskStatus::Running),
         priority: Set("high".to_string()),
         assigned_agent_id: Set(None),
         pr_number: Set(Some(456)),
@@ -172,7 +172,7 @@ async fn test_webhook_closes_issue_on_pr_merge() {
     // In unit tests without mock, the task status won't change because
     // IssueClosureService will fail with network error
     // The important thing is the webhook was accepted and processed
-    assert_eq!(updated_task.task_status, "running");
+    assert_eq!(updated_task.task_status, vibe_repo::entities::task::TaskStatus::Running);
 }
 
 /// Test webhook ignores PR close without merge
@@ -252,7 +252,7 @@ async fn test_webhook_ignores_pr_close_without_merge() {
         issue_number: Set(123),
         issue_title: Set("Test Issue".to_string()),
         issue_body: Set(Some("Test body".to_string())),
-        task_status: Set("running".to_string()),
+        task_status: Set(vibe_repo::entities::task::TaskStatus::Running),
         priority: Set("high".to_string()),
         assigned_agent_id: Set(None),
         pr_number: Set(Some(456)),
@@ -331,7 +331,7 @@ async fn test_webhook_ignores_pr_close_without_merge() {
         .expect("Failed to query task")
         .expect("Task not found");
 
-    assert_eq!(updated_task.task_status, "running");
+    assert_eq!(updated_task.task_status, vibe_repo::entities::task::TaskStatus::Running);
 }
 
 /// Test webhook handles missing task gracefully

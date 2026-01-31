@@ -2,7 +2,7 @@
 //!
 //! Periodically checks container health and updates workspace status.
 
-use crate::entities::{prelude::*, workspace};
+use crate::entities::{prelude::*, task::TaskStatus, workspace};
 use crate::error::{Result, VibeRepoError};
 use crate::services::{ContainerService, DockerService};
 use chrono::Utc;

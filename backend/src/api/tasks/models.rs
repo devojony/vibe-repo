@@ -1,3 +1,4 @@
+use crate::entities::task::TaskStatus;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -44,7 +45,7 @@ fn default_priority() -> String {
 /// Request model for updating task status
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateTaskStatusRequest {
-    pub status: String,
+    pub status: TaskStatus,
 }
 
 /// Request model for updating task
@@ -92,7 +93,7 @@ impl From<crate::entities::task::Model> for TaskResponse {
             issue_number: model.issue_number,
             issue_title: model.issue_title,
             issue_body: model.issue_body,
-            task_status: model.task_status,
+            task_status: model.task_status.to_string(),
             priority: model.priority,
             assigned_agent_id: model.assigned_agent_id,
             branch_name: model.branch_name,

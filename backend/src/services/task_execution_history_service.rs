@@ -2,7 +2,7 @@
 //!
 //! Manages task execution history and records.
 
-use crate::entities::{prelude::*, task_execution};
+use crate::entities::{prelude::*, task::TaskStatus, task_execution};
 use crate::error::{Result, VibeRepoError};
 use chrono::Utc;
 use sea_orm::{
@@ -423,7 +423,7 @@ mod tests {
             issue_number: Set(123),
             issue_title: Set("Test task".to_string()),
             issue_body: Set(None),
-            task_status: Set("pending".to_string()),
+            task_status: Set(TaskStatus::Pending),
             priority: Set("medium".to_string()),
             ..Default::default()
         };
