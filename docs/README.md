@@ -1,6 +1,6 @@
 # VibeRepo Documentation
 
-**Version:** 0.3.0
+**Version:** 0.4.0-mvp
 
 Welcome to the VibeRepo documentation! This directory contains comprehensive documentation for the VibeRepo project, organized by category.
 
@@ -11,12 +11,9 @@ API specifications, usage guides, and feature documentation.
 
 - **[User Guide](./api/user-guide.md)** - Complete usage guide with examples for all features
 - **[API Reference](./api/api-reference.md)** - Complete API endpoint reference
-- **[Task API Design](./api/task-api-design.md)** - Complete Task API specifications with 14 endpoints
-- **[Issue Polling Feature](./api/issue-polling-feature.md)** - Automatic issue synchronization with intelligent filtering
-- **[Issue Polling Fallback Design](./api/issue-polling-fallback-design.md)** - Dual-mode issue tracking (webhook + polling)
-- **[Init Scripts Guide](./api/init-scripts-guide.md)** - Automated container setup with custom shell scripts
-- **[Migration Guide: Init Scripts](./api/migration-guide-init-scripts.md)** - Migrating from custom_dockerfile_path to init scripts
-- **[Container Lifecycle Management](./api/container-lifecycle-management.md)** - Docker container management with health monitoring
+- **[Task API Design](./api/task-api-design.md)** - Complete Task API specifications
+- **[Task Management Guide](./api/task-management-guide.md)** - Task lifecycle and execution guide
+- **[Container Lifecycle Management](./api/container-lifecycle-management.md)** - Docker container management
 
 ### 🗄️ [Database Documentation](./database/)
 Database schema, migrations, and data model documentation.
@@ -35,10 +32,8 @@ Implementation plans, roadmaps, and session summaries.
 
 - **[Implementation Roadmap](./plans/2026-01-17-implementation-roadmap.md)** - Overall project roadmap
 - **[Repository Management Design](./plans/2026-01-17-repository-management-design.md)** - Repository management feature design
-- **[Workspace Implementation Plans](./plans/)** - Phase-by-phase workspace implementation
 - **[Container Lifecycle Management Design](./plans/2026-01-20-container-lifecycle-management-design.md)** - Container management design
 - **[Webhook Refactor Plan](./plans/webhook-refactor-plan.md)** - Webhook system refactoring
-- **[AgentFS Research](./plans/)** - AgentFS integration research and test results
 
 ### 🔬 [Research Documentation](./research/)
 Research findings, comparisons, and technical investigations.
@@ -127,6 +122,7 @@ Development guidelines, coding standards, and best practices.
 
 ## 🔄 Version History
 
+- **v0.4.0-mvp** (2026-02-06) - Simplified MVP: Removed issue polling, init scripts, WebSocket logs, task retry, multi-agent support; Streamlined to core Issue-to-PR automation
 - **v0.3.0** (2026-01-20) - Added Container Lifecycle Management, Issue Polling, Task Automation, Task Scheduler, Concurrency Control, Real-time Logs, Execution History, Failure Analysis
 - **v0.2.0** (2026-01-19) - Added Workspace API, Init Scripts, Agent Management
 - **v0.1.0** (2026-01-17) - Initial release with RepoProvider, Repository, Webhook APIs
