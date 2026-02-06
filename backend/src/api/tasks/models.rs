@@ -31,7 +31,6 @@ pub struct CreateTaskRequest {
     pub issue_number: i32,
     pub issue_title: String,
     pub issue_body: Option<String>,
-    pub assigned_agent_id: Option<i32>,
     #[serde(default = "default_priority")]
     pub priority: String,
 }
@@ -50,7 +49,6 @@ pub struct UpdateTaskStatusRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateTaskRequest {
     pub priority: Option<String>,
-    pub assigned_agent_id: Option<i32>,
 }
 
 /// Request model for assigning agent

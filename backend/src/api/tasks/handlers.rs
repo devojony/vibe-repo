@@ -38,7 +38,7 @@ pub async fn create_task(
             req.issue_number,
             req.issue_title,
             req.issue_body,
-            req.assigned_agent_id,
+            None, // Auto-assign agent in single agent mode
             req.priority,
         )
         .await?;
@@ -76,7 +76,6 @@ pub struct ListTasksQuery {
     pub workspace_id: i32,
     pub status: Option<TaskStatus>,
     pub priority: Option<String>,
-    pub assigned_agent_id: Option<i32>,
     #[serde(default = "default_page")]
     pub page: i32,
     #[serde(default = "default_per_page")]
@@ -99,7 +98,6 @@ fn default_per_page() -> i32 {
         ("workspace_id" = i32, Query, description = "Workspace ID"),
         ("status" = Option<String>, Query, description = "Filter by status"),
         ("priority" = Option<String>, Query, description = "Filter by priority"),
-        ("assigned_agent_id" = Option<i32>, Query, description = "Filter by assigned agent"),
         ("page" = Option<i32>, Query, description = "Page number (default: 1)"),
         ("per_page" = Option<i32>, Query, description = "Items per page (default: 20, max: 100)"),
     ),
@@ -134,7 +132,7 @@ pub async fn list_tasks_by_workspace(
             query.workspace_id,
             query.status,
             query.priority,
-            query.assigned_agent_id,
+            None, // No agent filter in single agent mode
             query.page,
             per_page,
         )
@@ -203,7 +201,7 @@ pub async fn update_task(
     let service = TaskService::new(state.db.clone());
 
     let task = service
-        .update_task(id, req.priority, req.assigned_agent_id.map(Some))
+        .update_task(id, req.priority, None) // No agent update in single agent mode
         .await?;
 
     Ok(Json(task.into()))
@@ -517,7 +515,6 @@ mod tests {
             issue_number: 123,
             issue_title: "Test Issue".to_string(),
             issue_body: Some("Issue body".to_string()),
-            assigned_agent_id: None,
             priority: "high".to_string(),
         };
 
@@ -587,7 +584,6 @@ mod tests {
             workspace_id: workspace.id,
             status: None,
             priority: None,
-            assigned_agent_id: None,
             page: 1,
             per_page: 20,
         };
@@ -642,7 +638,6 @@ mod tests {
 
         let req = UpdateTaskRequest {
             priority: Some("high".to_string()),
-            assigned_agent_id: None,
         };
 
         // Act
@@ -835,7 +830,6 @@ mod tests {
             workspace_id: workspace.id,
             status: Some(TaskStatus::Pending),
             priority: None,
-            assigned_agent_id: None,
             page: 1,
             per_page: 20,
         };
@@ -870,7 +864,6 @@ mod tests {
             workspace_id: workspace.id,
             status: None,
             priority: None,
-            assigned_agent_id: None,
             page: 1,
             per_page: 2,
         };
@@ -902,7 +895,6 @@ mod tests {
             workspace_id: workspace.id,
             status: None,
             priority: None,
-            assigned_agent_id: None,
             page: 0, // Invalid page number
             per_page: 20,
         };
@@ -929,7 +921,6 @@ mod tests {
             workspace_id: workspace.id,
             status: None,
             priority: None,
-            assigned_agent_id: None,
             page: 1,
             per_page: 200, // Exceeds max of 100
         };

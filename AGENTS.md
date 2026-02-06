@@ -1,6 +1,8 @@
 # Agent Guidelines for VibeRepo
 
-**Current Version:** v0.3.0 (Pre-1.0 - Breaking changes allowed)
+**Current Version:** v0.4.0-mvp (Simplified MVP - Pre-1.0)
+
+> **🎯 Simplified MVP**: This version focuses on core Issue-to-PR automation with a streamlined architecture. Many advanced features have been removed to create a solid foundation for future development.
 
 This document provides quick reference guidelines for AI agents working on the VibeRepo codebase.
 
@@ -17,42 +19,60 @@ For comprehensive documentation, see:
 
 VibeRepo is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
 
-### Current Status (v0.3.0)
+### Current Status (v0.4.0-mvp - Simplified MVP)
 
-**Completed Modules:**
-- ✅ Backend Foundation, RepoProvider API, Repository API
-- ✅ Git Provider Abstraction, Repository Initialization
-- ✅ Webhook Integration, Workspace API, Init Script Feature
-- ✅ Container Lifecycle Management, Agent Management
-- ✅ Task Automation, Issue Polling
-- ✅ Task Execution Engine, Task Scheduler
-- ✅ Concurrency Control, Real-time Log Streaming
-- ✅ Execution History Tracking, Intelligent Failure Analysis
-- ✅ Complete Issue-to-PR Workflow (PR Creation & Issue Closure)
+**Core Features:**
+- ✅ Backend Foundation & Repository API
+- ✅ Git Provider Abstraction (GitHub/Gitea/GitLab)
+- ✅ Webhook Integration (GitHub)
+- ✅ Docker-based Workspaces
+- ✅ Single Agent per Repository
+- ✅ Task Management (Simplified State Machine)
+- ✅ Task Execution Engine
+- ✅ PR Creation & Issue Closure
+- ✅ Environment-based Configuration
+
+**Removed Features (from v0.3.0):**
+- ❌ Issue Polling Service
+- ❌ Webhook Retry Service
+- ❌ Init Script Service
+- ❌ WebSocket Real-time Logs
+- ❌ Task Failure Analyzer
+- ❌ Task Execution History
+- ❌ Health Check Service
+- ❌ Image Management Service
+- ❌ Provider Management API
+- ❌ Workspace Management API
+- ❌ Agent Management API
+- ❌ Webhook Config API
+- ❌ Task Retry Mechanism
+- ❌ Assigned State (tasks go directly from Pending to Running)
 
 ### Technology Stack
 
 - **Language**: Rust (Edition 2021)
-- **Framework**: Axum 0.7 with WebSocket support
+- **Framework**: Axum 0.7 (WebSocket support removed)
 - **Async Runtime**: Tokio with full features
 - **Database ORM**: SeaORM 1.1 (supports SQLite and PostgreSQL)
 - **HTTP Client**: Reqwest 0.11 for Git provider APIs
 - **API Documentation**: utoipa 4.x with Swagger UI
-- **Testing**: Comprehensive TDD approach with 327 tests
+- **Testing**: Comprehensive TDD approach with 280+ unit tests
 
-### Module Hierarchy
+### Simplified Architecture
 
 ```
-Settings (namespace)
-└── RepoProvider (entity)
-    └── Repository (entity) [many-to-one]
-        ├── WebhookConfig (entity) [one-to-one]
-        └── Workspace (entity) [one-to-one]
-            ├── InitScript (entity) [one-to-one]
-            ├── Agent (entity) [one-to-many]
-            └── Task (entity) [one-to-many]
-                └── TaskExecution (entity) [one-to-many]
+Repository (entity)
+└── Workspace (entity) [one-to-one]
+    ├── Agent (entity) [one-to-one, unique constraint]
+    └── Task (entity) [one-to-many]
 ```
+
+**Key Simplifications:**
+- No separate Provider entity (configured via environment variables)
+- No WebhookConfig entity (configured via environment variables)
+- No InitScript entity (workspaces use default setup)
+- No TaskExecution entity (logs stored in tasks.last_log field)
+- Single agent per workspace (enforced by unique constraint)
 
 ## 🛠️ Build, Lint, and Test Commands
 
@@ -177,39 +197,35 @@ This project strictly follows Test-Driven Development:
 2. **Green**: Write minimal code to make the test pass
 3. **Refactor**: Refactor code while keeping tests passing
 
-**Test Coverage (v0.3.0):**
-- Total tests: 589+
+**Test Coverage (v0.4.0-mvp):**
+- Total tests: 280+ (unit tests)
 - Passing: 100%
-- Unit tests: 375+
-- Integration tests: 214+
+- Focus: Core functionality and API endpoints
 
 ## 🗄️ Database Schema
 
 For complete database schema documentation, see **[docs/database/schema.md](./docs/database/schema.md)**.
 
-### Implemented Tables (v0.3.0)
+### Simplified Tables (v0.4.0-mvp)
 
-- **repo_providers** - Git provider configurations
-- **repositories** - Repository records with validation and polling
-- **webhook_configs** - Webhook configurations
+- **repositories** - Repository records with agent configuration
 - **workspaces** - Docker-based development environments
-- **init_scripts** - Container initialization scripts
-- **agents** - AI agent configurations
-- **tasks** - Automated development tasks
-- **task_executions** - Task execution history
+- **agents** - AI agent configurations (one per workspace)
+- **tasks** - Automated development tasks with inline logs
+
+**Removed Tables:**
+- ~~repo_providers~~ (configured via environment variables)
+- ~~webhook_configs~~ (configured via environment variables)
+- ~~init_scripts~~ (workspaces use default setup)
+- ~~task_executions~~ (logs stored in tasks.last_log)
 
 ### Entity Relationships
 
 ```
-Settings (namespace)
-└── RepoProvider (entity)
-    └── Repository (entity) [many-to-one]
-        ├── WebhookConfig (entity) [one-to-one]
-        └── Workspace (entity) [one-to-one]
-            ├── InitScript (entity) [one-to-one]
-            ├── Agent (entity) [one-to-many]
-            └── Task (entity) [one-to-many]
-                └── TaskExecution (entity) [one-to-many]
+Repository (entity)
+└── Workspace (entity) [one-to-one]
+    ├── Agent (entity) [one-to-one, unique constraint]
+    └── Task (entity) [one-to-many]
 ```
 
 ## ⚙️ Configuration
@@ -221,11 +237,30 @@ For complete configuration guide, see **[docs/development/README.md](./docs/deve
 Create a `.env` file in project root:
 
 ```bash
+# Database Configuration
 DATABASE_URL=sqlite:./data/vibe-repo/db/vibe-repo.db?mode=rwc
 DATABASE_MAX_CONNECTIONS=10
+
+# Server Configuration
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
-RUST_LOG=debug
+
+# Git Provider Configuration
+GITHUB_TOKEN=your_github_token_here
+GITHUB_BASE_URL=https://api.github.com
+WEBHOOK_SECRET=your_webhook_secret_here
+
+# Agent Configuration
+DEFAULT_AGENT_COMMAND=opencode
+DEFAULT_AGENT_TIMEOUT=600
+DEFAULT_DOCKER_IMAGE=ubuntu:22.04
+
+# Workspace Configuration
+WORKSPACE_BASE_DIR=./data/vibe-repo/workspaces
+
+# Logging
+RUST_LOG=info
+LOG_FORMAT=human
 ```
 
 ## 📋 Development Standards
@@ -289,5 +324,5 @@ cargo test
 
 **Note:** This document serves as a quick reference for AI agents. For comprehensive guidelines, always refer to the detailed documentation in the `docs/` directory.
 
-**Last Updated:** 2026-01-24  
-**Version:** 0.3.0
+**Last Updated:** 2026-02-06  
+**Version:** 0.4.0-mvp (Simplified MVP)

@@ -5,12 +5,10 @@
 
 use super::gitea_client::GiteaClient;
 use super::helpers::{generate_test_name, wait_for_condition};
-use futures_util::{SinkExt, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 // Test environment constants
 const GITEA_BASE_URL: &str = "https://gitea.devo.top:66";
@@ -534,79 +532,6 @@ impl TestContext {
         Ok(task)
     }
 
-    /// Monitor task execution via WebSocket
-    async fn monitor_task_logs(&self, duration_secs: u64) -> Result<Vec<String>, String> {
-        let task_id = self.task_id.ok_or("Task ID not set")?;
-
-        // Get WebSocket auth token from environment or use empty string
-        let ws_token = std::env::var("WEBSOCKET_AUTH_TOKEN").unwrap_or_default();
-        let ws_url = if ws_token.is_empty() {
-            format!("ws://localhost:3000/api/tasks/{}/logs/stream", task_id)
-        } else {
-            format!(
-                "ws://localhost:3000/api/tasks/{}/logs/stream?token={}",
-                task_id, ws_token
-            )
-        };
-
-        println!("✓ Connecting to WebSocket: {}", ws_url);
-
-        let (ws_stream, _) = connect_async(&ws_url)
-            .await
-            .map_err(|e| format!("Failed to connect to WebSocket: {}", e))?;
-
-        println!("✓ WebSocket connected");
-
-        let (mut write, mut read) = ws_stream.split();
-        let mut logs = Vec::new();
-
-        // Spawn a task to send ping messages
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                if write.send(Message::Ping(vec![])).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        // Read messages for specified duration
-        let timeout = tokio::time::Duration::from_secs(duration_secs);
-        let start = tokio::time::Instant::now();
-
-        while start.elapsed() < timeout {
-            tokio::select! {
-                msg = read.next() => {
-                    match msg {
-                        Some(Ok(Message::Text(text))) => {
-                            println!("📝 Log: {}", text);
-                            logs.push(text);
-                        }
-                        Some(Ok(Message::Close(_))) => {
-                            println!("✓ WebSocket closed");
-                            break;
-                        }
-                        Some(Err(e)) => {
-                            println!("⚠ WebSocket error: {}", e);
-                            break;
-                        }
-                        None => {
-                            println!("✓ WebSocket stream ended");
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-                _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {
-                    // Continue loop
-                }
-            }
-        }
-
-        println!("✓ Received {} log messages", logs.len());
-        Ok(logs)
-    }
-
     /// Cleans up all test resources
     ///
     /// Deletes workspace, repository, provider, and Gitea repository.
@@ -871,97 +796,4 @@ async fn test_e2e_complete_issue_to_pr_workflow() {
     ctx.cleanup().await.expect("Failed to cleanup");
 
     println!("\n✅ E2E complete Issue-to-PR workflow test passed");
-}
-
-#[tokio::test]
-#[ignore]
-async fn test_e2e_websocket_log_monitoring() {
-    let mut ctx = TestContext::new("websocket-logs");
-
-    // Setup
-    println!("\n=== Setup ===");
-    ctx.setup_gitea_repository()
-        .await
-        .expect("Failed to create Gitea repository");
-    ctx.setup_vibe_provider()
-        .await
-        .expect("Failed to create VibeRepo provider");
-    ctx.sync_repositories()
-        .await
-        .expect("Failed to sync repositories");
-    ctx.initialize_repository()
-        .await
-        .expect("Failed to initialize repository");
-    ctx.create_workspace()
-        .await
-        .expect("Failed to create workspace");
-    ctx.create_agent().await.expect("Failed to create agent");
-
-    // Create simple task
-    println!("\n=== Create Task ===");
-    let issue_title = "Test WebSocket logs";
-    let issue_body = "Simple task to test WebSocket log streaming";
-
-    let issue = ctx
-        .gitea_client
-        .create_issue(
-            &ctx.test_repo_owner,
-            &ctx.test_repo_name,
-            issue_title,
-            issue_body,
-            vec![],
-        )
-        .await
-        .expect("Failed to create issue");
-
-    ctx.create_task(issue.number, issue_title, issue_body, &issue.html_url)
-        .await
-        .expect("Failed to create task");
-
-    ctx.assign_agent_to_task()
-        .await
-        .expect("Failed to assign agent");
-
-    // Start WebSocket monitoring in background
-    println!("\n=== Start WebSocket Monitoring ===");
-    let ctx_clone = ctx.clone();
-    let monitor_handle = tokio::spawn(async move {
-        ctx_clone.monitor_task_logs(120).await // Monitor for 2 minutes
-    });
-
-    // Wait a bit for WebSocket to connect
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-    // Execute task
-    println!("\n=== Execute Task ===");
-    ctx.execute_task().await.expect("Failed to execute task");
-
-    // Wait for monitoring to complete or timeout
-    let logs = monitor_handle
-        .await
-        .expect("Monitor task panicked")
-        .expect("Failed to monitor logs");
-
-    // Verify we received logs
-    println!("\n=== Verify Logs ===");
-    assert!(
-        !logs.is_empty(),
-        "Should receive at least some log messages"
-    );
-
-    // Check for expected log patterns
-    let has_log_messages = logs
-        .iter()
-        .any(|log| log.contains("\"type\":\"log\"") || log.contains("stream"));
-
-    println!("✓ Received {} log messages via WebSocket", logs.len());
-    if has_log_messages {
-        println!("✓ Log messages contain expected patterns");
-    }
-
-    // Cleanup
-    println!("\n=== Cleanup ===");
-    ctx.cleanup().await.expect("Failed to cleanup");
-
-    println!("\n✅ E2E WebSocket log monitoring test passed");
 }
