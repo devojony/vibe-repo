@@ -1,7 +1,9 @@
 # API Reference
 
-**Version:** 0.3.0  
-**Last Updated:** 2026-01-24
+**Version:** 0.4.0-mvp (Simplified MVP)  
+**Last Updated:** 2026-02-06
+
+> **🎯 Simplified MVP**: This version includes only 10 core API endpoints. Many management APIs have been removed in favor of environment-based configuration.
 
 This document provides a complete reference for all VibeRepo API endpoints.
 
@@ -34,92 +36,59 @@ Service health status with database connectivity check.
 {
   "status": "healthy",
   "database": "connected",
-  "version": "0.3.0"
+  "version": "0.4.0-mvp"
 }
 ```
 
 ---
 
-## Settings Module
+## Repository Module
 
-### RepoProvider Management
+### GET /api/repositories
 
-#### GET /api/settings/providers
-
-List all Git provider configurations.
+List all repositories.
 
 **Response:**
 ```json
 [
   {
     "id": 1,
-    "name": "My Gitea",
-    "type": "gitea",
-    "base_url": "https://git.example.com",
-    "access_token": "12345678***",
-    "locked": false,
-    "created_at": "2026-01-21T10:00:00Z"
+    "name": "my-repo",
+    "full_name": "owner/my-repo",
+    "clone_url": "https://github.com/owner/my-repo.git",
+    "default_branch": "main",
+    "validation_status": "valid",
+    "created_at": "2026-02-06T10:00:00Z"
   }
 ]
 ```
 
-#### POST /api/settings/providers
-
-Create a new provider configuration.
-
-**Request:**
-```json
-{
-  "name": "My Gitea",
-  "type": "gitea",
-  "base_url": "https://git.example.com",
-  "access_token": "your-token-here"
-}
-```
-
-#### GET /api/settings/providers/:id
-
-Get provider details.
-
-#### PUT /api/settings/providers/:id
-
-Update provider configuration.
-
-#### DELETE /api/settings/providers/:id
-
-Delete provider (if not locked).
-
-#### POST /api/settings/providers/:id/validate
-
-Validate provider token.
-
-#### POST /api/settings/providers/:id/sync
-
-Manually trigger repository sync.
-
----
-
-## Repository Module
-
-#### GET /api/repositories
-
-List repositories with optional filters.
-
-**Query Parameters:**
-- `provider_id` (optional) - Filter by provider
-- `validation_status` (optional) - Filter by status (valid/invalid/pending)
-
-#### GET /api/repositories/:id
+### GET /api/repositories/:id
 
 Get repository details.
 
-#### POST /api/repositories/:id/refresh
+**Response:**
+```json
+{
+  "id": 1,
+  "name": "my-repo",
+  "full_name": "owner/my-repo",
+  "clone_url": "https://github.com/owner/my-repo.git",
+  "default_branch": "main",
+  "branches": ["main", "vibe-dev"],
+  "validation_status": "valid",
+  "has_required_branches": true,
+  "has_required_labels": true,
+  "can_manage_prs": true,
+  "can_manage_issues": true,
+  "created_at": "2026-02-06T10:00:00Z",
+  "updated_at": "2026-02-06T10:00:00Z"
+}
+```
 
-Refresh repository validation status.
+### POST /api/repositories/:id/initialize
 
-#### POST /api/repositories/:id/initialize
-
-Initialize single repository.
+Initialize repository with vibe-dev branch and required labels.
 
 **Request:**
 ```json
@@ -129,9 +98,20 @@ Initialize single repository.
 }
 ```
 
-#### POST /api/repositories/batch-initialize
+**Response:** `200 OK`
+```json
+{
+  "id": 1,
+  "name": "my-repo",
+  "validation_status": "valid",
+  "has_required_branches": true,
+  "has_required_labels": true
+}
+```
 
-Batch initialize repositories.
+### POST /api/repositories/batch-initialize
+
+Batch initialize multiple repositories.
 
 **Request:**
 ```json
@@ -142,326 +122,60 @@ Batch initialize repositories.
 }
 ```
 
-#### PATCH /api/repositories/:id/polling
-
-Update issue polling configuration.
-
-**Request:**
+**Response:** `200 OK`
 ```json
 {
-  "polling_enabled": true,
-  "polling_interval_seconds": 300,
-  "polling_config": {
-    "filter_labels": ["vibe/auto"],
-    "filter_state": "open"
-  }
+  "total": 3,
+  "succeeded": 3,
+  "failed": 0,
+  "results": [
+    {
+      "repository_id": 1,
+      "status": "success"
+    },
+    {
+      "repository_id": 2,
+      "status": "success"
+    },
+    {
+      "repository_id": 3,
+      "status": "success"
+    }
+  ]
 }
 ```
-
-#### POST /api/repositories/:id/poll-issues
-
-Manually trigger issue polling.
 
 ---
 
 ## Webhook Module
 
-#### POST /api/webhooks/:repository_id
+### POST /api/webhooks/:repository_id
 
 Receive webhook events from Git providers.
 
 **Headers:**
-- `X-Gitea-Signature` - Webhook signature for verification
+- `X-Hub-Signature-256` - GitHub webhook signature for verification
+- `X-Gitea-Signature` - Gitea webhook signature for verification
 
----
-
-## Workspace Module
-
-#### POST /api/workspaces
-
-Create a new workspace with optional init script.
-
-**Request:**
-```json
-{
-  "repository_id": 1,
-  "init_script": "#!/bin/bash\necho 'Setup'\n",
-  "script_timeout_seconds": 600
-}
-```
-
-#### GET /api/workspaces/:id
-
-Get workspace details including init script status.
-
-#### GET /api/workspaces
-
-List all workspaces.
-
-#### PUT /api/workspaces/:id/status
-
-Update workspace status.
-
-#### DELETE /api/workspaces/:id
-
-Delete workspace.
-
-#### POST /api/workspaces/:id/restart
-
-Manually restart workspace container.
-
-#### GET /api/workspaces/:id/stats
-
-Get real-time container resource statistics.
-
-**Response:**
-```json
-{
-  "workspace_id": 1,
-  "container_id": "abc123",
-  "stats": {
-    "cpu_percent": 15.5,
-    "memory_usage_mb": 256.8,
-    "memory_limit_mb": 512.0,
-    "memory_percent": 50.16,
-    "network_rx_bytes": 1048576,
-    "network_tx_bytes": 524288
-  },
-  "collected_at": "2026-01-20T10:35:00Z"
-}
-```
-
----
-
-## Init Script Module
-
-#### PUT /api/workspaces/:id/init-script
-
-Create or update init script for workspace.
-
-**Request:**
-```json
-{
-  "script_content": "#!/bin/bash\necho 'Setup'\n",
-  "timeout_seconds": 300,
-  "execute_immediately": false
-}
-```
-
-#### GET /api/workspaces/:id/init-script/logs
-
-Get init script execution logs.
-
-#### GET /api/workspaces/:id/init-script/logs/full
-
-Download full log file.
-
-#### POST /api/workspaces/:id/init-script/execute
-
-Execute init script manually.
-
----
-
-## Agent Management
-
-Agents are AI-powered automation tools that execute tasks in workspaces. Each agent is configured with a specific tool type (e.g., OpenCode, Aider) and command.
-
-### Create Agent
-
-#### POST /api/agents
-
-Create a new AI agent for a workspace.
-
-**Request:**
-```json
-{
-  "workspace_id": 1,
-  "name": "OpenCode Agent",
-  "tool_type": "OpenCode",
-  "command": "opencode --model glm-4-flash",
-  "timeout": 600,
-  "env_vars": {
-    "TEST_MODE": "true",
-    "OPENAI_API_KEY": "sk-..."
-  }
-}
-```
-
-**Request Fields:**
-- `workspace_id` (integer, required) - ID of the workspace
-- `name` (string, required) - Human-readable agent name
-- `tool_type` (string, required) - Tool type (e.g., "OpenCode", "Aider", "Custom")
-- `command` (string, required) - Full command to execute the tool
-- `timeout` (integer, optional) - Timeout in seconds (default: 1800)
-- `env_vars` (object, optional) - Environment variables as JSON object
-
-**Response:** `201 Created`
-```json
-{
-  "id": 1,
-  "workspace_id": 1,
-  "name": "OpenCode Agent",
-  "tool_type": "OpenCode",
-  "enabled": true,
-  "command": "opencode --model glm-4-flash",
-  "env_vars": {
-    "TEST_MODE": "true",
-    "OPENAI_API_KEY": "sk-..."
-  },
-  "timeout": 600,
-  "created_at": "2026-01-24T10:30:00Z",
-  "updated_at": "2026-01-24T10:30:00Z"
-}
-```
-
-**Example - Aider Agent:**
-```bash
-curl -X POST http://localhost:3000/api/agents \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workspace_id": 1,
-    "name": "Aider GPT-4",
-    "tool_type": "Aider",
-    "command": "aider --model gpt-4 --yes",
-    "timeout": 1800,
-    "env_vars": {
-      "OPENAI_API_KEY": "sk-..."
-    }
-  }'
-```
-
-### Get Agent
-
-#### GET /api/agents/:id
-
-Get agent details by ID.
+**Request Body:**
+GitHub/Gitea webhook payload (varies by event type)
 
 **Response:** `200 OK`
 ```json
 {
-  "id": 1,
-  "workspace_id": 1,
-  "name": "OpenCode Agent",
-  "tool_type": "OpenCode",
-  "enabled": true,
-  "command": "opencode --model glm-4-flash",
-  "env_vars": {
-    "TEST_MODE": "true"
-  },
-  "timeout": 600,
-  "created_at": "2026-01-24T10:30:00Z",
-  "updated_at": "2026-01-24T10:30:00Z"
+  "status": "processed",
+  "event_type": "issues",
+  "action": "opened"
 }
 ```
-
-### List Agents by Workspace
-
-#### GET /api/workspaces/:workspace_id/agents
-
-List all agents for a specific workspace.
-
-**Response:** `200 OK`
-```json
-[
-  {
-    "id": 1,
-    "workspace_id": 1,
-    "name": "OpenCode Agent",
-    "tool_type": "OpenCode",
-    "enabled": true,
-    "command": "opencode --model glm-4-flash",
-    "env_vars": {},
-    "timeout": 600,
-    "created_at": "2026-01-24T10:30:00Z",
-    "updated_at": "2026-01-24T10:30:00Z"
-  },
-  {
-    "id": 2,
-    "workspace_id": 1,
-    "name": "Aider Agent",
-    "tool_type": "Aider",
-    "enabled": false,
-    "command": "aider --model gpt-4",
-    "env_vars": {},
-    "timeout": 1800,
-    "created_at": "2026-01-24T11:00:00Z",
-    "updated_at": "2026-01-24T11:00:00Z"
-  }
-]
-```
-
-### Update Agent Status
-
-#### PATCH /api/agents/:id/enabled
-
-Enable or disable an agent.
-
-**Request:**
-```json
-{
-  "enabled": false
-}
-```
-
-**Response:** `200 OK`
-```json
-{
-  "id": 1,
-  "workspace_id": 1,
-  "name": "OpenCode Agent",
-  "tool_type": "OpenCode",
-  "enabled": false,
-  "command": "opencode --model glm-4-flash",
-  "env_vars": {},
-  "timeout": 600,
-  "created_at": "2026-01-24T10:30:00Z",
-  "updated_at": "2026-01-24T12:00:00Z"
-}
-```
-
-### Delete Agent
-
-#### DELETE /api/agents/:id
-
-Delete an agent.
-
-**Response:** `204 No Content`
-
-**Note:** Deleting an agent will not affect existing tasks that were assigned to it.
 
 ---
 
 ## Task Module
 
-Automated task execution from GitHub/Gitea issues.
+### POST /api/tasks
 
-### TaskStatus Enum
-
-Task status is represented as a type-safe enum with state machine validation:
-
-**Possible Values:**
-- `pending` - Task created, waiting for agent assignment
-- `assigned` - Agent assigned, ready to execute
-- `running` - Task execution in progress
-- `completed` - Task successfully completed with PR created
-- `failed` - Task failed after exhausting retries
-- `cancelled` - Task manually cancelled
-
-**State Transitions:**
-- `pending` → `assigned`, `cancelled`
-- `assigned` → `running`, `cancelled`
-- `running` → `completed`, `failed`, `cancelled`
-- `failed` → `pending` (retry only)
-- `completed` and `cancelled` are terminal states
-
-**Validation:**
-Invalid state transitions return `400 Bad Request` with error details.
-
-### CRUD Operations
-
-#### POST /api/tasks
-
-Create a new task.
+Create a new task from an issue.
 
 **Request:**
 ```json
@@ -470,90 +184,124 @@ Create a new task.
   "issue_number": 42,
   "issue_title": "Add user authentication",
   "issue_body": "Implement JWT-based authentication...",
-  "issue_url": "https://git.example.com/owner/repo/issues/42",
-  "priority": "High",
-  "max_retries": 3
+  "issue_url": "https://github.com/owner/repo/issues/42",
+  "priority": "High"
 }
 ```
 
-#### GET /api/tasks
+**Response:** `201 Created`
+```json
+{
+  "id": 1,
+  "workspace_id": 1,
+  "issue_number": 42,
+  "issue_title": "Add user authentication",
+  "issue_body": "Implement JWT-based authentication...",
+  "issue_url": "https://github.com/owner/repo/issues/42",
+  "task_status": "pending",
+  "priority": "High",
+  "created_at": "2026-02-06T10:00:00Z"
+}
+```
+
+**Note:** Tasks are automatically assigned to the workspace's agent. The `assigned_agent_id` field has been removed.
+
+### GET /api/tasks
 
 List tasks with optional filters.
 
 **Query Parameters:**
 - `workspace_id` (required) - Filter by workspace
-- `status` (optional) - Filter by status
-- `priority` (optional) - Filter by priority
-- `assigned_agent_id` (optional) - Filter by agent
+- `status` (optional) - Filter by status (pending/running/completed/failed/cancelled)
+- `priority` (optional) - Filter by priority (Low/Medium/High)
 
-#### GET /api/tasks/:id
-
-Get task details.
-
-#### PATCH /api/tasks/:id
-
-Update task (priority, assigned_agent_id).
-
-#### DELETE /api/tasks/:id
-
-Soft delete task.
-
-### Status Management
-
-#### PATCH /api/tasks/:id/status
-
-Update task status directly.
-
-#### POST /api/tasks/:id/assign
-
-Assign agent to task.
-
-**Request:**
+**Response:**
 ```json
-{
-  "agent_id": 5
-}
+[
+  {
+    "id": 1,
+    "workspace_id": 1,
+    "issue_number": 42,
+    "issue_title": "Add user authentication",
+    "task_status": "pending",
+    "priority": "High",
+    "last_log": null,
+    "pr_number": null,
+    "pr_url": null,
+    "created_at": "2026-02-06T10:00:00Z"
+  }
+]
 ```
 
-#### POST /api/tasks/:id/start
+### GET /api/tasks/:id
 
-Start task execution.
+Get task details including last log.
 
-#### POST /api/tasks/:id/complete
-
-Mark task completed with PR information.
-
-**Request:**
+**Response:**
 ```json
 {
+  "id": 1,
+  "workspace_id": 1,
+  "issue_number": 42,
+  "issue_title": "Add user authentication",
+  "issue_body": "Implement JWT-based authentication...",
+  "issue_url": "https://github.com/owner/repo/issues/42",
+  "task_status": "completed",
+  "priority": "High",
+  "last_log": "Task completed successfully. PR #123 created.",
+  "branch_name": "feature/user-auth",
   "pr_number": 123,
-  "pr_url": "https://git.example.com/owner/repo/pulls/123",
-  "branch_name": "feature/user-auth"
+  "pr_url": "https://github.com/owner/repo/pull/123",
+  "error_message": null,
+  "started_at": "2026-02-06T10:05:00Z",
+  "completed_at": "2026-02-06T10:10:00Z",
+  "created_at": "2026-02-06T10:00:00Z",
+  "updated_at": "2026-02-06T10:10:00Z"
 }
 ```
 
-#### POST /api/tasks/:id/fail
+### PATCH /api/tasks/:id
 
-Mark task failed (with automatic retry logic).
+Update task priority.
 
 **Request:**
 ```json
 {
-  "error_message": "Build failed: missing dependency"
+  "priority": "High"
 }
 ```
 
-#### POST /api/tasks/:id/retry
+**Response:** `200 OK`
+```json
+{
+  "id": 1,
+  "priority": "High",
+  "updated_at": "2026-02-06T10:15:00Z"
+}
+```
 
-Retry a failed task.
+**Note:** The `assigned_agent_id` field has been removed from update requests.
 
-#### POST /api/tasks/:id/cancel
+### DELETE /api/tasks/:id
 
-Cancel task execution.
+Soft delete a task.
 
-### Pull Request Management
+**Response:** `204 No Content`
 
-#### POST /api/tasks/:id/create-pr
+### POST /api/tasks/:id/execute
+
+Execute task in workspace container with assigned agent.
+
+**Response:** `202 Accepted`
+```json
+{
+  "id": 1,
+  "task_status": "running",
+  "started_at": "2026-02-06T10:05:00Z"
+}
+```
+
+### POST /api/tasks/:id/create-pr
 
 Manually create a pull request for a completed task.
 
@@ -562,26 +310,21 @@ Manually create a pull request for a completed task.
 - Task must have `branch_name` set
 - Repository must be accessible with current credentials
 
-**Response (200 OK):**
+**Response:** `200 OK`
 ```json
 {
   "id": 1,
   "workspace_id": 1,
   "issue_number": 42,
   "issue_title": "Add user authentication",
-  "status": "Completed",
+  "task_status": "completed",
   "pr_number": 123,
-  "pr_url": "https://git.example.com/owner/repo/pulls/123",
+  "pr_url": "https://github.com/owner/repo/pull/123",
   "branch_name": "feature/user-auth"
 }
 ```
 
-**Error Responses:**
-- `400 Bad Request` - Task not in completed status or missing branch name
-- `404 Not Found` - Task not found
-- `500 Internal Server Error` - Failed to create PR
-
-#### POST /api/tasks/:id/close-issue
+### POST /api/tasks/:id/close-issue
 
 Manually close the issue associated with a task.
 
@@ -590,95 +333,93 @@ Manually close the issue associated with a task.
 - Issue must exist in the repository
 - Repository must be accessible with current credentials
 
-**Response (200 OK):**
+**Response:** `200 OK`
 ```json
 {
   "id": 1,
   "workspace_id": 1,
   "issue_number": 42,
   "issue_title": "Add user authentication",
-  "status": "Completed",
-  "pr_number": 123,
-  "pr_url": "https://git.example.com/owner/repo/pulls/123"
-}
-```
-
-**Error Responses:**
-- `400 Bad Request` - Task missing issue number
-- `404 Not Found` - Task or issue not found
-- `500 Internal Server Error` - Failed to close issue
-
-### Task Execution
-
-#### POST /api/tasks/:id/execute
-
-Execute task in workspace container with assigned agent.
-
-**Response (202 Accepted):**
-```json
-{
-  "id": 1,
-  "task_status": "running",
-  "started_at": "2026-01-21T12:00:00Z"
-}
-```
-
-### Monitoring & Analysis
-
-#### GET /api/tasks/:id/logs/stream
-
-WebSocket endpoint for real-time log streaming.
-
-**WebSocket URL:**
-```
-ws://localhost:3000/api/tasks/:id/logs/stream
-```
-
-**Message Format:**
-```json
-{
-  "timestamp": "2026-01-21T12:34:56Z",
-  "level": "info",
-  "message": "Task execution started",
-  "task_id": 123
-}
-```
-
-#### GET /api/tasks/:id/failure-analysis
-
-Get intelligent failure analysis with recommendations.
-
-**Response:**
-```json
-{
-  "task_id": 123,
-  "failure_category": "GitError",
-  "root_cause": "Git operation failed",
-  "recommendations": [
-    "Verify Git credentials and access token",
-    "Check repository permissions",
-    "Ensure Git is configured in the container"
-  ],
-  "similar_failures_count": 3,
-  "is_recurring": false
+  "task_status": "completed"
 }
 ```
 
 ---
 
-## Workspace Image Management
+## Removed Endpoints (from v0.3.0)
 
-#### GET /api/settings/workspace/image
+The following endpoints were removed in the simplified MVP:
 
-Query workspace image information.
+### Settings Module
+- ~~GET /api/settings/providers~~ (configured via environment variables)
+- ~~POST /api/settings/providers~~ (configured via environment variables)
+- ~~GET /api/settings/providers/:id~~ (configured via environment variables)
+- ~~PUT /api/settings/providers/:id~~ (configured via environment variables)
+- ~~DELETE /api/settings/providers/:id~~ (configured via environment variables)
+- ~~POST /api/settings/providers/:id/validate~~ (configured via environment variables)
+- ~~POST /api/settings/providers/:id/sync~~ (configured via environment variables)
+- ~~GET /api/settings/workspace/image~~ (use default Docker images)
+- ~~DELETE /api/settings/workspace/image~~ (use default Docker images)
+- ~~POST /api/settings/workspace/image/rebuild~~ (use default Docker images)
 
-#### DELETE /api/settings/workspace/image
+### Repository Module
+- ~~POST /api/repositories/:id/refresh~~ (validation happens automatically)
+- ~~PATCH /api/repositories/:id/polling~~ (no issue polling service)
+- ~~POST /api/repositories/:id/poll-issues~~ (no issue polling service)
 
-Delete workspace image (with conflict detection).
+### Workspace Module
+- ~~POST /api/workspaces~~ (workspaces created automatically)
+- ~~GET /api/workspaces~~ (workspaces created automatically)
+- ~~GET /api/workspaces/:id~~ (workspaces created automatically)
+- ~~PUT /api/workspaces/:id/status~~ (workspaces created automatically)
+- ~~DELETE /api/workspaces/:id~~ (workspaces created automatically)
+- ~~POST /api/workspaces/:id/restart~~ (simplified container management)
+- ~~GET /api/workspaces/:id/stats~~ (simplified container management)
 
-#### POST /api/settings/workspace/image/rebuild
+### Init Script Module
+- ~~PUT /api/workspaces/:id/init-script~~ (no custom init scripts)
+- ~~GET /api/workspaces/:id/init-script/logs~~ (no custom init scripts)
+- ~~GET /api/workspaces/:id/init-script/logs/full~~ (no custom init scripts)
+- ~~POST /api/workspaces/:id/init-script/execute~~ (no custom init scripts)
 
-Rebuild workspace image from Dockerfile.
+### Agent Module
+- ~~POST /api/agents~~ (agents configured via environment variables)
+- ~~GET /api/agents/:id~~ (agents configured via environment variables)
+- ~~GET /api/workspaces/:workspace_id/agents~~ (agents configured via environment variables)
+- ~~PATCH /api/agents/:id/enabled~~ (agents configured via environment variables)
+- ~~DELETE /api/agents/:id~~ (agents configured via environment variables)
+
+### Task Module
+- ~~PATCH /api/tasks/:id/status~~ (status managed automatically)
+- ~~POST /api/tasks/:id/assign~~ (automatic assignment)
+- ~~POST /api/tasks/:id/start~~ (use /execute instead)
+- ~~POST /api/tasks/:id/complete~~ (completed automatically)
+- ~~POST /api/tasks/:id/fail~~ (failed automatically)
+- ~~POST /api/tasks/:id/retry~~ (no retry mechanism)
+- ~~POST /api/tasks/:id/cancel~~ (simplified cancellation)
+- ~~GET /api/tasks/:id/logs/stream~~ (no WebSocket streaming)
+- ~~GET /api/tasks/:id/failure-analysis~~ (no failure analyzer)
+
+---
+
+## Task Status Enum
+
+Task status is represented as a type-safe enum with state machine validation:
+
+**Possible Values:**
+- `pending` - Task created, waiting for execution
+- `running` - Task execution in progress
+- `completed` - Task successfully completed with PR created
+- `failed` - Task failed
+- `cancelled` - Task manually cancelled
+
+**State Transitions:**
+- `pending` → `running`, `cancelled`
+- `running` → `completed`, `failed`, `cancelled`
+- `completed`, `failed`, and `cancelled` are terminal states
+
+**Removed States:**
+- ~~`assigned`~~ (tasks go directly from pending to running)
 
 ---
 
@@ -701,6 +442,7 @@ All endpoints return errors in the following format:
 - `200 OK` - Request succeeded
 - `201 Created` - Resource created
 - `202 Accepted` - Request accepted (async operation)
+- `204 No Content` - Request succeeded with no content
 - `400 Bad Request` - Invalid request
 - `404 Not Found` - Resource not found
 - `409 Conflict` - Resource conflict
@@ -730,32 +472,14 @@ List endpoints support pagination:
 
 ---
 
-## WebSocket Endpoints
-
-### Real-time Log Streaming
-
-**Endpoint:** `ws://localhost:3000/api/tasks/:id/logs/stream`
-
-**Connection:**
-```javascript
-const ws = new WebSocket('ws://localhost:3000/api/tasks/123/logs/stream');
-
-ws.onmessage = (event) => {
-  const log = JSON.parse(event.data);
-  console.log(log.message);
-};
-```
-
----
-
 ## Related Documentation
 
-- **[Task API Design](./task-api-design.md)** - Detailed Task API specifications
-- **[Issue Polling Feature](./issue-polling-feature.md)** - Issue polling documentation
-- **[Container Lifecycle Management](./container-lifecycle-management.md)** - Container management
-- **[Init Scripts Guide](./init-scripts-guide.md)** - Init scripts documentation
+- **[User Guide](./user-guide.md)** - Complete usage guide
+- **[Database Schema](../database/schema.md)** - Simplified database schema
+- **[Migration Guide](../../MIGRATION.md)** - Migrating from v0.3.0 to v0.4.0-mvp
+- **[Development Guide](../development/README.md)** - Development guidelines
 
 ---
 
-**Last Updated:** 2026-01-21  
-**API Version:** 0.3.0
+**Last Updated:** 2026-02-06  
+**API Version:** 0.4.0-mvp (Simplified MVP)
