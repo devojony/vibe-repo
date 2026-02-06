@@ -2,7 +2,7 @@
 
 ### Requirement: Task status SHALL be represented as an enum type
 
-The system SHALL use a type-safe `TaskStatus` enum to represent task states instead of arbitrary string values. The enum SHALL include the following states: Pending, Assigned, Running, Completed, Failed, and Cancelled.
+The system SHALL use a type-safe `TaskStatus` enum to represent task states instead of arbitrary string values. The enum SHALL include the following states: Pending, Running, Completed, Failed, and Cancelled. The Assigned state SHALL be removed.
 
 #### Scenario: Task created with valid status
 - **WHEN** a new task is created
@@ -18,11 +18,11 @@ The system SHALL use a type-safe `TaskStatus` enum to represent task states inst
 
 ### Requirement: State transitions SHALL be validated
 
-The system SHALL validate all state transitions before allowing status changes. Only transitions defined in the state machine SHALL be permitted.
+The system SHALL validate all state transitions before allowing status changes. Only transitions defined in the simplified state machine SHALL be permitted.
 
-#### Scenario: Valid transition from Pending to Assigned
-- **WHEN** assign_agent() is called on a task with status Pending
-- **THEN** the task status SHALL transition to Assigned
+#### Scenario: Valid transition from Pending to Running
+- **WHEN** start_task() is called on a task with status Pending
+- **THEN** the task status SHALL transition to Running
 
 #### Scenario: Invalid transition from Completed to Failed rejected
 - **WHEN** fail_task() is called on a task with status Completed
@@ -34,35 +34,19 @@ The system SHALL validate all state transitions before allowing status changes. 
 
 ### Requirement: Pending state transitions
 
-Tasks in Pending state SHALL only transition to Assigned or Cancelled states.
+Tasks in Pending state SHALL only transition to Running or Cancelled states. The transition to Assigned state SHALL be removed.
 
-#### Scenario: Pending to Assigned transition
-- **WHEN** an agent is assigned to a Pending task
-- **THEN** the task status SHALL transition to Assigned
+#### Scenario: Pending to Running transition
+- **WHEN** start_task() is called on a Pending task
+- **THEN** the task status SHALL transition to Running
 
 #### Scenario: Pending to Cancelled transition
 - **WHEN** cancel_task() is called on a Pending task
 - **THEN** the task status SHALL transition to Cancelled
 
-#### Scenario: Pending to Running transition rejected
-- **WHEN** start_task() is called on a Pending task without assignment
-- **THEN** the system SHALL return a validation error
-
-### Requirement: Assigned state transitions
-
-Tasks in Assigned state SHALL only transition to Running or Cancelled states.
-
-#### Scenario: Assigned to Running transition
-- **WHEN** start_task() is called on an Assigned task
-- **THEN** the task status SHALL transition to Running
-
-#### Scenario: Assigned to Cancelled transition
-- **WHEN** cancel_task() is called on an Assigned task
-- **THEN** the task status SHALL transition to Cancelled
-
-#### Scenario: Assigned to Completed transition rejected
-- **WHEN** complete_task() is called on an Assigned task
-- **THEN** the system SHALL return a validation error
+#### Scenario: Direct execution without assignment
+- **WHEN** a task is created with workspace configuration
+- **THEN** the task SHALL be executable directly from Pending state without requiring assignment
 
 ### Requirement: Running state transitions
 
@@ -84,25 +68,25 @@ Tasks in Running state SHALL only transition to Completed, Failed, or Cancelled 
 - **WHEN** retry_task() is called on a Running task
 - **THEN** the system SHALL return a validation error
 
-### Requirement: Failed state transitions
+### Requirement: Failed state SHALL be terminal
 
-Tasks in Failed state SHALL only transition to Pending state when retry conditions are met.
+Tasks in Failed state SHALL be terminal and SHALL NOT transition to any other state. Retry functionality SHALL be removed.
 
-#### Scenario: Failed to Pending transition with retries available
-- **WHEN** retry_task() is called on a Failed task with retry_count less than max_retries
-- **THEN** the task status SHALL transition to Pending
+#### Scenario: Failed state is terminal
+- **WHEN** any state transition method is called on a Failed task
+- **THEN** the system SHALL return a validation error indicating the task is in a terminal state
 
-#### Scenario: Failed to Pending transition rejected when max retries reached
-- **WHEN** retry_task() is called on a Failed task with retry_count equal to max_retries
-- **THEN** the system SHALL return a validation error
+#### Scenario: No retry from Failed state
+- **WHEN** retry_task() is called on a Failed task
+- **THEN** the system SHALL return a validation error indicating retry is not supported
 
-#### Scenario: Failed to Running transition rejected
-- **WHEN** start_task() is called on a Failed task
-- **THEN** the system SHALL return a validation error
+#### Scenario: Manual retry requires new task
+- **WHEN** a user wants to retry a failed task
+- **THEN** the user SHALL create a new task with the same parameters
 
 ### Requirement: Terminal states SHALL not transition
 
-Tasks in Completed or Cancelled states SHALL be terminal and SHALL NOT transition to any other state.
+Tasks in Completed, Failed, or Cancelled states SHALL be terminal and SHALL NOT transition to any other state.
 
 #### Scenario: Completed state is terminal
 - **WHEN** any state transition method is called on a Completed task
@@ -138,23 +122,35 @@ The TaskStatus enum SHALL provide methods to query allowed transitions and valid
 
 #### Scenario: Check if state is terminal
 - **WHEN** is_terminal() is called on a TaskStatus value
-- **THEN** the system SHALL return true for Completed and Cancelled, false for all other states
+- **THEN** the system SHALL return true for Completed, Failed, and Cancelled, false for Pending and Running
 
 ### Requirement: Database migration SHALL preserve existing data
 
-The migration from string-based status to enum SHALL convert all existing task statuses without data loss.
+The migration SHALL convert existing task statuses to the simplified state machine, mapping Assigned tasks to Pending.
 
-#### Scenario: Existing pending tasks migrated
+#### Scenario: Existing pending tasks preserved
 - **WHEN** the migration runs on a database with tasks having status "pending"
 - **THEN** those tasks SHALL have status TaskStatus::Pending after migration
 
-#### Scenario: Existing completed tasks migrated
+#### Scenario: Existing assigned tasks converted to pending
+- **WHEN** the migration runs on a database with tasks having status "assigned"
+- **THEN** those tasks SHALL have status TaskStatus::Pending after migration
+
+#### Scenario: Existing running tasks preserved
+- **WHEN** the migration runs on a database with tasks having status "running"
+- **THEN** those tasks SHALL have status TaskStatus::Running after migration
+
+#### Scenario: Existing completed tasks preserved
 - **WHEN** the migration runs on a database with tasks having status "completed"
 - **THEN** those tasks SHALL have status TaskStatus::Completed after migration
 
-#### Scenario: All valid string statuses mapped to enum
-- **WHEN** the migration runs
-- **THEN** all tasks with statuses "pending", "assigned", "running", "completed", "failed", or "cancelled" SHALL be successfully converted to their corresponding enum values
+#### Scenario: Existing failed tasks preserved
+- **WHEN** the migration runs on a database with tasks having status "failed"
+- **THEN** those tasks SHALL have status TaskStatus::Failed after migration
+
+#### Scenario: Existing cancelled tasks preserved
+- **WHEN** the migration runs on a database with tasks having status "cancelled"
+- **THEN** those tasks SHALL have status TaskStatus::Cancelled after migration
 
 ### Requirement: API responses SHALL use enum serialization
 
@@ -167,6 +163,10 @@ All API endpoints that return task information SHALL serialize the TaskStatus en
 #### Scenario: API accepts enum values in requests
 - **WHEN** an API request includes a task_status filter
 - **THEN** the system SHALL accept enum variant names as valid values
+
+#### Scenario: Assigned status not accepted
+- **WHEN** an API request includes task_status="assigned"
+- **THEN** the system SHALL return a validation error indicating "assigned" is not a valid status
 
 ### Requirement: Error messages SHALL indicate invalid transitions
 
