@@ -38,3 +38,5 @@ tmp/
 
 # backend
 backend/data/
+
+*.profraw
