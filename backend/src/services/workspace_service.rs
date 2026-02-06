@@ -1,8 +1,9 @@
 use crate::entities::{container, prelude::*, workspace};
 use crate::error::{Result, VibeRepoError};
-use crate::services::{ContainerConfig, ContainerService, DockerService};
+use crate::services::{AgentService, ContainerConfig, ContainerService, DockerService};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
+use serde_json::json;
 
 /// Workspace status constants
 pub mod workspace_status {
@@ -39,11 +40,6 @@ impl WorkspaceService {
         let workspace = workspace::ActiveModel {
             repository_id: Set(repository_id),
             workspace_status: Set(workspace_status::INITIALIZING.to_string()),
-            image_source: Set("default".to_string()),
-            max_concurrent_tasks: Set(3),
-            cpu_limit: Set(2.0),
-            memory_limit: Set("4GB".to_string()),
-            disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
 
@@ -85,19 +81,16 @@ impl WorkspaceService {
         Ok(workspace)
     }
 
-    pub async fn soft_delete_workspace(&self, id: i32) -> Result<workspace::Model> {
+    pub async fn delete_workspace(&self, id: i32) -> Result<()> {
         let workspace = self.get_workspace_by_id(id).await?;
 
-        let mut workspace: workspace::ActiveModel = workspace.into();
-        workspace.deleted_at = Set(Some(Utc::now()));
-        workspace.updated_at = Set(Utc::now());
-
-        let workspace = workspace
-            .update(&self.db)
+        let workspace: workspace::ActiveModel = workspace.into();
+        workspace
+            .delete(&self.db)
             .await
             .map_err(VibeRepoError::Database)?;
 
-        Ok(workspace)
+        Ok(())
     }
 
     /// Create workspace with Docker container if available
@@ -105,17 +98,62 @@ impl WorkspaceService {
     /// Creates a workspace record and optionally creates and starts a Docker container.
     /// Returns a tuple of (workspace, Option<container>) where container is Some if
     /// Docker is available and container creation succeeds.
+    ///
+    /// In simplified MVP, this also automatically creates a single agent for the workspace
+    /// using the repository's agent configuration.
     pub async fn create_workspace_with_container(
         &self,
         repository_id: i32,
     ) -> Result<(workspace::Model, Option<container::Model>)> {
+        // Get repository to access agent configuration
+        let repo = Repository::find_by_id(repository_id)
+            .one(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?
+            .ok_or_else(|| {
+                VibeRepoError::NotFound(format!("Repository {} not found", repository_id))
+            })?;
+
         // First create the workspace record
         let mut workspace = self.create_workspace(repository_id).await?;
 
+        // Create agent for the workspace using repository configuration
+        let agent_service = AgentService::new(self.db.clone());
+        let agent_command = repo.agent_command.unwrap_or_else(|| "opencode".to_string());
+        let agent_env_vars = repo.agent_env_vars.unwrap_or_else(|| json!({}));
+
+        match agent_service
+            .create_agent(
+                workspace.id,
+                "Default Agent",
+                "opencode",
+                &agent_command,
+                agent_env_vars,
+                repo.agent_timeout,
+            )
+            .await
+        {
+            Ok(agent) => {
+                tracing::info!(
+                    workspace_id = workspace.id,
+                    agent_id = agent.id,
+                    "Agent created successfully for workspace"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    workspace_id = workspace.id,
+                    error = %e,
+                    "Failed to create agent for workspace"
+                );
+                // Don't fail workspace creation if agent creation fails
+            }
+        }
+
         // If Docker is available, create and start container
         if self.docker.is_some() {
-            // Ensure image exists (build if needed)
-            let image_name = &workspace.image_source;
+            // Use docker_image from repository or default
+            let image_name = &repo.docker_image;
             match self.ensure_image_exists(image_name).await {
                 Ok(_) => {
                     tracing::info!(
@@ -142,13 +180,14 @@ impl WorkspaceService {
             // Create ContainerService and create container
             let container_service = ContainerService::new(self.db.clone(), self.docker.clone());
 
+            // Use hardcoded resource limits in simplified MVP
             match container_service
                 .create_and_start_container(
                     workspace.id,
                     image_name,
-                    workspace.cpu_limit,
-                    &workspace.memory_limit,
-                    None, // No host directory binding in this flow
+                    2.0,   // cpu_limit
+                    "4GB", // memory_limit
+                    None,  // No host directory binding in this flow
                 )
                 .await
             {
@@ -316,7 +355,6 @@ mod tests {
         let workspace = result.unwrap();
         assert_eq!(workspace.repository_id, repo.last_insert_id);
         assert_eq!(workspace.workspace_status, "Initializing");
-        assert_eq!(workspace.max_concurrent_tasks, 3);
     }
 
     #[tokio::test]
@@ -409,7 +447,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_soft_delete_workspace_success() {
+    async fn test_delete_workspace_success() {
         // Arrange
         let test_db = TestDatabase::new()
             .await
@@ -420,12 +458,14 @@ mod tests {
         let workspace = service.create_workspace(repo.id).await.unwrap();
 
         // Act
-        let result = service.soft_delete_workspace(workspace.id).await;
+        let result = service.delete_workspace(workspace.id).await;
 
         // Assert
         assert!(result.is_ok());
-        let deleted = result.unwrap();
-        assert!(deleted.deleted_at.is_some());
+
+        // Verify workspace is deleted
+        let get_result = service.get_workspace_by_id(workspace.id).await;
+        assert!(get_result.is_err());
     }
 
     // Helper function

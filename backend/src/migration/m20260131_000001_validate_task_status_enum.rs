@@ -7,7 +7,7 @@ pub struct Migration;
 impl MigrationTrait for Migration {
     async fn up(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
         // This migration validates the transition from string-based task status to enum-based status.
-        // 
+        //
         // Background:
         // - The task_status column in the tasks table is stored as a string in the database
         // - SeaORM's DeriveActiveEnum stores enum values as strings (e.g., "pending", "running")
@@ -19,9 +19,9 @@ impl MigrationTrait for Migration {
         // - Any existing tasks with invalid status values will cause errors when loaded
         //
         // If you have tasks with invalid status values, update them manually:
-        // UPDATE tasks SET task_status = 'pending' WHERE task_status NOT IN 
+        // UPDATE tasks SET task_status = 'pending' WHERE task_status NOT IN
         //   ('pending', 'assigned', 'running', 'completed', 'failed', 'cancelled');
-        
+
         Ok(())
     }
 

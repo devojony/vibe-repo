@@ -1,20 +1,20 @@
 # User Guide
 
-**Version:** 0.3.0  
-**Last Updated:** 2026-01-24
+**Version:** 0.4.0-mvp (Simplified MVP)  
+**Last Updated:** 2026-02-06
 
-This guide provides comprehensive instructions for using VibeRepo features.
+> **🎯 Simplified MVP**: This version focuses on core Issue-to-PR automation with a streamlined architecture. Many advanced features have been removed to create a solid foundation for future development.
+
+This guide provides comprehensive instructions for using VibeRepo's core features.
 
 ## Table of Contents
 
 - [Getting Started](#getting-started)
 - [Repository Management](#repository-management)
-- [Workspace Management](#workspace-management)
-- [Agent Management](#agent-management)
 - [Task Management](#task-management)
-- [Issue Polling](#issue-polling)
-- [Container Management](#container-management)
-- [Monitoring & Debugging](#monitoring--debugging)
+- [Webhook Integration](#webhook-integration)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -25,7 +25,7 @@ This guide provides comprehensive instructions for using VibeRepo features.
 - Rust 1.70+ (install from [rustup.rs](https://rustup.rs))
 - SQLite 3 or PostgreSQL
 - Docker (for workspace features)
-- Git provider account (Gitea/GitHub/GitLab)
+- Git provider account (GitHub)
 
 ### Installation
 
@@ -37,11 +37,30 @@ cd vibe-repo/backend
 
 2. **Create `.env` file:**
 ```bash
+# Database Configuration
 DATABASE_URL=sqlite:./data/vibe-repo/db/vibe-repo.db?mode=rwc
 DATABASE_MAX_CONNECTIONS=10
+
+# Server Configuration
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
-RUST_LOG=debug
+
+# Git Provider Configuration
+GITHUB_TOKEN=your_github_token_here
+GITHUB_BASE_URL=https://api.github.com
+WEBHOOK_SECRET=your_webhook_secret_here
+
+# Agent Configuration
+DEFAULT_AGENT_COMMAND=opencode
+DEFAULT_AGENT_TIMEOUT=600
+DEFAULT_DOCKER_IMAGE=ubuntu:22.04
+
+# Workspace Configuration
+WORKSPACE_BASE_DIR=./data/vibe-repo/workspaces
+
+# Logging
+RUST_LOG=info
+LOG_FORMAT=human
 ```
 
 3. **Build and run:**
@@ -68,352 +87,87 @@ http://localhost:3000/swagger-ui
 
 ## Repository Management
 
-### Adding a Git Provider
+### Overview
 
-1. **Create provider configuration:**
+In the simplified MVP, Git provider configuration is managed through environment variables instead of a database-backed API. This simplifies deployment and reduces complexity.
+
+### Environment-based Configuration
+
+Configure your Git provider in the `.env` file:
+
 ```bash
-curl -X POST http://localhost:3000/api/settings/providers \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "My Gitea",
-    "type": "gitea",
-    "base_url": "https://git.example.com",
-    "access_token": "your-token-here"
-  }'
+# GitHub Configuration
+GITHUB_TOKEN=ghp_your_token_here
+GITHUB_BASE_URL=https://api.github.com
+WEBHOOK_SECRET=your_webhook_secret_here
 ```
 
-2. **Validate provider token:**
+**Supported Providers:**
+- GitHub (fully supported)
+- Gitea (planned)
+- GitLab (planned)
+
+### Repository Operations
+
+#### List Repositories
+
 ```bash
-curl -X POST http://localhost:3000/api/settings/providers/1/validate
+curl http://localhost:3000/api/repositories
 ```
 
-3. **Sync repositories:**
+#### Get Repository Details
+
 ```bash
-curl -X POST http://localhost:3000/api/settings/providers/1/sync
+curl http://localhost:3000/api/repositories/:id
 ```
 
-### Initializing Repositories
+#### Initialize Repository
 
-**Single repository:**
+Initialize a repository with the vibe-dev branch and required labels:
+
 ```bash
-curl -X POST http://localhost:3000/api/repositories/1/initialize \
+curl -X POST http://localhost:3000/api/repositories/:id/initialize \
   -H "Content-Type: application/json" \
   -d '{
     "branch_name": "vibe-dev",
     "create_labels": true
   }'
-```
-
-**Batch initialization:**
-```bash
-curl -X POST http://localhost:3000/api/repositories/batch-initialize \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repository_ids": [1, 2, 3],
-    "branch_name": "vibe-dev",
-    "create_labels": true
-  }'
-```
-
----
-
-## Workspace Management
-
-### Creating a Workspace
-
-**Basic workspace:**
-```bash
-curl -X POST http://localhost:3000/api/workspaces \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repository_id": 1
-  }'
-```
-
-**Workspace with init script:**
-```bash
-curl -X POST http://localhost:3000/api/workspaces \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repository_id": 1,
-    "init_script": "#!/bin/bash\necho \"Setting up workspace...\"\napt-get update\napt-get install -y git curl vim\necho \"Setup complete!\"",
-    "script_timeout_seconds": 600
-  }'
-```
-
-### Managing Init Scripts
-
-**Update init script:**
-```bash
-curl -X PUT http://localhost:3000/api/workspaces/1/init-script \
-  -H "Content-Type: application/json" \
-  -d '{
-    "script_content": "#!/bin/bash\necho \"Updated script\"\ndate\nuname -a",
-    "timeout_seconds": 300,
-    "execute_immediately": false
-  }'
-```
-
-**Execute init script manually:**
-```bash
-curl -X POST http://localhost:3000/api/workspaces/1/init-script/execute \
-  -H "Content-Type: application/json" \
-  -d '{
-    "force": false
-  }'
-```
-
-**Check script logs:**
-```bash
-curl http://localhost:3000/api/workspaces/1/init-script/logs
-```
-
----
-
-## Agent Management
-
-Agents are AI-powered automation tools that execute tasks in workspaces. Each workspace can have multiple agents configured with different tools and models.
-
-### Creating an Agent
-
-**Basic agent creation:**
-```bash
-curl -X POST http://localhost:3000/api/agents \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workspace_id": 1,
-    "name": "OpenCode Agent",
-    "tool_type": "OpenCode",
-    "command": "opencode --model glm-4-flash",
-    "timeout": 600
-  }'
-```
-
-**Agent with environment variables:**
-```bash
-curl -X POST http://localhost:3000/api/agents \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workspace_id": 1,
-    "name": "Aider GPT-4",
-    "tool_type": "Aider",
-    "command": "aider --model gpt-4 --yes",
-    "timeout": 1800,
-    "env_vars": {
-      "OPENAI_API_KEY": "sk-...",
-      "OPENAI_BASE_URL": "https://api.openai.com/v1"
-    }
-  }'
-```
-
-### Agent Configuration Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `workspace_id` | integer | Yes | ID of the workspace |
-| `name` | string | Yes | Human-readable agent name |
-| `tool_type` | string | Yes | Tool type (OpenCode, Aider, Custom) |
-| `command` | string | Yes | Full command to execute |
-| `timeout` | integer | No | Timeout in seconds (default: 1800) |
-| `env_vars` | object | No | Environment variables |
-
-### Supported Tool Types
-
-#### OpenCode
-
-OpenCode is an AI coding assistant that can work with various models.
-
-**Example configuration:**
-```json
-{
-  "workspace_id": 1,
-  "name": "OpenCode GLM-4",
-  "tool_type": "OpenCode",
-  "command": "opencode --model glm-4-flash",
-  "timeout": 600,
-  "env_vars": {
-    "OPENAI_API_KEY": "your-api-key"
-  }
-}
-```
-
-**Common OpenCode commands:**
-- `opencode --model glm-4-flash` - Use GLM-4 Flash model
-- `opencode --model gpt-4` - Use GPT-4 model
-- `opencode --model claude-3-opus` - Use Claude 3 Opus
-
-#### Aider
-
-Aider is an AI pair programming tool in your terminal.
-
-**Example configuration:**
-```json
-{
-  "workspace_id": 1,
-  "name": "Aider GPT-4",
-  "tool_type": "Aider",
-  "command": "aider --model gpt-4 --yes --no-git",
-  "timeout": 1800,
-  "env_vars": {
-    "OPENAI_API_KEY": "your-api-key"
-  }
-}
-```
-
-**Common Aider commands:**
-- `aider --model gpt-4 --yes` - Use GPT-4 with auto-confirm
-- `aider --model claude-3-opus --yes` - Use Claude 3 Opus
-- `aider --model gpt-3.5-turbo --yes --no-git` - Use GPT-3.5 without git
-
-#### Custom Tools
-
-You can configure any custom automation tool.
-
-**Example configuration:**
-```json
-{
-  "workspace_id": 1,
-  "name": "Custom Script",
-  "tool_type": "Custom",
-  "command": "/usr/local/bin/my-automation-tool --config /etc/config.json",
-  "timeout": 3600,
-  "env_vars": {
-    "CUSTOM_VAR": "value"
-  }
-}
-```
-
-### Listing Agents
-
-**List all agents for a workspace:**
-```bash
-curl http://localhost:3000/api/workspaces/1/agents
-```
-
-**Response:**
-```json
-[
-  {
-    "id": 1,
-    "workspace_id": 1,
-    "name": "OpenCode Agent",
-    "tool_type": "OpenCode",
-    "enabled": true,
-    "command": "opencode --model glm-4-flash",
-    "env_vars": {},
-    "timeout": 600,
-    "created_at": "2026-01-24T10:30:00Z",
-    "updated_at": "2026-01-24T10:30:00Z"
-  }
-]
-```
-
-### Getting Agent Details
-
-**Get specific agent:**
-```bash
-curl http://localhost:3000/api/agents/1
-```
-
-### Enabling/Disabling Agents
-
-**Disable an agent:**
-```bash
-curl -X PATCH http://localhost:3000/api/agents/1/enabled \
-  -H "Content-Type: application/json" \
-  -d '{
-    "enabled": false
-  }'
-```
-
-**Enable an agent:**
-```bash
-curl -X PATCH http://localhost:3000/api/agents/1/enabled \
-  -H "Content-Type: application/json" \
-  -d '{
-    "enabled": true
-  }'
-```
-
-**Note:** Disabled agents cannot be assigned to new tasks, but existing task assignments are not affected.
-
-### Deleting Agents
-
-**Delete an agent:**
-```bash
-curl -X DELETE http://localhost:3000/api/agents/1
-```
-
-**Important:** Deleting an agent will not affect existing tasks that were assigned to it. Those tasks will continue to reference the deleted agent.
-
-### Agent Best Practices
-
-1. **Use Descriptive Names**: Name agents clearly to indicate their purpose
-   - Good: "OpenCode GLM-4 for Python"
-   - Bad: "Agent 1"
-
-2. **Set Appropriate Timeouts**: Consider task complexity
-   - Simple tasks: 600 seconds (10 minutes)
-   - Complex tasks: 1800 seconds (30 minutes)
-   - Very complex: 3600 seconds (1 hour)
-
-3. **Secure Environment Variables**: Store sensitive data in `env_vars`
-   - API keys
-   - Access tokens
-   - Configuration URLs
-
-4. **Test Agent Configuration**: Create a test task to verify agent works correctly
-
-5. **Use Multiple Agents**: Configure different agents for different types of tasks
-   - Fast model for simple tasks
-   - Powerful model for complex tasks
-   - Specialized tools for specific domains
-
-### Common Issues
-
-#### Agent Command Not Found
-
-**Problem:** Agent fails with "command not found" error
-
-**Solution:** Use absolute path in command:
-```json
-{
-  "command": "/usr/local/bin/opencode --model glm-4-flash"
-}
-```
-
-#### Timeout Too Short
-
-**Problem:** Tasks fail due to timeout
-
-**Solution:** Increase timeout value:
-```json
-{
-  "timeout": 3600
-}
-```
-
-#### Missing Environment Variables
-
-**Problem:** Agent fails due to missing API keys
-
-**Solution:** Add required environment variables:
-```json
-{
-  "env_vars": {
-    "OPENAI_API_KEY": "sk-...",
-    "OPENAI_BASE_URL": "https://api.openai.com/v1"
-  }
-}
 ```
 
 ---
 
 ## Task Management
 
+### Overview
+
+Tasks are the core unit of work in VibeRepo. Each task represents an issue that needs to be converted into a pull request.
+
+### Simplified Task State Machine
+
+The MVP uses a simplified state machine:
+
+```
+Pending → Running → Completed
+                  ↘ Failed
+                  ↘ Cancelled
+```
+
+**Removed States:**
+- ~~Assigned~~ (tasks go directly from Pending to Running)
+
+### Single Agent per Repository
+
+Each repository has exactly one agent configured. Tasks are automatically assigned to the repository's agent when created.
+
+**Key Changes:**
+- No manual agent assignment needed
+- Agent configuration via environment variables
+- One agent per workspace (enforced by unique constraint)
+
 ### Creating Tasks
 
-**Create task from issue:**
+Tasks are typically created automatically via webhooks when issues are opened or labeled. You can also create tasks manually:
+
 ```bash
 curl -X POST http://localhost:3000/api/tasks \
   -H "Content-Type: application/json" \
@@ -422,61 +176,48 @@ curl -X POST http://localhost:3000/api/tasks \
     "issue_number": 42,
     "issue_title": "Add user authentication",
     "issue_body": "Implement JWT-based authentication...",
-    "issue_url": "https://git.example.com/owner/repo/issues/42",
-    "priority": "High",
-    "max_retries": 3
+    "issue_url": "https://github.com/owner/repo/issues/42",
+    "priority": "High"
   }'
 ```
+
+**Note:** The `assigned_agent_id` field has been removed. Tasks are automatically assigned to the workspace's agent.
 
 ### Task Lifecycle
 
-**1. Assign agent:**
+**1. Task Created (Pending)**
+- Task is created from an issue
+- Automatically assigned to workspace's agent
+
+**2. Task Execution (Running)**
 ```bash
-curl -X POST http://localhost:3000/api/tasks/1/assign \
-  -H "Content-Type: application/json" \
-  -d '{
-    "agent_id": 5
-  }'
+curl -X POST http://localhost:3000/api/tasks/:id/execute
 ```
 
-**2. Start execution:**
+**3. Task Completion (Completed)**
+- PR is automatically created
+- Issue is automatically closed when PR is merged
+
+### Listing Tasks
+
 ```bash
-curl -X POST http://localhost:3000/api/tasks/1/start
+# List all tasks for a workspace
+curl "http://localhost:3000/api/tasks?workspace_id=1"
+
+# Filter by status
+curl "http://localhost:3000/api/tasks?workspace_id=1&status=Pending"
+
+# Filter by priority
+curl "http://localhost:3000/api/tasks?workspace_id=1&priority=High"
 ```
 
-**3. Complete task:**
-```bash
-curl -X POST http://localhost:3000/api/tasks/1/complete \
-  -H "Content-Type: application/json" \
-  -d '{
-    "pr_number": 123,
-    "pr_url": "https://git.example.com/owner/repo/pulls/123",
-    "branch_name": "feature/user-auth"
-  }'
-```
+### Task Logs
 
-### Pull Request Creation
-
-VibeRepo automatically creates pull requests when tasks are completed successfully. The system extracts PR information from the agent's output and creates the PR via the Git provider API.
-
-#### Automatic PR Creation
-
-When a task completes successfully:
-1. The agent creates a branch and commits changes
-2. The agent outputs PR information in the format: `PR_NUMBER=123 PR_URL=https://...`
-3. VibeRepo extracts this information and updates the task
-4. The PR is automatically created with:
-   - Title from the issue
-   - Body including "Closes #N" to link the issue
-   - Labels from the original issue
-   - Assignment to the repository owner
-
-#### Manual PR Creation
-
-If automatic PR creation fails or you need to create a PR manually:
+Task logs are stored inline in the `tasks.last_log` field (no separate task_executions table):
 
 ```bash
-curl -X POST http://localhost:3000/api/tasks/1/create-pr
+# Get task details including last log
+curl http://localhost:3000/api/tasks/:id
 ```
 
 **Response:**
@@ -486,433 +227,79 @@ curl -X POST http://localhost:3000/api/tasks/1/create-pr
   "workspace_id": 1,
   "issue_number": 42,
   "issue_title": "Add user authentication",
-  "status": "Completed",
+  "task_status": "completed",
+  "last_log": "Task completed successfully. PR #123 created.",
   "pr_number": 123,
-  "pr_url": "https://git.example.com/owner/repo/pulls/123",
-  "branch_name": "feature/user-auth"
+  "pr_url": "https://github.com/owner/repo/pull/123"
 }
 ```
 
-**Requirements:**
-- Task must be in "Completed" status
-- Task must have branch_name set
-- Repository must be accessible with current credentials
+### Pull Request Creation
+
+VibeRepo automatically creates pull requests when tasks complete successfully:
+
+1. Agent creates a branch and commits changes
+2. Agent outputs PR information
+3. VibeRepo extracts PR info and creates the PR
+4. PR includes "Closes #N" to link the issue
+
+#### Manual PR Creation
+
+If automatic PR creation fails:
+
+```bash
+curl -X POST http://localhost:3000/api/tasks/:id/create-pr
+```
 
 #### Manual Issue Closure
 
 To manually close an issue after PR is merged:
 
 ```bash
-curl -X POST http://localhost:3000/api/tasks/1/close-issue
-```
-
-**Response:**
-```json
-{
-  "id": 1,
-  "workspace_id": 1,
-  "issue_number": 42,
-  "issue_title": "Add user authentication",
-  "status": "Completed",
-  "pr_number": 123,
-  "pr_url": "https://git.example.com/owner/repo/pulls/123"
-}
-```
-
-**Requirements:**
-- Task must have issue_number set
-- Issue must exist in the repository
-- Repository must be accessible with current credentials
-
-#### PR Body Format
-
-Pull requests created by VibeRepo include:
-- Issue title as PR title
-- Issue body as PR description
-- "Closes #N" keyword to automatically close the issue when PR is merged
-- Link to the original issue
-- Task execution details (optional)
-
-**Example PR Body:**
-```markdown
-Implement JWT-based authentication for user login and registration.
-
-This PR addresses the requirements outlined in the issue.
-
-Closes #42
-
----
-Generated by VibeRepo
-Task ID: 1
-Branch: feature/user-auth
-```
-
-### Filtering Tasks
-
-**List pending tasks:**
-```bash
-curl "http://localhost:3000/api/tasks?workspace_id=1&status=Pending"
-```
-
-**List high priority tasks:**
-```bash
-curl "http://localhost:3000/api/tasks?workspace_id=1&priority=High"
-```
-
-**List tasks by agent:**
-```bash
-curl "http://localhost:3000/api/tasks?workspace_id=1&assigned_agent_id=5"
-```
-
-### Task Execution
-
-**Execute task:**
-```bash
-curl -X POST http://localhost:3000/api/tasks/1/execute
-```
-
-The task will be executed asynchronously in the workspace container.
-
----
-
-## Issue Polling
-
-### Enabling Issue Polling
-
-**Configure polling for repository:**
-```bash
-curl -X PATCH http://localhost:3000/api/repositories/1/polling \
-  -H "Content-Type: application/json" \
-  -d '{
-    "polling_enabled": true,
-    "polling_interval_seconds": 300,
-    "polling_config": {
-      "filter_labels": ["vibe/auto", "bug"],
-      "filter_mentions": ["@vibe-bot"],
-      "filter_state": "open",
-      "max_issue_age_days": 30
-    }
-  }'
-```
-
-### Manual Polling
-
-**Trigger polling manually:**
-```bash
-curl -X POST http://localhost:3000/api/repositories/1/poll-issues
-```
-
-**Response:**
-```json
-{
-  "repository_id": 1,
-  "issues_found": 5,
-  "tasks_created": 3,
-  "tasks_updated": 2,
-  "polling_duration_ms": 234
-}
-```
-
-### Polling Configuration
-
-| Field | Type | Description | Default |
-|-------|------|-------------|---------|
-| `polling_enabled` | boolean | Enable/disable polling | `false` |
-| `polling_interval_seconds` | integer | Polling interval (60-86400) | `300` |
-| `filter_labels` | array | Filter by labels (OR logic) | `[]` |
-| `filter_mentions` | array | Filter by @mentions | `[]` |
-| `filter_state` | string | Filter by state (open/closed/all) | `open` |
-| `max_issue_age_days` | integer | Max issue age in days | `30` |
-
----
-
-## Container Management
-
-### Monitoring Container Health
-
-**Get container statistics:**
-```bash
-curl http://localhost:3000/api/workspaces/1/stats
-```
-
-**Response:**
-```json
-{
-  "workspace_id": 1,
-  "container_id": "abc123def456",
-  "stats": {
-    "cpu_percent": 15.5,
-    "memory_usage_mb": 256.8,
-    "memory_limit_mb": 512.0,
-    "memory_percent": 50.16,
-    "network_rx_bytes": 1048576,
-    "network_tx_bytes": 524288
-  },
-  "collected_at": "2026-01-20T10:35:00Z"
-}
-```
-
-### Restarting Containers
-
-**Manual restart:**
-```bash
-curl -X POST http://localhost:3000/api/workspaces/1/restart
-```
-
-**Automatic restart:**
-- Containers are automatically restarted on failure
-- Default: 3 restart attempts
-- Configurable via `max_restart_attempts`
-
-### Managing Workspace Images
-
-**Query image information:**
-```bash
-curl http://localhost:3000/api/settings/workspace/image
-```
-
-**Rebuild image:**
-```bash
-curl -X POST http://localhost:3000/api/settings/workspace/image/rebuild
+curl -X POST http://localhost:3000/api/tasks/:id/close-issue
 ```
 
 ---
 
-## Monitoring & Debugging
+## Webhook Integration
 
-### Real-time Log Streaming
+### Overview
 
-**JavaScript client:**
-```javascript
-const taskId = 123;
-const ws = new WebSocket(`ws://localhost:3000/api/tasks/${taskId}/logs/stream`);
+Webhooks enable real-time issue-to-PR automation. When an issue is opened or labeled, a webhook event triggers task creation and execution.
 
-ws.onopen = () => {
-  console.log('Connected to task logs');
-};
+### Webhook Configuration
 
-ws.onmessage = (event) => {
-  const log = JSON.parse(event.data);
-  console.log(`[${log.timestamp}] ${log.level}: ${log.message}`);
-};
-
-ws.onerror = (error) => {
-  console.error('WebSocket error:', error);
-};
-
-ws.onclose = () => {
-  console.log('Disconnected from task logs');
-};
-```
-
-**Python client:**
-```python
-import websocket
-import json
-
-def on_message(ws, message):
-    log = json.loads(message)
-    print(f"[{log['timestamp']}] {log['level']}: {log['message']}")
-
-def on_error(ws, error):
-    print(f"Error: {error}")
-
-def on_close(ws, close_status_code, close_msg):
-    print("Connection closed")
-
-def on_open(ws):
-    print("Connected to task logs")
-
-task_id = 123
-ws = websocket.WebSocketApp(
-    f"ws://localhost:3000/api/tasks/{task_id}/logs/stream",
-    on_open=on_open,
-    on_message=on_message,
-    on_error=on_error,
-    on_close=on_close
-)
-
-ws.run_forever()
-```
-
-### WebSocket Authentication
-
-For production environments, secure your WebSocket connections with authentication.
-
-#### Enabling Authentication
-
-Set the `WEBSOCKET_AUTH_TOKEN` environment variable:
+Webhooks are configured via environment variables:
 
 ```bash
-# Generate a secure token
-openssl rand -hex 32
-
-# Add to .env file
-WEBSOCKET_AUTH_TOKEN="your-secure-token-here"
+WEBHOOK_SECRET=your_webhook_secret_here
 ```
 
-#### Connecting with Authentication
+### Webhook URL Format
 
-**JavaScript Example:**
-```javascript
-const taskId = 123;
-const authToken = 'your-secure-token-here';
-
-// Include token in query string
-const ws = new WebSocket(
-  `ws://localhost:3000/api/tasks/${taskId}/logs/stream?token=${authToken}`
-);
-
-ws.onopen = () => {
-  console.log('Authenticated and connected');
-};
-
-ws.onerror = (error) => {
-  console.error('Authentication or connection error:', error);
-};
+```
+https://your-domain.com/api/webhooks/:repository_id
 ```
 
-**Python Example:**
-```python
-import websocket
-import json
+### Setting Up GitHub Webhooks
 
-task_id = 123
-auth_token = 'your-secure-token-here'
+1. Go to your repository settings
+2. Navigate to Webhooks → Add webhook
+3. Set Payload URL: `https://your-domain.com/api/webhooks/1`
+4. Set Content type: `application/json`
+5. Set Secret: (same as `WEBHOOK_SECRET` in `.env`)
+6. Select events: `Issues`, `Pull requests`
+7. Click "Add webhook"
 
-# Include token in URL
-url = f"ws://localhost:3000/api/tasks/{task_id}/logs/stream?token={auth_token}"
+### Webhook Events
 
-ws = websocket.WebSocketApp(
-    url,
-    on_open=lambda ws: print("Authenticated and connected"),
-    on_message=lambda ws, msg: print(json.loads(msg)),
-    on_error=lambda ws, err: print(f"Error: {err}")
-)
+**Supported Events:**
+- `issues` - Issue opened, edited, labeled
+- `pull_request` - PR opened, merged, closed
 
-ws.run_forever()
-```
-
-**cURL Example (for testing):**
-```bash
-# Test WebSocket connection with authentication
-curl -i -N \
-  -H "Connection: Upgrade" \
-  -H "Upgrade: websocket" \
-  -H "Sec-WebSocket-Version: 13" \
-  -H "Sec-WebSocket-Key: $(openssl rand -base64 16)" \
-  "http://localhost:3000/api/tasks/123/logs/stream?token=your-token"
-```
-
-#### Authentication Errors
-
-**Missing Token:**
-```json
-{
-  "type": "error",
-  "message": "Authentication required. Please provide a valid token.",
-  "code": "AUTH_REQUIRED"
-}
-```
-
-**Invalid Token:**
-```json
-{
-  "type": "error",
-  "message": "Invalid authentication token.",
-  "code": "AUTH_INVALID"
-}
-```
-
-#### Security Best Practices
-
-1. **Always use WSS in production:**
-   ```javascript
-   // Production
-   const ws = new WebSocket(
-     `wss://vibe-repo.example.com/api/tasks/${taskId}/logs/stream?token=${token}`
-   );
-   ```
-
-2. **Never hardcode tokens:**
-   ```javascript
-   // Bad
-   const token = 'my-secret-token';
-   
-   // Good
-   const token = process.env.WEBSOCKET_AUTH_TOKEN;
-   ```
-
-3. **Rotate tokens periodically:**
-   ```bash
-   # Generate new token monthly
-   openssl rand -hex 32 > .websocket-token
-   ```
-
-4. **Use different tokens per environment:**
-   ```bash
-   # Development
-   WEBSOCKET_AUTH_TOKEN="dev-token-123"
-   
-   # Staging
-   WEBSOCKET_AUTH_TOKEN="staging-token-456"
-   
-   # Production
-   WEBSOCKET_AUTH_TOKEN="prod-token-789"
-   ```
-
-5. **Monitor failed authentication attempts:**
-   ```bash
-   # Check logs for authentication failures
-   grep "AUTH_INVALID" logs/vibe-repo.log
-   ```
-
-#### Disabling Authentication (Development Only)
-
-For local development, you can disable authentication by not setting `WEBSOCKET_AUTH_TOKEN`:
-
-```bash
-# .env (development only)
-# WEBSOCKET_AUTH_TOKEN not set = authentication disabled
-```
-
-**Warning:** Never disable authentication in production environments.
-
-### Failure Analysis
-
-**Get failure analysis:**
-```bash
-curl http://localhost:3000/api/tasks/123/failure-analysis
-```
-
-**Response:**
-```json
-{
-  "task_id": 123,
-  "failure_category": "GitError",
-  "root_cause": "Git operation failed",
-  "recommendations": [
-    "Verify Git credentials and access token",
-    "Check repository permissions",
-    "Ensure Git is configured in the container",
-    "Verify branch names and remote URLs"
-  ],
-  "similar_failures_count": 3,
-  "is_recurring": false
-}
-```
-
-### Failure Categories
-
-1. **ContainerError** - Docker/container issues
-2. **AgentError** - Agent command or configuration problems
-3. **GitError** - Git operations failures
-4. **BuildError** - Build or compilation errors
-5. **TestError** - Test failures
-6. **Timeout** - Execution timeout exceeded
-7. **PermissionError** - Access or permission denied
-8. **NetworkError** - Network connectivity issues
-9. **Unknown** - Unclassified errors
+**Removed Features:**
+- ~~Webhook retry mechanism~~ (simplified error handling)
+- ~~Webhook status tracking~~ (no webhook_configs table)
 
 ---
 
@@ -920,7 +307,7 @@ curl http://localhost:3000/api/tasks/123/failure-analysis
 
 ### Environment Variables
 
-Create a `.env` file in the project root:
+All configuration is done via environment variables in the `.env` file:
 
 ```bash
 # Database Configuration
@@ -931,23 +318,35 @@ DATABASE_MAX_CONNECTIONS=10
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
 
-# Logging
-RUST_LOG=debug
-LOG_FORMAT=json  # Optional: use JSON logs in production
+# Git Provider Configuration
+GITHUB_TOKEN=your_github_token_here
+GITHUB_BASE_URL=https://api.github.com
+WEBHOOK_SECRET=your_webhook_secret_here
 
-# Issue Polling
-ISSUE_POLLING_ENABLED=true
-ISSUE_POLLING_INTERVAL_SECONDS=300
-ISSUE_POLLING_BATCH_SIZE=10
-ISSUE_POLLING_MAX_ISSUE_AGE_DAYS=30
-
-# Task Scheduler
-TASK_SCHEDULER_INTERVAL_SECONDS=30
+# Agent Configuration
+DEFAULT_AGENT_COMMAND=opencode
+DEFAULT_AGENT_TIMEOUT=600
+DEFAULT_DOCKER_IMAGE=ubuntu:22.04
 
 # Workspace Configuration
-WORKSPACE_MAX_CONCURRENT_TASKS=3
-WORKSPACE_MAX_RESTART_ATTEMPTS=3
+WORKSPACE_BASE_DIR=./data/vibe-repo/workspaces
+
+# Logging
+RUST_LOG=info
+LOG_FORMAT=human
 ```
+
+### Agent Configuration
+
+Agents are configured via environment variables:
+
+- `DEFAULT_AGENT_COMMAND` - Command to execute (e.g., `opencode`, `aider`)
+- `DEFAULT_AGENT_TIMEOUT` - Timeout in seconds (default: 600)
+- `DEFAULT_DOCKER_IMAGE` - Docker image for workspaces (default: `ubuntu:22.04`)
+
+**Example Commands:**
+- OpenCode: `opencode --model glm-4-flash`
+- Aider: `aider --model gpt-4 --yes`
 
 ### Database Options
 
@@ -979,33 +378,74 @@ DATABASE_MAX_CONNECTIONS=20
 - Check container logs
 
 **3. Task execution timeout**
-- Increase agent timeout setting
+- Increase `DEFAULT_AGENT_TIMEOUT` setting
 - Check container resource limits
 - Review task complexity
 
 **4. Webhook not receiving events**
 - Verify webhook URL is accessible
-- Check webhook secret matches
+- Check `WEBHOOK_SECRET` matches
 - Review Git provider webhook settings
+
+**5. Missing environment variables**
+- Ensure all required variables are set in `.env`
+- Check for typos in variable names
+- Restart the application after changes
 
 ### Getting Help
 
 - **Documentation**: See [docs/README.md](../README.md)
 - **API Reference**: See [api-reference.md](./api-reference.md)
+- **Migration Guide**: See [MIGRATION.md](../../MIGRATION.md)
 - **Issues**: Report bugs on GitHub Issues
 - **Discussions**: Ask questions in GitHub Discussions
+
+---
+
+## Removed Features (from v0.3.0)
+
+The following features were removed in the simplified MVP:
+
+**Background Services:**
+- ~~Issue Polling Service~~ (use webhooks only)
+- ~~Webhook Retry Service~~ (simplified error handling)
+- ~~Init Script Service~~ (workspaces use default setup)
+- ~~Task Failure Analyzer~~ (basic error messages only)
+- ~~Health Check Service~~ (basic health endpoint only)
+- ~~Image Management Service~~ (use default Docker images)
+
+**API Endpoints:**
+- ~~Provider Management API~~ (configured via environment variables)
+- ~~Workspace Management API~~ (workspaces created automatically)
+- ~~Agent Management API~~ (agents configured via environment variables)
+- ~~Init Script API~~ (no custom init scripts)
+- ~~Task Retry Endpoint~~ (no manual retry)
+- ~~Task Assignment Endpoint~~ (automatic assignment)
+
+**Features:**
+- ~~WebSocket Real-time Logs~~ (logs stored in tasks.last_log)
+- ~~Task Execution History~~ (no task_executions table)
+- ~~Multiple Agents per Workspace~~ (one agent per workspace)
+- ~~Manual Agent Assignment~~ (automatic assignment)
+- ~~Task Retry Mechanism~~ (no automatic retry)
+- ~~Assigned Task State~~ (simplified state machine)
+
+**Database Tables:**
+- ~~repo_providers~~ (configured via environment variables)
+- ~~webhook_configs~~ (configured via environment variables)
+- ~~init_scripts~~ (no custom init scripts)
+- ~~task_executions~~ (logs in tasks.last_log)
 
 ---
 
 ## Related Documentation
 
 - **[API Reference](./api-reference.md)** - Complete API endpoint reference
-- **[Task API Design](./task-api-design.md)** - Detailed Task API specifications
-- **[Issue Polling Feature](./issue-polling-feature.md)** - Issue polling documentation
-- **[Container Lifecycle Management](./container-lifecycle-management.md)** - Container management
-- **[Init Scripts Guide](./init-scripts-guide.md)** - Init scripts documentation
+- **[Database Schema](../database/schema.md)** - Simplified database schema
+- **[Migration Guide](../../MIGRATION.md)** - Migrating from v0.3.0 to v0.4.0-mvp
+- **[Development Guide](../development/README.md)** - Development guidelines
 
 ---
 
-**Last Updated:** 2026-01-24  
-**Version:** 0.3.0
+**Last Updated:** 2026-02-06  
+**Version:** 0.4.0-mvp (Simplified MVP)

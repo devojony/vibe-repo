@@ -10,10 +10,7 @@ use crate::{
     api::tasks::models::*,
     entities::task::TaskStatus,
     error::Result,
-    services::{
-        IssueClosureService, PRCreationService, TaskExecutorService, TaskFailureAnalyzer,
-        TaskService,
-    },
+    services::{IssueClosureService, PRCreationService, TaskExecutorService, TaskService},
     state::AppState,
 };
 
@@ -41,7 +38,7 @@ pub async fn create_task(
             req.issue_number,
             req.issue_title,
             req.issue_body,
-            req.assigned_agent_id,
+            None, // Auto-assign agent in single agent mode
             req.priority,
         )
         .await?;
@@ -79,7 +76,6 @@ pub struct ListTasksQuery {
     pub workspace_id: i32,
     pub status: Option<TaskStatus>,
     pub priority: Option<String>,
-    pub assigned_agent_id: Option<i32>,
     #[serde(default = "default_page")]
     pub page: i32,
     #[serde(default = "default_per_page")]
@@ -102,7 +98,6 @@ fn default_per_page() -> i32 {
         ("workspace_id" = i32, Query, description = "Workspace ID"),
         ("status" = Option<String>, Query, description = "Filter by status"),
         ("priority" = Option<String>, Query, description = "Filter by priority"),
-        ("assigned_agent_id" = Option<i32>, Query, description = "Filter by assigned agent"),
         ("page" = Option<i32>, Query, description = "Page number (default: 1)"),
         ("per_page" = Option<i32>, Query, description = "Items per page (default: 20, max: 100)"),
     ),
@@ -137,7 +132,7 @@ pub async fn list_tasks_by_workspace(
             query.workspace_id,
             query.status,
             query.priority,
-            query.assigned_agent_id,
+            None, // No agent filter in single agent mode
             query.page,
             per_page,
         )
@@ -206,7 +201,7 @@ pub async fn update_task(
     let service = TaskService::new(state.db.clone());
 
     let task = service
-        .update_task(id, req.priority, req.assigned_agent_id.map(Some))
+        .update_task(id, req.priority, None) // No agent update in single agent mode
         .await?;
 
     Ok(Json(task.into()))
@@ -237,32 +232,7 @@ pub async fn delete_task(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Assign agent to task
-#[utoipa::path(
-    post,
-    path = "/api/tasks/{id}/assign",
-    params(
-        ("id" = i32, Path, description = "Task ID")
-    ),
-    request_body = AssignAgentRequest,
-    responses(
-        (status = 200, description = "Agent assigned successfully", body = TaskResponse),
-        (status = 404, description = "Task not found"),
-        (status = 500, description = "Internal server error"),
-    ),
-    tag = "tasks"
-)]
-pub async fn assign_agent(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i32>,
-    Json(req): Json<AssignAgentRequest>,
-) -> Result<Json<TaskResponse>> {
-    let service = TaskService::new(state.db.clone());
 
-    let task = service.assign_agent(id, req.agent_id).await?;
-
-    Ok(Json(task.into()))
-}
 
 /// Start task execution
 #[utoipa::path(
@@ -345,30 +315,7 @@ pub async fn fail_task(
     Ok(Json(task.into()))
 }
 
-/// Retry a failed task
-#[utoipa::path(
-    post,
-    path = "/api/tasks/{id}/retry",
-    params(
-        ("id" = i32, Path, description = "Task ID")
-    ),
-    responses(
-        (status = 200, description = "Task retry initiated", body = TaskResponse),
-        (status = 404, description = "Task not found"),
-        (status = 500, description = "Internal server error"),
-    ),
-    tag = "tasks"
-)]
-pub async fn retry_task(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i32>,
-) -> Result<Json<TaskResponse>> {
-    let service = TaskService::new(state.db.clone());
 
-    let task = service.retry_task(id).await?;
-
-    Ok(Json(task.into()))
-}
 
 /// Cancel a task
 #[utoipa::path(
@@ -414,11 +361,8 @@ pub async fn execute_task(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
 ) -> Result<(StatusCode, Json<TaskResponse>)> {
-    let executor = TaskExecutorService::new(
-        state.db.clone(),
-        state.config.workspace.base_dir.clone(),
-        state.log_broadcaster.clone(),
-    );
+    let executor =
+        TaskExecutorService::new(state.db.clone(), state.config.workspace.base_dir.clone());
     let task_service = TaskService::new(state.db.clone());
 
     // Get task before execution
@@ -434,29 +378,64 @@ pub async fn execute_task(
     Ok((StatusCode::ACCEPTED, Json(task.into())))
 }
 
-/// Get failure analysis for a failed task
+/// Get task logs
 #[utoipa::path(
     get,
-    path = "/api/tasks/{id}/failure-analysis",
+    path = "/api/tasks/{id}/logs",
     params(
         ("id" = i32, Path, description = "Task ID")
     ),
     responses(
-        (status = 200, description = "Failure analysis retrieved", body = FailureAnalysis),
+        (status = 200, description = "Task logs retrieved successfully", body = String),
         (status = 404, description = "Task not found"),
         (status = 500, description = "Internal server error"),
     ),
     tag = "tasks"
 )]
-pub async fn get_failure_analysis(
+pub async fn get_task_logs(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
-) -> Result<Json<crate::services::FailureAnalysis>> {
-    let analyzer = TaskFailureAnalyzer::new(state.db.clone());
+) -> Result<Json<serde_json::Value>> {
+    let service = TaskService::new(state.db.clone());
 
-    let analysis = analyzer.analyze_failure(id).await?;
+    let task = service.get_task_by_id(id).await?;
 
-    Ok(Json(analysis))
+    Ok(Json(serde_json::json!({
+        "task_id": task.id,
+        "logs": task.last_log.unwrap_or_default()
+    })))
+}
+
+/// Get task status
+#[utoipa::path(
+    get,
+    path = "/api/tasks/{id}/status",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    responses(
+        (status = 200, description = "Task status retrieved successfully"),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn get_task_status(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<serde_json::Value>> {
+    let service = TaskService::new(state.db.clone());
+
+    let task = service.get_task_by_id(id).await?;
+
+    Ok(Json(serde_json::json!({
+        "task_id": task.id,
+        "status": task.task_status.to_string(),
+        "started_at": task.started_at.map(|dt| dt.to_string()),
+        "completed_at": task.completed_at.map(|dt| dt.to_string()),
+        "created_at": task.created_at.to_string(),
+        "updated_at": task.updated_at.to_string()
+    })))
 }
 
 /// Manually create PR for a task
@@ -536,7 +515,6 @@ mod tests {
             issue_number: 123,
             issue_title: "Test Issue".to_string(),
             issue_body: Some("Issue body".to_string()),
-            assigned_agent_id: None,
             priority: "high".to_string(),
         };
 
@@ -606,7 +584,6 @@ mod tests {
             workspace_id: workspace.id,
             status: None,
             priority: None,
-            assigned_agent_id: None,
             page: 1,
             per_page: 20,
         };
@@ -636,7 +613,7 @@ mod tests {
         let task = create_test_task(&state, workspace.id).await;
 
         let req = UpdateTaskStatusRequest {
-            status: TaskStatus::Assigned,
+            status: TaskStatus::Running,
         };
 
         // Act
@@ -645,7 +622,7 @@ mod tests {
         // Assert
         assert!(result.is_ok());
         let Json(response) = result.unwrap();
-        assert_eq!(response.task_status, "assigned");
+        assert_eq!(response.task_status, "running");
     }
 
     /// Test update_task handler updates priority
@@ -661,7 +638,6 @@ mod tests {
 
         let req = UpdateTaskRequest {
             priority: Some("high".to_string()),
-            assigned_agent_id: None,
         };
 
         // Act
@@ -695,29 +671,6 @@ mod tests {
         let service = TaskService::new(state.db.clone());
         let deleted_task = service.get_task_by_id(task.id).await.unwrap();
         assert!(deleted_task.deleted_at.is_some());
-    }
-
-    /// Test assign_agent handler assigns agent
-    /// Requirements: Task API - assign agent endpoint
-    #[tokio::test]
-    async fn test_assign_agent_handler_success() {
-        // Arrange
-        let state = create_test_state()
-            .await
-            .expect("Failed to create test state");
-        let workspace = create_test_workspace(&state).await;
-        let task = create_test_task(&state, workspace.id).await;
-
-        let req = AssignAgentRequest { agent_id: None };
-
-        // Act
-        let result = assign_agent(State(state), Path(task.id), Json(req)).await;
-
-        // Assert
-        assert!(result.is_ok());
-        let Json(response) = result.unwrap();
-        assert_eq!(response.assigned_agent_id, None);
-        assert_eq!(response.task_status, "assigned");
     }
 
     /// Test start_task handler starts task
@@ -809,47 +762,8 @@ mod tests {
         // Assert
         assert!(result.is_ok());
         let Json(response) = result.unwrap();
-        assert_eq!(response.retry_count, 1);
-        // Error message is cleared when task is retried (transitioned to Pending)
-        assert_eq!(response.error_message, None);
-        assert_eq!(response.task_status, "pending"); // Should retry
-    }
-
-    /// Test retry_task handler retries task
-    /// Requirements: Task API - retry task endpoint
-    #[tokio::test]
-    async fn test_retry_task_handler_success() {
-        // Arrange
-        let state = create_test_state()
-            .await
-            .expect("Failed to create test state");
-        let workspace = create_test_workspace(&state).await;
-        let task = create_test_task(&state, workspace.id).await;
-
-        // Assign, start, and fail the task multiple times to reach max retries
-        let service = TaskService::new(state.db.clone());
-        
-        // Fail 3 times to reach max_retries (default is 3)
-        for _ in 0..3 {
-            let current_task = service.get_task_by_id(task.id).await.unwrap();
-            if current_task.task_status == crate::entities::task::TaskStatus::Pending {
-                service.assign_agent(task.id, None).await.unwrap();
-                service.start_task(task.id).await.unwrap();
-            }
-            service
-                .fail_task(task.id, "Test error".to_string())
-                .await
-                .unwrap();
-        }
-
-        // Act - Now retry the failed task
-        let result = retry_task(State(state), Path(task.id)).await;
-
-        // Assert
-        assert!(result.is_ok());
-        let Json(response) = result.unwrap();
-        assert_eq!(response.task_status, "pending");
-        assert_eq!(response.error_message, None);
+        assert_eq!(response.error_message, Some("Test error".to_string()));
+        assert_eq!(response.task_status, "failed");
     }
 
     /// Test cancel_task handler cancels task
@@ -916,7 +830,6 @@ mod tests {
             workspace_id: workspace.id,
             status: Some(TaskStatus::Pending),
             priority: None,
-            assigned_agent_id: None,
             page: 1,
             per_page: 20,
         };
@@ -951,7 +864,6 @@ mod tests {
             workspace_id: workspace.id,
             status: None,
             priority: None,
-            assigned_agent_id: None,
             page: 1,
             per_page: 2,
         };
@@ -983,7 +895,6 @@ mod tests {
             workspace_id: workspace.id,
             status: None,
             priority: None,
-            assigned_agent_id: None,
             page: 0, // Invalid page number
             per_page: 20,
         };
@@ -1010,7 +921,6 @@ mod tests {
             workspace_id: workspace.id,
             status: None,
             priority: None,
-            assigned_agent_id: None,
             page: 1,
             per_page: 200, // Exceeds max of 100
         };
@@ -1123,12 +1033,6 @@ mod tests {
         let repo = create_test_repository(state).await;
         let ws = workspace::ActiveModel {
             repository_id: Set(repo.id),
-            workspace_status: Set("Active".to_string()),
-            image_source: Set("default".to_string()),
-            max_concurrent_tasks: Set(3),
-            cpu_limit: Set(2.0),
-            memory_limit: Set("4GB".to_string()),
-            disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
         Workspace::insert(ws)

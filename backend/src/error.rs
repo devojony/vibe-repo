@@ -275,7 +275,10 @@ mod tests {
             target: crate::entities::task::TaskStatus::Failed,
             allowed: vec![],
         };
-        assert!(matches!(error, VibeRepoError::InvalidStateTransition { .. }));
+        assert!(matches!(
+            error,
+            VibeRepoError::InvalidStateTransition { .. }
+        ));
     }
 
     #[test]
@@ -298,14 +301,13 @@ mod tests {
             current: crate::entities::task::TaskStatus::Pending,
             target: crate::entities::task::TaskStatus::Running,
             allowed: vec![
-                crate::entities::task::TaskStatus::Assigned,
+                crate::entities::task::TaskStatus::Running,
                 crate::entities::task::TaskStatus::Cancelled,
             ],
         };
         let message = error.to_string();
         assert!(message.contains("pending"));
         assert!(message.contains("running"));
-        assert!(message.contains("assigned"));
         assert!(message.contains("cancelled"));
     }
 

@@ -2,12 +2,14 @@
 //!
 //! Executes tasks in Docker containers using AI agents with concurrency control.
 
-use crate::entities::{agent, prelude::*, task::{self, TaskStatus}, workspace};
-use crate::error::{Result, VibeRepoError};
-use crate::services::{
-    AgentService, GitService, PRCreationService, TaskExecutionHistoryService, TaskLogBroadcaster,
-    TaskService,
+use crate::entities::{
+    agent,
+    prelude::*,
+    task::{self, TaskStatus},
+    workspace,
 };
+use crate::error::{Result, VibeRepoError};
+use crate::services::{AgentService, GitService, PRCreationService, TaskService};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -53,32 +55,23 @@ pub struct TaskExecutorService {
     db: DatabaseConnection,
     task_service: TaskService,
     agent_service: AgentService,
-    execution_service: TaskExecutionHistoryService,
     pr_creation_service: PRCreationService,
     concurrency_manager: ConcurrencyManager,
     workspace_base_dir: String,
-    log_broadcaster: TaskLogBroadcaster,
 }
 
 impl TaskExecutorService {
-    pub fn new(
-        db: DatabaseConnection,
-        workspace_base_dir: String,
-        log_broadcaster: TaskLogBroadcaster,
-    ) -> Self {
+    pub fn new(db: DatabaseConnection, workspace_base_dir: String) -> Self {
         let task_service = TaskService::new(db.clone());
         let agent_service = AgentService::new(db.clone());
-        let execution_service = TaskExecutionHistoryService::new(db.clone());
         let pr_creation_service = PRCreationService::new(db.clone());
         Self {
             db,
             task_service,
             agent_service,
-            execution_service,
             pr_creation_service,
             concurrency_manager: ConcurrencyManager::new(),
             workspace_base_dir,
-            log_broadcaster,
         }
     }
 
@@ -103,7 +96,7 @@ impl TaskExecutorService {
         let task = self.task_service.get_task_by_id(task_id).await?;
 
         // Validate task status
-        if task.task_status != TaskStatus::Assigned && task.task_status != TaskStatus::Pending {
+        if task.task_status != TaskStatus::Pending {
             return Err(VibeRepoError::Validation(format!(
                 "Task {} is not in a valid state for execution (current: {})",
                 task_id, task.task_status
@@ -120,9 +113,10 @@ impl TaskExecutorService {
             })?;
 
         // Acquire semaphore permit for concurrency control
+        // Use hardcoded value of 3 for max concurrent tasks in simplified MVP
         let semaphore = self
             .concurrency_manager
-            .get_semaphore(workspace.id, workspace.max_concurrent_tasks)
+            .get_semaphore(workspace.id, 3)
             .await;
 
         info!(
@@ -159,12 +153,12 @@ impl TaskExecutorService {
         let agent = if let Some(agent_id) = task.assigned_agent_id {
             Some(self.agent_service.get_agent_by_id(agent_id).await?)
         } else {
-            // If no agent assigned, try to find a default enabled agent
+            // If no agent assigned, try to find a default agent (all agents are enabled in simplified MVP)
             let agents = self
                 .agent_service
                 .list_agents_by_workspace(workspace.id)
                 .await?;
-            agents.into_iter().find(|a| a.enabled)
+            agents.into_iter().next()
         };
 
         let agent = agent.ok_or_else(|| {
@@ -242,16 +236,10 @@ impl TaskExecutorService {
         // Build command
         let command = self.build_execution_command(&agent, &task)?;
 
-        // Create execution record
-        let execution = self
-            .execution_service
-            .create_execution(task_id, Some(agent.id), command.clone())
-            .await?;
-
         info!(
             task_id = task_id,
-            execution_id = execution.id,
-            "Created execution record"
+            command = %command,
+            "Built execution command"
         );
 
         // Update task status to running
@@ -263,24 +251,20 @@ impl TaskExecutorService {
             .await
         {
             Ok(result) => {
-                info!(
-                    task_id = task_id,
-                    execution_id = execution.id,
-                    "Task execution completed successfully"
-                );
+                info!(task_id = task_id, "Task execution completed successfully");
 
-                // Update execution record
-                self.execution_service
-                    .complete_execution(
-                        execution.id,
-                        result.exit_code,
-                        result.stdout,
-                        result.stderr,
-                        result.pr_info.as_ref().map(|p| p.pr_number),
-                        result.pr_info.as_ref().map(|p| p.pr_url.clone()),
-                        result.pr_info.as_ref().map(|p| p.branch_name.clone()),
-                    )
-                    .await?;
+                // Store logs in task.last_log (with 10MB limit)
+                let combined_log =
+                    format!("STDOUT:\n{}\n\nSTDERR:\n{}", result.stdout, result.stderr);
+                let truncated_log = Self::truncate_log(&combined_log, 10 * 1024 * 1024); // 10MB limit
+
+                // Update task with logs
+                let mut task_active: task::ActiveModel = task.clone().into();
+                task_active.last_log = Set(Some(truncated_log));
+                let _task = task_active
+                    .update(&self.db)
+                    .await
+                    .map_err(VibeRepoError::Database)?;
 
                 // Check if we have PR info from agent output
                 if let Some(pr_info) = result.pr_info {
@@ -339,21 +323,34 @@ impl TaskExecutorService {
             Err(e) => {
                 error!(
                     task_id = task_id,
-                    execution_id = execution.id,
                     error = %e,
                     "Task execution failed"
                 );
 
-                // Update execution record as failed
-                self.execution_service
-                    .fail_execution(execution.id, e.to_string(), String::new(), String::new())
-                    .await?;
-
-                // Mark task as failed (will auto-retry if retries available)
+                // Mark task as failed (no retry in simplified MVP)
                 self.task_service.fail_task(task_id, e.to_string()).await?;
 
                 Err(e)
             }
+        }
+    }
+
+    /// Truncate log to specified size limit
+    fn truncate_log(log: &str, max_bytes: usize) -> String {
+        if log.len() <= max_bytes {
+            log.to_string()
+        } else {
+            let truncation_msg = format!(
+                "\n\n... [Log truncated. Original size: {} bytes, showing last {} bytes] ...\n\n",
+                log.len(),
+                max_bytes
+            );
+            let truncation_msg_len = truncation_msg.len();
+            let available_bytes = max_bytes.saturating_sub(truncation_msg_len);
+
+            // Take the last available_bytes from the log
+            let start_pos = log.len().saturating_sub(available_bytes);
+            format!("{}{}", truncation_msg, &log[start_pos..])
         }
     }
 
@@ -423,12 +420,12 @@ impl TaskExecutorService {
         let mut stdout_lines = Vec::new();
         let mut stderr_lines = Vec::new();
 
-        // Read stdout and broadcast logs
+        // Read stdout and collect logs
         while let Ok(Some(line)) = stdout_reader.next_line().await {
             info!(task_id = task.id, "STDOUT: {}", line);
 
-            // Broadcast log to WebSocket clients
-            let log_message = serde_json::json!({
+            // Log message for potential future use
+            let _log_message = serde_json::json!({
                 "type": "log",
                 "task_id": task_id,
                 "stream": "stdout",
@@ -437,16 +434,15 @@ impl TaskExecutorService {
             })
             .to_string();
 
-            let _ = self.log_broadcaster.broadcast(task_id, log_message).await;
             stdout_lines.push(line);
         }
 
-        // Read stderr and broadcast logs
+        // Read stderr and collect logs
         while let Ok(Some(line)) = stderr_reader.next_line().await {
             warn!(task_id = task.id, "STDERR: {}", line);
 
-            // Broadcast log to WebSocket clients
-            let log_message = serde_json::json!({
+            // Log message for potential future use
+            let _log_message = serde_json::json!({
                 "type": "log",
                 "task_id": task_id,
                 "stream": "stderr",
@@ -455,7 +451,6 @@ impl TaskExecutorService {
             })
             .to_string();
 
-            let _ = self.log_broadcaster.broadcast(task_id, log_message).await;
             stderr_lines.push(line);
         }
 
@@ -603,11 +598,7 @@ mod tests {
 
         let workspace = create_test_workspace(db).await;
         let task_service = TaskService::new(db.clone());
-        let executor = TaskExecutorService::new(
-            db.clone(),
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
 
         // Create tasks with different priorities
         let _low_task = task_service
@@ -667,11 +658,7 @@ mod tests {
         let workspace = create_test_workspace(db).await;
         let agent_service = AgentService::new(db.clone());
         let task_service = TaskService::new(db.clone());
-        let executor = TaskExecutorService::new(
-            db.clone(),
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
 
         let agent = agent_service
             .create_agent(
@@ -716,11 +703,7 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let db = &test_db.connection;
-        let executor = TaskExecutorService::new(
-            db.clone(),
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
 
         let output = vec![
             "Starting task execution...".to_string(),
@@ -748,11 +731,7 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let db = &test_db.connection;
-        let executor = TaskExecutorService::new(
-            db.clone(),
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
 
         let output = vec![
             "Starting task execution...".to_string(),
@@ -837,11 +816,7 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let db = &test_db.connection;
-        let executor = TaskExecutorService::new(
-            db.clone(),
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
 
         // Act
         let result = executor.get_available_slots(999).await;
@@ -858,11 +833,7 @@ mod tests {
             .await
             .expect("Failed to create test database");
         let db = &test_db.connection;
-        let executor = TaskExecutorService::new(
-            db.clone(),
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
 
         // Initialize semaphore
         let _sem = executor.concurrency_manager.get_semaphore(1, 3).await;
@@ -879,12 +850,6 @@ mod tests {
         let repo = create_test_repository(db).await;
         let ws = workspace::ActiveModel {
             repository_id: Set(repo.id),
-            workspace_status: Set("Active".to_string()),
-            image_source: Set("default".to_string()),
-            max_concurrent_tasks: Set(3),
-            cpu_limit: Set(2.0),
-            memory_limit: Set("4GB".to_string()),
-            disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
         Workspace::insert(ws).exec_with_returning(db).await.unwrap()
@@ -961,16 +926,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Update task to assigned status
-        let mut task_active: task::ActiveModel = task.into();
-        task_active.task_status = Set(TaskStatus::Assigned);
-        let task = task_active.update(db).await.unwrap();
-
-        let executor = TaskExecutorService::new(
-            db.clone(),
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        // Task is already in pending status, ready for execution
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
 
         // Act
         // Note: This test is ignored because it requires a real Docker container
@@ -1026,16 +983,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Update task to assigned status
-        let mut task_active: task::ActiveModel = task.into();
-        task_active.task_status = Set(TaskStatus::Assigned);
-        let task = task_active.update(db).await.unwrap();
-
-        let executor = TaskExecutorService::new(
-            db.clone(),
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        // Task is already in pending status, ready for execution
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
 
         // Act
         let result = executor.execute_task(task.id).await;
@@ -1090,16 +1039,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Update task to assigned status
-        let mut task_active: task::ActiveModel = task.into();
-        task_active.task_status = Set(TaskStatus::Assigned);
-        let task = task_active.update(db).await.unwrap();
-
-        let executor = TaskExecutorService::new(
-            db.clone(),
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        // Task is already in pending status, ready for execution
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
 
         // Act
         let result = executor.execute_task(task.id).await;

@@ -1,15 +1,11 @@
 //! API module
 //!
-//! Combines all feature routers into a single application router.
+//! Simplified MVP API with only core endpoints.
 
-pub mod agents;
-pub mod health;
-pub mod init_scripts;
 pub mod repositories;
 pub mod settings;
 pub mod tasks;
 pub mod webhooks;
-pub mod workspaces;
 
 use axum::{middleware, Router};
 use std::sync::Arc;
@@ -23,103 +19,31 @@ use crate::{logging, state::AppState};
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "VibeRepo API",
-        version = "0.3.0",
-        description = "VibeRepo automated programming assistant API"
+        title = "VibeRepo API - Simplified MVP",
+        version = "0.4.0-mvp",
+        description = "VibeRepo automated programming assistant API - Simplified MVP with 10 core endpoints"
     ),
     paths(
-        health::handlers::health_check,
-        settings::providers::handlers::list_providers,
-        settings::providers::handlers::create_provider,
-        settings::providers::handlers::get_provider,
-        settings::providers::handlers::update_provider,
-        settings::providers::handlers::delete_provider,
-        settings::providers::handlers::validate_provider,
-        settings::providers::handlers::sync_provider,
-        settings::workspace::handlers::get_image_info,
-        settings::workspace::handlers::delete_image,
-        settings::workspace::handlers::rebuild_image,
         repositories::handlers::list_repositories,
         repositories::handlers::get_repository,
         repositories::handlers::update_repository,
         repositories::handlers::delete_repository,
-        repositories::handlers::refresh_repository,
         repositories::handlers::initialize_repository,
-        repositories::handlers::reinitialize_repository,
-        repositories::handlers::archive_repository,
-        repositories::handlers::unarchive_repository,
-        repositories::handlers::batch_initialize_repositories,
-        repositories::handlers::batch_archive_repositories,
-        repositories::handlers::batch_delete_repositories,
-        repositories::handlers::batch_refresh_repositories,
-        repositories::handlers::batch_reinitialize_repositories,
-        repositories::handlers::update_repository_polling,
-        repositories::handlers::trigger_issue_polling,
         webhooks::handlers::handle_webhook,
-        workspaces::handlers::create_workspace,
-        workspaces::handlers::get_workspace,
-        workspaces::handlers::list_workspaces,
-        workspaces::handlers::update_workspace_status,
-        workspaces::handlers::delete_workspace,
-        workspaces::lifecycle_handlers::create_container,
-        workspaces::lifecycle_handlers::restart_workspace,
-        workspaces::lifecycle_handlers::get_workspace_stats,
-        init_scripts::handlers::update_init_script,
-        init_scripts::handlers::get_logs,
-        init_scripts::handlers::download_full_log,
-        init_scripts::handlers::execute_script,
-        agents::handlers::create_agent,
-        agents::handlers::get_agent,
-        agents::handlers::list_agents_by_workspace,
-        agents::handlers::update_agent_enabled,
-        agents::handlers::delete_agent,
         tasks::handlers::create_task,
         tasks::handlers::get_task,
         tasks::handlers::list_tasks_by_workspace,
         tasks::handlers::update_task_status,
-        tasks::handlers::create_pr_for_task,
-        tasks::handlers::close_issue_for_task,
     ),
     components(schemas(
-        health::handlers::HealthResponse,
-        settings::providers::models::CreateProviderRequest,
-        settings::providers::models::UpdateProviderRequest,
-        settings::providers::models::ProviderResponse,
-        settings::providers::models::ValidationResponse,
-        settings::providers::models::UserInfo,
-        settings::workspace::models::ImageInfoResponse,
-        settings::workspace::models::DeleteImageResponse,
-        settings::workspace::models::RebuildImageRequest,
-        settings::workspace::models::RebuildImageResponse,
         repositories::models::RepositoryResponse,
         repositories::models::InitializeRepositoryRequest,
         repositories::models::UpdateRepositoryRequest,
-        repositories::models::BatchInitializeParams,
-        repositories::models::BatchInitializeResponse,
-        repositories::models::BatchOperationRequest,
-        repositories::models::BatchOperationResponse,
-        repositories::models::BatchOperationResult,
-        repositories::models::UpdatePollingRequest,
-        repositories::models::PollIssuesResponse,
         webhooks::models::WebhookPayload,
         webhooks::models::WebhookResponse,
         crate::entities::repo_provider::ProviderType,
         crate::entities::repository::ValidationStatus,
         crate::entities::repository::RepositoryStatus,
-        workspaces::WorkspaceResponse,
-        workspaces::CreateWorkspaceRequest,
-        workspaces::UpdateWorkspaceStatusRequest,
-        workspaces::InitScriptResponse,
-        workspaces::UpdateInitScriptRequest,
-        workspaces::ExecuteScriptRequest,
-        workspaces::InitScriptLogsResponse,
-        workspaces::RestartWorkspaceResponse,
-        workspaces::WorkspaceStatsResponse,
-        workspaces::ContainerInfo,
-        workspaces::ContainerStatsInfo,
-        agents::AgentResponse,
-        agents::CreateAgentRequest,
-        agents::UpdateAgentEnabledRequest,
         tasks::TaskResponse,
         tasks::CreateTaskRequest,
         tasks::UpdateTaskStatusRequest,
@@ -132,20 +56,8 @@ pub struct ApiDoc;
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         // Mount feature routers at their respective paths
-        .nest("/health", health::routes::router())
-        .nest(
-            "/api/settings/providers",
-            settings::providers::routes::router(),
-        )
-        .nest(
-            "/api/settings/workspace",
-            settings::workspace::routes::workspace_routes(),
-        )
         .nest("/api/repositories", repositories::routes::router())
         .nest("/api/webhooks", webhooks::routes::router())
-        .merge(workspaces::workspace_routes())
-        .merge(init_scripts::init_script_routes())
-        .merge(agents::agent_routes())
         .merge(tasks::task_routes())
         // OpenAPI documentation
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -165,38 +77,7 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt; // for `oneshot`
 
-    /// Test that the router includes health routes
-    /// Requirements: 6.2
-    #[tokio::test]
-    async fn test_router_includes_health_routes() {
-        // Arrange: Create test state and router
-        let state = create_test_state()
-            .await
-            .expect("Failed to create test state");
-        let app = create_router(state);
-
-        // Act: Send request to /health endpoint
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/health")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        // Assert: Should get a valid response (200 or 503, not 404)
-        let status = response.status();
-        assert!(
-            status == StatusCode::OK || status == StatusCode::SERVICE_UNAVAILABLE,
-            "Health endpoint should exist and return 200 or 503, got {}",
-            status
-        );
-    }
-
     /// Test that the router includes tracing middleware
-    /// Requirements: 6.3
     #[tokio::test]
     async fn test_router_includes_tracing_middleware() {
         // Arrange: Create test state and router
@@ -209,7 +90,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/health")
+                    .uri("/api/repositories")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -220,13 +101,14 @@ mod tests {
         // The presence of TraceLayer is verified by the fact that the request completes
         // without errors. TraceLayer adds tracing spans to all requests.
         assert!(
-            response.status().is_success() || response.status().is_server_error(),
+            response.status().is_success()
+                || response.status().is_server_error()
+                || response.status().is_client_error(),
             "Request should be processed by middleware"
         );
     }
 
     /// Test that the router includes CORS middleware
-    /// Requirements: 6.3
     #[tokio::test]
     async fn test_router_includes_cors_middleware() {
         // Arrange: Create test state and router
@@ -239,7 +121,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/health")
+                    .uri("/api/repositories")
                     .header("Origin", "http://localhost:3000")
                     .body(Body::empty())
                     .unwrap(),
@@ -257,7 +139,6 @@ mod tests {
     }
 
     /// Test that the router includes OpenAPI documentation endpoints
-    /// Requirements: 6.2
     #[tokio::test]
     async fn test_router_includes_openapi_endpoints() {
         // Arrange: Create test state and router
@@ -286,7 +167,6 @@ mod tests {
     }
 
     /// Test that the router includes request ID middleware
-    /// Requirements: 9.3
     #[tokio::test]
     async fn test_router_includes_request_id_middleware() {
         // Arrange: Create test state and router
@@ -299,7 +179,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/health")
+                    .uri("/api/repositories")
                     .body(Body::empty())
                     .unwrap(),
             )

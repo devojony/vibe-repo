@@ -1,6 +1,5 @@
 use crate::entities::{agent, prelude::*};
 use crate::error::{Result, VibeRepoError};
-use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use serde_json::Value as JsonValue;
 
@@ -30,7 +29,6 @@ impl AgentService {
             command: Set(command.to_string()),
             env_vars: Set(env_vars),
             timeout: Set(timeout),
-            enabled: Set(true),
             ..Default::default()
         };
 
@@ -56,21 +54,6 @@ impl AgentService {
             .all(&self.db)
             .await
             .map_err(VibeRepoError::Database)
-    }
-
-    pub async fn update_agent_enabled(&self, id: i32, enabled: bool) -> Result<agent::Model> {
-        let agent = self.get_agent_by_id(id).await?;
-
-        let mut agent: agent::ActiveModel = agent.into();
-        agent.enabled = Set(enabled);
-        agent.updated_at = Set(Utc::now());
-
-        let agent = agent
-            .update(&self.db)
-            .await
-            .map_err(VibeRepoError::Database)?;
-
-        Ok(agent)
     }
 
     pub async fn delete_agent(&self, id: i32) -> Result<()> {
@@ -126,7 +109,6 @@ mod tests {
         assert_eq!(agent.workspace_id, workspace.id);
         assert_eq!(agent.name, "OpenCode Primary");
         assert_eq!(agent.tool_type, "opencode");
-        assert!(agent.enabled);
     }
 
     #[tokio::test]
@@ -159,29 +141,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_update_agent_enabled() {
-        // Arrange
-        let test_db = TestDatabase::new()
-            .await
-            .expect("Failed to create test database");
-        let db = &test_db.connection;
-        let service = AgentService::new(db.clone());
-        let workspace = create_test_workspace(db).await;
-        let agent = service
-            .create_agent(workspace.id, "Test", "opencode", "cmd", json!({}), 1800)
-            .await
-            .unwrap();
-
-        // Act
-        let result = service.update_agent_enabled(agent.id, false).await;
-
-        // Assert
-        assert!(result.is_ok());
-        let updated = result.unwrap();
-        assert!(!updated.enabled);
-    }
-
-    #[tokio::test]
     async fn test_delete_agent() {
         // Arrange
         let test_db = TestDatabase::new()
@@ -211,11 +170,6 @@ mod tests {
         let ws = workspace::ActiveModel {
             repository_id: Set(repo.id),
             workspace_status: Set("Active".to_string()),
-            image_source: Set("default".to_string()),
-            max_concurrent_tasks: Set(3),
-            cpu_limit: Set(2.0),
-            memory_limit: Set("4GB".to_string()),
-            disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
         Workspace::insert(ws).exec_with_returning(db).await.unwrap()

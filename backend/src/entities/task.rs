@@ -12,8 +12,6 @@ use utoipa::ToSchema;
 pub enum TaskStatus {
     #[sea_orm(string_value = "pending")]
     Pending,
-    #[sea_orm(string_value = "assigned")]
-    Assigned,
     #[sea_orm(string_value = "running")]
     Running,
     #[sea_orm(string_value = "completed")]
@@ -30,10 +28,7 @@ impl TaskStatus {
         use TaskStatus::*;
         matches!(
             (self, target),
-            (Pending, Assigned | Cancelled)
-                | (Assigned, Running | Cancelled)
-                | (Running, Completed | Failed | Cancelled)
-                | (Failed, Pending)
+            (Pending, Running | Cancelled) | (Running, Completed | Failed | Cancelled)
         )
     }
 
@@ -41,17 +36,18 @@ impl TaskStatus {
     pub fn allowed_transitions(&self) -> Vec<TaskStatus> {
         use TaskStatus::*;
         match self {
-            Pending => vec![Assigned, Cancelled],
-            Assigned => vec![Running, Cancelled],
+            Pending => vec![Running, Cancelled],
             Running => vec![Completed, Failed, Cancelled],
-            Failed => vec![Pending],
-            Completed | Cancelled => vec![],
+            Failed | Completed | Cancelled => vec![],
         }
     }
 
     /// Check if the current state is a terminal state (no further transitions allowed)
     pub fn is_terminal(&self) -> bool {
-        matches!(self, TaskStatus::Completed | TaskStatus::Cancelled)
+        matches!(
+            self,
+            TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed
+        )
     }
 }
 
@@ -59,7 +55,6 @@ impl std::fmt::Display for TaskStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TaskStatus::Pending => write!(f, "pending"),
-            TaskStatus::Assigned => write!(f, "assigned"),
             TaskStatus::Running => write!(f, "running"),
             TaskStatus::Completed => write!(f, "completed"),
             TaskStatus::Failed => write!(f, "failed"),
@@ -74,7 +69,6 @@ impl std::str::FromStr for TaskStatus {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "pending" => Ok(TaskStatus::Pending),
-            "assigned" => Ok(TaskStatus::Assigned),
             "running" => Ok(TaskStatus::Running),
             "completed" => Ok(TaskStatus::Completed),
             "failed" => Ok(TaskStatus::Failed),
@@ -102,8 +96,8 @@ pub struct Model {
     pub pr_url: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]
     pub error_message: Option<String>,
-    pub retry_count: i32,
-    pub max_retries: i32,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub last_log: Option<String>,
     pub started_at: Option<DateTimeUtc>,
     pub completed_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
@@ -121,8 +115,6 @@ pub enum Relation {
         on_delete = "SetNull"
     )]
     Agent,
-    #[sea_orm(has_many = "super::task_log::Entity")]
-    TaskLog,
     #[sea_orm(
         belongs_to = "super::workspace::Entity",
         from = "Column::WorkspaceId",
@@ -131,6 +123,8 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     Workspace,
+    #[sea_orm(has_many = "super::task_log::Entity")]
+    TaskLog,
 }
 
 impl Related<super::agent::Entity> for Entity {
@@ -139,15 +133,15 @@ impl Related<super::agent::Entity> for Entity {
     }
 }
 
-impl Related<super::task_log::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::TaskLog.def()
-    }
-}
-
 impl Related<super::workspace::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Workspace.def()
+    }
+}
+
+impl Related<super::task_log::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::TaskLog.def()
     }
 }
 
@@ -160,23 +154,11 @@ mod tests {
     #[test]
     fn test_pending_allowed_transitions() {
         let status = TaskStatus::Pending;
-        assert!(status.can_transition_to(&TaskStatus::Assigned));
-        assert!(status.can_transition_to(&TaskStatus::Cancelled));
-        assert!(!status.can_transition_to(&TaskStatus::Running));
-        assert!(!status.can_transition_to(&TaskStatus::Completed));
-        assert!(!status.can_transition_to(&TaskStatus::Failed));
-        assert!(!status.can_transition_to(&TaskStatus::Pending));
-    }
-
-    #[test]
-    fn test_assigned_allowed_transitions() {
-        let status = TaskStatus::Assigned;
         assert!(status.can_transition_to(&TaskStatus::Running));
         assert!(status.can_transition_to(&TaskStatus::Cancelled));
-        assert!(!status.can_transition_to(&TaskStatus::Pending));
         assert!(!status.can_transition_to(&TaskStatus::Completed));
         assert!(!status.can_transition_to(&TaskStatus::Failed));
-        assert!(!status.can_transition_to(&TaskStatus::Assigned));
+        assert!(!status.can_transition_to(&TaskStatus::Pending));
     }
 
     #[test]
@@ -186,15 +168,14 @@ mod tests {
         assert!(status.can_transition_to(&TaskStatus::Failed));
         assert!(status.can_transition_to(&TaskStatus::Cancelled));
         assert!(!status.can_transition_to(&TaskStatus::Pending));
-        assert!(!status.can_transition_to(&TaskStatus::Assigned));
         assert!(!status.can_transition_to(&TaskStatus::Running));
     }
 
     #[test]
-    fn test_failed_allowed_transitions() {
+    fn test_failed_is_terminal() {
         let status = TaskStatus::Failed;
-        assert!(status.can_transition_to(&TaskStatus::Pending));
-        assert!(!status.can_transition_to(&TaskStatus::Assigned));
+        assert!(status.is_terminal());
+        assert!(!status.can_transition_to(&TaskStatus::Pending));
         assert!(!status.can_transition_to(&TaskStatus::Running));
         assert!(!status.can_transition_to(&TaskStatus::Completed));
         assert!(!status.can_transition_to(&TaskStatus::Failed));
@@ -206,7 +187,6 @@ mod tests {
         let status = TaskStatus::Completed;
         assert!(status.is_terminal());
         assert!(!status.can_transition_to(&TaskStatus::Pending));
-        assert!(!status.can_transition_to(&TaskStatus::Assigned));
         assert!(!status.can_transition_to(&TaskStatus::Running));
         assert!(!status.can_transition_to(&TaskStatus::Failed));
         assert!(!status.can_transition_to(&TaskStatus::Cancelled));
@@ -218,7 +198,6 @@ mod tests {
         let status = TaskStatus::Cancelled;
         assert!(status.is_terminal());
         assert!(!status.can_transition_to(&TaskStatus::Pending));
-        assert!(!status.can_transition_to(&TaskStatus::Assigned));
         assert!(!status.can_transition_to(&TaskStatus::Running));
         assert!(!status.can_transition_to(&TaskStatus::Completed));
         assert!(!status.can_transition_to(&TaskStatus::Failed));
@@ -229,10 +208,6 @@ mod tests {
     fn test_allowed_transitions_list() {
         assert_eq!(
             TaskStatus::Pending.allowed_transitions(),
-            vec![TaskStatus::Assigned, TaskStatus::Cancelled]
-        );
-        assert_eq!(
-            TaskStatus::Assigned.allowed_transitions(),
             vec![TaskStatus::Running, TaskStatus::Cancelled]
         );
         assert_eq!(
@@ -243,10 +218,7 @@ mod tests {
                 TaskStatus::Cancelled
             ]
         );
-        assert_eq!(
-            TaskStatus::Failed.allowed_transitions(),
-            vec![TaskStatus::Pending]
-        );
+        assert_eq!(TaskStatus::Failed.allowed_transitions(), vec![]);
         assert_eq!(TaskStatus::Completed.allowed_transitions(), vec![]);
         assert_eq!(TaskStatus::Cancelled.allowed_transitions(), vec![]);
     }
@@ -254,9 +226,8 @@ mod tests {
     #[test]
     fn test_is_terminal() {
         assert!(!TaskStatus::Pending.is_terminal());
-        assert!(!TaskStatus::Assigned.is_terminal());
         assert!(!TaskStatus::Running.is_terminal());
-        assert!(!TaskStatus::Failed.is_terminal());
+        assert!(TaskStatus::Failed.is_terminal());
         assert!(TaskStatus::Completed.is_terminal());
         assert!(TaskStatus::Cancelled.is_terminal());
     }
@@ -264,7 +235,6 @@ mod tests {
     #[test]
     fn test_display() {
         assert_eq!(TaskStatus::Pending.to_string(), "pending");
-        assert_eq!(TaskStatus::Assigned.to_string(), "assigned");
         assert_eq!(TaskStatus::Running.to_string(), "running");
         assert_eq!(TaskStatus::Completed.to_string(), "completed");
         assert_eq!(TaskStatus::Failed.to_string(), "failed");
@@ -277,10 +247,6 @@ mod tests {
         assert_eq!(
             TaskStatus::from_str("pending").unwrap(),
             TaskStatus::Pending
-        );
-        assert_eq!(
-            TaskStatus::from_str("assigned").unwrap(),
-            TaskStatus::Assigned
         );
         assert_eq!(
             TaskStatus::from_str("running").unwrap(),

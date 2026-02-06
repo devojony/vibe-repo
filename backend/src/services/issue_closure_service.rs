@@ -2,7 +2,10 @@
 //!
 //! Handles closing issues when PRs are merged.
 
-use crate::entities::{prelude::*, task::{self, TaskStatus}};
+use crate::entities::{
+    prelude::*,
+    task::{self, TaskStatus},
+};
 use crate::error::{Result, VibeRepoError};
 use crate::git_provider::{GitClientFactory, GitProvider, IssueState, UpdateIssueRequest};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
@@ -397,8 +400,6 @@ mod tests {
                 "https://git.example.com/owner/repo/pulls/456".to_string(),
             )),
             branch_name: Set(Some("fix/test-branch".to_string())),
-            retry_count: Set(0),
-            max_retries: Set(3),
             ..Default::default()
         };
 
@@ -431,8 +432,6 @@ mod tests {
             pr_number: Set(None), // No PR number
             pr_url: Set(None),
             branch_name: Set(None),
-            retry_count: Set(0),
-            max_retries: Set(3),
             ..Default::default()
         };
 
@@ -476,12 +475,6 @@ mod tests {
 
         let ws = workspace::ActiveModel {
             repository_id: Set(repo.id),
-            workspace_status: Set("Active".to_string()),
-            image_source: Set("default".to_string()),
-            max_concurrent_tasks: Set(3),
-            cpu_limit: Set(2.0),
-            memory_limit: Set("4GB".to_string()),
-            disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
         let workspace = Workspace::insert(ws)

@@ -22,6 +22,7 @@ mod m20260120_000002_add_repository_polling_fields;
 mod m20260120_000003_add_task_unique_constraint;
 mod m20260121_000001_create_task_executions;
 mod m20260131_000001_validate_task_status_enum;
+mod m20260206_000001_simplify_mvp_schema;
 
 pub struct Migrator;
 
@@ -47,6 +48,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260120_000003_add_task_unique_constraint::Migration),
             Box::new(m20260121_000001_create_task_executions::Migration),
             Box::new(m20260131_000001_validate_task_status_enum::Migration),
+            Box::new(m20260206_000001_simplify_mvp_schema::Migration),
         ]
     }
 }

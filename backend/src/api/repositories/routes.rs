@@ -24,8 +24,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/:id/reinitialize", post(handlers::reinitialize_repository))
         .route("/:id/archive", post(handlers::archive_repository))
         .route("/:id/unarchive", post(handlers::unarchive_repository))
-        .route("/:id/polling", patch(handlers::update_repository_polling))
-        .route("/:id/poll-issues", post(handlers::trigger_issue_polling))
         .route(
             "/batch-initialize",
             post(handlers::batch_initialize_repositories),

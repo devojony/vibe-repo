@@ -17,8 +17,6 @@ pub struct TaskResponse {
     pub pr_number: Option<i32>,
     pub pr_url: Option<String>,
     pub error_message: Option<String>,
-    pub retry_count: i32,
-    pub max_retries: i32,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub created_at: String,
@@ -33,7 +31,6 @@ pub struct CreateTaskRequest {
     pub issue_number: i32,
     pub issue_title: String,
     pub issue_body: Option<String>,
-    pub assigned_agent_id: Option<i32>,
     #[serde(default = "default_priority")]
     pub priority: String,
 }
@@ -52,7 +49,6 @@ pub struct UpdateTaskStatusRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateTaskRequest {
     pub priority: Option<String>,
-    pub assigned_agent_id: Option<i32>,
 }
 
 /// Request model for assigning agent
@@ -100,8 +96,6 @@ impl From<crate::entities::task::Model> for TaskResponse {
             pr_number: model.pr_number,
             pr_url: model.pr_url,
             error_message: model.error_message,
-            retry_count: model.retry_count,
-            max_retries: model.max_retries,
             started_at: model.started_at.map(|dt| dt.to_string()),
             completed_at: model.completed_at.map(|dt| dt.to_string()),
             created_at: model.created_at.to_string(),

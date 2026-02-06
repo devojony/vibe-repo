@@ -2,7 +2,11 @@
 //!
 //! Handles creating pull requests for completed tasks via Git Provider API.
 
-use crate::entities::{prelude::*, repository, task::{self, TaskStatus}};
+use crate::entities::{
+    prelude::*,
+    repository,
+    task::{self},
+};
 use crate::error::{Result, VibeRepoError};
 use crate::git_provider::{
     models::CreatePullRequestRequest, traits::GitProvider, GitClientFactory,
@@ -312,7 +316,7 @@ impl PRCreationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::{repo_provider, repository, workspace};
+    use crate::entities::{repo_provider, repository, task::TaskStatus, workspace};
     use crate::test_utils::db::TestDatabase;
 
     /// Test create_pr_for_task_success
@@ -641,8 +645,6 @@ mod tests {
             task_status: Set(TaskStatus::Completed),
             priority: Set("high".to_string()),
             branch_name: Set(Some("feature/test-branch".to_string())),
-            retry_count: Set(0),
-            max_retries: Set(3),
             ..Default::default()
         };
 
@@ -672,8 +674,6 @@ mod tests {
             task_status: Set(TaskStatus::Pending),
             priority: Set("medium".to_string()),
             branch_name: Set(None), // No branch name
-            retry_count: Set(0),
-            max_retries: Set(3),
             ..Default::default()
         };
 
@@ -724,12 +724,6 @@ mod tests {
         // Create workspace
         let workspace = workspace::ActiveModel {
             repository_id: Set(repository.id),
-            workspace_status: Set("Active".to_string()),
-            image_source: Set("default".to_string()),
-            max_concurrent_tasks: Set(3),
-            cpu_limit: Set(2.0),
-            memory_limit: Set("4GB".to_string()),
-            disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
         let workspace = Workspace::insert(workspace)

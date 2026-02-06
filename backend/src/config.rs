@@ -204,18 +204,49 @@ impl Default for WorkspaceConfig {
     }
 }
 
-/// WebSocket configuration
+/// Git Provider configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebSocketConfig {
-    /// Authentication token for WebSocket connections
-    /// If empty, authentication is disabled (not recommended for production)
-    pub auth_token: Option<String>,
+pub struct GitProviderConfig {
+    /// GitHub personal access token
+    pub github_token: Option<String>,
+    /// GitHub base URL (for GitHub Enterprise)
+    pub github_base_url: Option<String>,
+    /// Webhook secret for signature verification
+    pub webhook_secret: Option<String>,
 }
 
-impl Default for WebSocketConfig {
+impl Default for GitProviderConfig {
     fn default() -> Self {
         Self {
-            auth_token: std::env::var("WEBSOCKET_AUTH_TOKEN").ok(),
+            github_token: std::env::var("GITHUB_TOKEN").ok(),
+            github_base_url: std::env::var("GITHUB_BASE_URL").ok(),
+            webhook_secret: std::env::var("WEBHOOK_SECRET").ok(),
+        }
+    }
+}
+
+/// Agent configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConfig {
+    /// Default command to run in agent container
+    pub default_command: String,
+    /// Default timeout in seconds
+    pub default_timeout: u64,
+    /// Default Docker image for agent containers
+    pub default_docker_image: String,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            default_command: std::env::var("DEFAULT_AGENT_COMMAND")
+                .unwrap_or_else(|_| "bash".to_string()),
+            default_timeout: std::env::var("DEFAULT_AGENT_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(600), // 10 minutes
+            default_docker_image: std::env::var("DEFAULT_DOCKER_IMAGE")
+                .unwrap_or_else(|_| "ubuntu:22.04".to_string()),
         }
     }
 }
@@ -233,8 +264,10 @@ pub struct AppConfig {
     pub issue_polling: IssuePollingConfig,
     /// Workspace configuration
     pub workspace: WorkspaceConfig,
-    /// WebSocket configuration
-    pub websocket: WebSocketConfig,
+    /// Git provider configuration
+    pub git_provider: GitProviderConfig,
+    /// Agent configuration
+    pub agent: AgentConfig,
 }
 
 impl AppConfig {
@@ -420,6 +453,9 @@ mod tests {
         std::env::remove_var("DATABASE_MAX_CONNECTIONS");
         std::env::remove_var("SERVER_HOST");
         std::env::remove_var("SERVER_PORT");
+        std::env::remove_var("GITHUB_TOKEN");
+        std::env::remove_var("DEFAULT_AGENT_COMMAND");
+        std::env::remove_var("DEFAULT_AGENT_TIMEOUT");
 
         let config = AppConfig::default();
 
@@ -431,6 +467,9 @@ mod tests {
         assert_eq!(config.database.max_connections, 10);
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.server.port, 3000);
+        assert_eq!(config.agent.default_command, "bash");
+        assert_eq!(config.agent.default_timeout, 600);
+        assert_eq!(config.agent.default_docker_image, "ubuntu:22.04");
     }
 
     // ============================================
@@ -535,7 +574,8 @@ mod tests {
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
                     workspace: WorkspaceConfig::default(),
-                    websocket: WebSocketConfig::default(),
+                    git_provider: GitProviderConfig::default(),
+                    agent: AgentConfig::default(),
                 };
 
                 let result = config.validate();
@@ -567,7 +607,8 @@ mod tests {
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
                     workspace: WorkspaceConfig::default(),
-                    websocket: WebSocketConfig::default(),
+                    git_provider: GitProviderConfig::default(),
+                    agent: AgentConfig::default(),
                 };
 
                 let result = config.validate();
@@ -604,7 +645,8 @@ mod tests {
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
                     workspace: WorkspaceConfig::default(),
-                    websocket: WebSocketConfig::default(),
+                    git_provider: GitProviderConfig::default(),
+                    agent: AgentConfig::default(),
                 };
 
                 let result = config.validate();
@@ -641,7 +683,8 @@ mod tests {
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
                     workspace: WorkspaceConfig::default(),
-                    websocket: WebSocketConfig::default(),
+                    git_provider: GitProviderConfig::default(),
+                    agent: AgentConfig::default(),
                 };
 
                 let result = config.validate();
@@ -678,7 +721,8 @@ mod tests {
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
+            git_provider: GitProviderConfig::default(),
+            agent: AgentConfig::default(),
         };
 
         assert!(
@@ -698,7 +742,8 @@ mod tests {
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
+            git_provider: GitProviderConfig::default(),
+            agent: AgentConfig::default(),
         };
 
         let result = config.validate();
@@ -728,7 +773,8 @@ mod tests {
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
+            git_provider: GitProviderConfig::default(),
+            agent: AgentConfig::default(),
         };
 
         let result = config.validate();
@@ -758,7 +804,8 @@ mod tests {
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
+            git_provider: GitProviderConfig::default(),
+            agent: AgentConfig::default(),
         };
 
         let result = config.validate();
@@ -901,7 +948,8 @@ mod tests {
                 max_retries: 3,
             },
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
+            git_provider: GitProviderConfig::default(),
+            agent: AgentConfig::default(),
         };
 
         let result = config.validate();
@@ -939,7 +987,8 @@ mod tests {
                 max_retries: 3,
             },
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
+            git_provider: GitProviderConfig::default(),
+            agent: AgentConfig::default(),
         };
 
         let result = config.validate();
@@ -977,7 +1026,8 @@ mod tests {
                 max_retries: 3,
             },
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
+            git_provider: GitProviderConfig::default(),
+            agent: AgentConfig::default(),
         };
 
         let result = config.validate();
@@ -1003,7 +1053,8 @@ mod tests {
                 max_retries: 3,
             },
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
+            git_provider: GitProviderConfig::default(),
+            agent: AgentConfig::default(),
         };
 
         let result = config.validate();

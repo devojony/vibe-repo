@@ -505,12 +505,6 @@ mod tests {
         // Create workspace
         let workspace = workspace::ActiveModel {
             repository_id: Set(repo.id),
-            workspace_status: Set("Initializing".to_string()),
-            image_source: Set("alpine:latest".to_string()),
-            max_concurrent_tasks: Set(3),
-            cpu_limit: Set(2.0),
-            memory_limit: Set("4GB".to_string()),
-            disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
         Workspace::insert(workspace)

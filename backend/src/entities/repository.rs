@@ -29,6 +29,11 @@ pub struct Model {
     pub polling_enabled: bool,
     pub polling_interval_seconds: Option<i32>,
     pub last_issue_poll_at: Option<DateTimeUtc>,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub agent_command: Option<String>,
+    pub agent_timeout: i32,
+    pub agent_env_vars: Option<Json>,
+    pub docker_image: String,
     pub deleted_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,

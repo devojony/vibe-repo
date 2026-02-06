@@ -11,7 +11,6 @@ pub struct Model {
     pub workspace_id: i32,
     pub name: String,
     pub tool_type: String,
-    pub enabled: bool,
     pub command: String,
     pub env_vars: Json,
     pub timeout: i32,
@@ -21,8 +20,6 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::task::Entity")]
-    Task,
     #[sea_orm(
         belongs_to = "super::workspace::Entity",
         from = "Column::WorkspaceId",
@@ -31,17 +28,19 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     Workspace,
-}
-
-impl Related<super::task::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Task.def()
-    }
+    #[sea_orm(has_many = "super::task::Entity")]
+    Task,
 }
 
 impl Related<super::workspace::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Workspace.def()
+    }
+}
+
+impl Related<super::task::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Task.def()
     }
 }
 

@@ -20,17 +20,15 @@ services:
       - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
       - SERVER_PORT=3000@
       
-      # Webhook 配置
-      - WEBHOOK_DOMAIN=${WEBHOOK_DOMAIN:-http://localhost:3000}
-      - WEBHOOK_SECRET_KEY=${WEBHOOK_SECRET_KEY:-change-this-in-production}
+      # Git Provider 配置
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_BASE_URL=${GITHUB_BASE_URL:-https://api.github.com}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       
-      # Issue 轮询配置
-      - ISSUE_POLLING_ENABLED=${ISSUE_POLLING_ENABLED:-true}
-      - ISSUE_POLLING_INTERVAL_SECONDS=${ISSUE_POLLING_INTERVAL_SECONDS:-300}
-      
-      # Workspace 配置
-      - WORKSPACE_BASE_DIR=${WORKSPACE_BASE_DIR:-/data/vibe-repo/workspaces}
-      - WORKSPACE_MAX_CONCURRENT_TASKS=${WORKSPACE_MAX_CONCURRENT_TASKS:-3}
+      # Agent 配置
+      - DEFAULT_AGENT_COMMAND=${DEFAULT_AGENT_COMMAND:-opencode}
+      - DEFAULT_AGENT_TIMEOUT=${DEFAULT_AGENT_TIMEOUT:-600}
+      - DEFAULT_DOCKER_IMAGE=${DEFAULT_DOCKER_IMAGE:-ubuntu:22.04}
       
       # 日志配置
       - RUST_LOG=${RUST_LOG:-info,vibe_repo=debug}

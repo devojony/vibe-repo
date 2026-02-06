@@ -151,24 +151,6 @@ pub struct UpdateRepositoryRequest {
     pub name: Option<String>,
 }
 
-/// Request body for updating repository polling configuration
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct UpdatePollingRequest {
-    /// Enable or disable issue polling for this repository
-    pub enabled: bool,
-    /// Polling interval in seconds (optional, overrides global default)
-    pub interval_seconds: Option<i32>,
-}
-
-/// Response for manual issue polling trigger
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct PollIssuesResponse {
-    /// Whether the polling was successfully triggered
-    pub success: bool,
-    /// Status message
-    pub message: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,6 +183,10 @@ mod tests {
             polling_enabled: false,
             polling_interval_seconds: None,
             last_issue_poll_at: None,
+            agent_command: None,
+            agent_timeout: 600,
+            agent_env_vars: None,
+            docker_image: "ubuntu:22.04".to_string(),
             deleted_at: None,
             created_at: now,
             updated_at: now,
@@ -255,6 +241,10 @@ mod tests {
             polling_enabled: false,
             polling_interval_seconds: None,
             last_issue_poll_at: None,
+            agent_command: None,
+            agent_timeout: 600,
+            agent_env_vars: None,
+            docker_image: "ubuntu:22.04".to_string(),
             deleted_at: None,
             created_at: now,
             updated_at: now,
@@ -300,6 +290,10 @@ mod tests {
             polling_enabled: false,
             polling_interval_seconds: None,
             last_issue_poll_at: None,
+            agent_command: None,
+            agent_timeout: 600,
+            agent_env_vars: None,
+            docker_image: "ubuntu:22.04".to_string(),
             deleted_at: None,
             created_at: now,
             updated_at: now,
@@ -340,6 +334,10 @@ mod tests {
             polling_enabled: false,
             polling_interval_seconds: None,
             last_issue_poll_at: None,
+            agent_command: None,
+            agent_timeout: 600,
+            agent_env_vars: None,
+            docker_image: "ubuntu:22.04".to_string(),
             deleted_at: None,
             created_at: now,
             updated_at: now,

@@ -15,29 +15,185 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+---
 
-#### Task State Management Refactor
-- **BREAKING**: Task status changed from String to TaskStatus enum
-  - **Old**: `task_status: String` with arbitrary string values
-  - **New**: `task_status: TaskStatus` with type-safe enum and state machine validation
-  - **API Impact**: API responses now return lowercase enum values (e.g., `"pending"`, `"running"`, `"completed"`)
-  - **Validation**: Invalid state transitions now return `400 Bad Request` with detailed error message
-  - **State Transitions**:
-    - `pending` → `assigned`, `cancelled`
-    - `assigned` → `running`, `cancelled`
-    - `running` → `completed`, `failed`, `cancelled`
-    - `failed` → `pending` (retry only, if retry_count < max_retries)
-    - `completed` and `cancelled` are terminal states (no further transitions)
-  - **Migration**: Existing string values automatically converted to enum during migration
-  - **Error Handling**: New `InvalidStateTransition` error variant with current state, target state, and allowed transitions
-  - **Benefits**: Compile-time type safety, prevents data corruption from illegal state changes, self-documenting state machine
+## [0.4.0-mvp] - 2026-02-06
 
-### Planned
-- Agent configuration management
-- Task automation system
-- GitHub provider implementation
-- GitLab provider implementation
+### 🎯 Simplified MVP Release
+
+This release represents a major simplification of VibeRepo, focusing on core Issue-to-PR automation functionality while removing complex features that are not essential for the MVP.
+
+### ⚠️ Breaking Changes
+
+#### Removed Features
+- **Issue Polling Service**: Removed automatic issue polling. Use webhooks only.
+- **Webhook Retry Service**: Removed automatic webhook retry mechanism.
+- **Webhook Cleanup Service**: Removed automatic webhook log cleanup.
+- **Log Cleanup Service**: Removed automatic log file cleanup.
+- **Init Script Service**: Removed container initialization script support.
+- **Task Failure Analyzer**: Removed intelligent failure analysis.
+- **Health Check Service**: Removed background health monitoring.
+- **Image Management Service**: Removed Docker image management features.
+- **WebSocket Support**: Removed real-time log streaming via WebSocket.
+- **Task Execution History**: Removed execution history tracking (task_executions table).
+- **Multi-Agent Support**: Simplified to single agent per repository.
+- **Task Retry Mechanism**: Removed automatic task retry on failure.
+
+#### Removed API Endpoints
+- `POST /providers` - Provider management (use environment variables)
+- `GET /providers` - List providers
+- `GET /providers/:id` - Get provider details
+- `PUT /providers/:id` - Update provider
+- `DELETE /providers/:id` - Delete provider
+- `POST /workspaces` - Workspace management (auto-created)
+- `GET /workspaces` - List workspaces
+- `GET /workspaces/:id` - Get workspace details
+- `DELETE /workspaces/:id` - Delete workspace
+- `POST /agents` - Agent management (use environment variables)
+- `GET /agents` - List agents
+- `GET /agents/:id` - Get agent details
+- `PUT /agents/:id` - Update agent
+- `DELETE /agents/:id` - Delete agent
+- `GET /stats` - Statistics endpoints
+- `GET /health` - Health check endpoint
+- `GET /tasks/:id/logs/stream` - WebSocket log streaming
+
+#### Database Schema Changes
+- **Removed Tables**: `webhook_configs`, `init_scripts`, `task_executions`, `workspaces`
+- **Modified Tables**:
+  - `tasks`: Added `last_log` field (TEXT), removed `retry_count` and `max_retries`
+  - `repositories`: Added `agent_command`, `agent_timeout`, `agent_env_vars`, `docker_image`
+  - `agents`: Removed `enabled` field, added UNIQUE constraint per workspace
+- **Table Count**: Reduced from 10 tables to 7 tables
+
+#### Task Status Machine Simplification
+- **Removed State**: `Assigned` (tasks go directly from Pending to Running)
+- **Simplified Transitions**:
+  - `Pending` → `Running`, `Cancelled`
+  - `Running` → `Completed`, `Failed`, `Cancelled`
+  - `Completed`, `Failed`, `Cancelled` are terminal states (no retry)
+- **Removed**: Retry mechanism and state transitions
+
+#### Configuration Changes
+- **Provider Configuration**: Moved from database to environment variables
+  - `GITHUB_TOKEN` - GitHub personal access token
+  - `GITHUB_BASE_URL` - GitHub API base URL
+  - `WEBHOOK_SECRET` - Webhook signature verification secret
+- **Agent Configuration**: Moved from database to environment variables
+  - `DEFAULT_AGENT_COMMAND` - Default agent command
+  - `DEFAULT_AGENT_TIMEOUT` - Default agent timeout (seconds)
+  - `DEFAULT_DOCKER_IMAGE` - Default Docker image
+- **Removed Configuration**: WebSocket, polling, retry, cleanup settings
+
+### ✨ Added
+
+#### Core Features
+- **Environment Variable Configuration**: All configuration via environment variables
+- **Single Agent Mode**: One agent per repository, configured at repository creation
+- **Simplified Log Storage**: Logs stored in `tasks.last_log` field (10MB limit)
+- **Webhook-Only Task Creation**: Tasks created only via webhook events
+
+#### API Endpoints (10 Core Endpoints)
+- `POST /repositories` - Create repository with agent configuration
+- `GET /repositories` - List repositories
+- `GET /repositories/:id` - Get repository details
+- `DELETE /repositories/:id` - Delete repository
+- `POST /webhooks/github` - GitHub webhook handler
+- `GET /tasks` - List tasks with filtering
+- `POST /tasks/:id/execute` - Execute task manually
+- `GET /tasks/:id/logs` - Get task logs (from last_log field)
+- `GET /tasks/:id/status` - Get task status and timestamps
+- `DELETE /tasks/:id` - Delete task
+
+#### Documentation
+- **Deployment Guide**: New simplified deployment documentation
+- **Migration Guide**: Guide for migrating from full version
+- **API Reference**: Updated to reflect simplified endpoints
+- **Environment Variables**: Complete environment variable documentation
+
+### 🔧 Changed
+
+#### Task Execution
+- Logs now stored directly in `tasks.last_log` field (max 10MB)
+- Log truncation when exceeding size limit
+- No execution history tracking
+- Simplified error handling (error message only)
+
+#### Repository Management
+- Agent configuration embedded in repository entity
+- Automatic workspace creation with repository settings
+- Single agent per workspace (UNIQUE constraint)
+
+#### Webhook Integration
+- Webhook configuration via environment variables only
+- Simplified webhook handler (no retry, no cleanup)
+- Direct task creation from webhook events
+
+### 🗑️ Removed
+
+#### Dependencies
+- Removed `axum` WebSocket feature
+- Removed unused `futures-util` (if only used by WebSocket)
+
+#### Code Reduction
+- **Total Lines**: Reduced by ~23% (from ~30,000 to ~23,000 lines)
+- **Services**: Reduced from 15+ to 8 core services
+- **API Endpoints**: Reduced from 40+ to 10 core endpoints
+- **Database Tables**: Reduced from 10 to 7 tables
+
+### 📊 Test Results
+
+- **Unit Tests**: 280 passed, 0 failed, 5 ignored
+- **Integration Tests**: 56 passed, 2 failed, 4 ignored
+- **Test Pass Rate**: 99.4% (336/338)
+- **Compilation**: Clean build with 0 errors
+
+### 🚀 Migration Notes
+
+**From v0.3.0 to v0.4.0-mvp:**
+
+1. **Database Migration Required**: The schema has changed significantly
+   - Export data from v0.3.0
+   - Transform to match simplified schema
+   - Import into v0.4.0-mvp
+
+2. **Configuration Migration**:
+   - Move provider settings from database to environment variables
+   - Move agent settings from database to environment variables
+   - Update webhook configuration to use environment variables
+
+3. **API Client Updates**:
+   - Remove calls to deleted endpoints
+   - Update task creation to use webhook-only approach
+   - Update log retrieval to use new `/tasks/:id/logs` endpoint
+
+4. **Feature Adjustments**:
+   - Replace WebSocket log streaming with polling
+   - Remove retry logic from client code
+   - Remove execution history queries
+
+### 📝 Documentation Updates
+
+- Updated README.md with simplified MVP description
+- Created deployment guide for simplified version
+- Updated API reference to reflect 10 core endpoints
+- Added migration guide from full version
+- Updated database schema documentation
+
+### 🎯 Core Functionality Retained
+
+- ✅ Repository management
+- ✅ Webhook integration (GitHub)
+- ✅ Task creation and execution
+- ✅ Docker container management
+- ✅ PR creation from task results
+- ✅ Issue closure after PR merge
+- ✅ Log query API
+- ✅ Complete Issue-to-PR workflow
+
+---
+
+## [0.3.0] - 2026-01-20
 
 ---
 

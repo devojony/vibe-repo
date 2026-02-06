@@ -1,7 +1,12 @@
 //! Event handlers for webhook events
 
 use crate::api::webhooks::models::CommentInfo;
-use crate::entities::{prelude::*, repository, task::{self, TaskStatus}, workspace};
+use crate::entities::{
+    prelude::*,
+    repository,
+    task::{self, TaskStatus},
+    workspace,
+};
 use crate::error::VibeRepoError;
 use crate::state::AppState;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
@@ -101,8 +106,6 @@ pub async fn handle_comment_event(
             task_status: Set(TaskStatus::Pending),
             priority: Set("medium".to_string()),
             assigned_agent_id: Set(None),
-            retry_count: Set(0),
-            max_retries: Set(3),
             ..Default::default()
         };
 
@@ -184,15 +187,10 @@ mod tests {
             .await
             .unwrap();
 
-        // Create workspace
+        // Create workspace (simplified MVP version)
         let ws = workspace::ActiveModel {
             repository_id: Set(repo.id),
             workspace_status: Set("Active".to_string()),
-            image_source: Set("default".to_string()),
-            max_concurrent_tasks: Set(3),
-            cpu_limit: Set(2.0),
-            memory_limit: Set("4GB".to_string()),
-            disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
         let workspace = Workspace::insert(ws)
