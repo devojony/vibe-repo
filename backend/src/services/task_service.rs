@@ -28,6 +28,21 @@ impl TaskService {
         assigned_agent_id: Option<i32>,
         priority: String,
     ) -> Result<task::Model> {
+        // Auto-assign agent if not explicitly provided
+        let agent_id = if assigned_agent_id.is_none() {
+            // Query the workspace's agent (should be unique per workspace in simplified MVP)
+            use crate::entities::agent;
+            let agent = agent::Entity::find()
+                .filter(agent::Column::WorkspaceId.eq(workspace_id))
+                .one(&self.db)
+                .await
+                .map_err(VibeRepoError::Database)?;
+            
+            agent.map(|a| a.id)
+        } else {
+            assigned_agent_id
+        };
+
         let task = task::ActiveModel {
             workspace_id: Set(workspace_id),
             issue_number: Set(issue_number),
@@ -35,7 +50,7 @@ impl TaskService {
             issue_body: Set(issue_body),
             task_status: Set(TaskStatus::Pending),
             priority: Set(priority),
-            assigned_agent_id: Set(assigned_agent_id),
+            assigned_agent_id: Set(agent_id),
             ..Default::default()
         };
 
@@ -363,7 +378,7 @@ impl TaskService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::{repository, workspace};
+    use crate::entities::{agent, repository, workspace};
     use crate::test_utils::db::TestDatabase;
 
     /// Test create_task creates a task with correct fields
@@ -403,6 +418,41 @@ mod tests {
         assert_eq!(task.task_status, TaskStatus::Pending);
         assert_eq!(task.priority, "high");
         assert_eq!(task.assigned_agent_id, None);
+    }
+
+    /// Test create_task auto-assigns agent when workspace has an agent
+    /// Requirements: Task API - auto-assign agent
+    #[tokio::test]
+    async fn test_create_task_auto_assigns_agent() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        // Create test workspace with agent
+        let workspace = create_test_workspace(db).await;
+        let agent = create_test_agent(db, workspace.id).await;
+
+        let service = TaskService::new(db.clone());
+
+        // Act - Create task without specifying agent_id
+        let result = service
+            .create_task(
+                workspace.id,
+                124,
+                "Test Issue with Auto-Assign".to_string(),
+                Some("Issue body".to_string()),
+                None, // No agent_id specified
+                "high".to_string(),
+            )
+            .await;
+
+        // Assert - Agent should be auto-assigned
+        assert!(result.is_ok());
+        let task = result.unwrap();
+        assert_eq!(task.workspace_id, workspace.id);
+        assert_eq!(task.assigned_agent_id, Some(agent.id));
     }
 
     /// Test get_task_by_id returns task when exists
@@ -986,6 +1036,19 @@ mod tests {
             ..Default::default()
         };
         Workspace::insert(ws).exec_with_returning(db).await.unwrap()
+    }
+
+    async fn create_test_agent(db: &DatabaseConnection, workspace_id: i32) -> agent::Model {
+        let agent = agent::ActiveModel {
+            workspace_id: Set(workspace_id),
+            name: Set("Test Agent".to_string()),
+            tool_type: Set("opencode".to_string()),
+            command: Set("opencode".to_string()),
+            env_vars: Set(serde_json::json!({})),
+            timeout: Set(600),
+            ..Default::default()
+        };
+        Agent::insert(agent).exec_with_returning(db).await.unwrap()
     }
 
     async fn create_test_repository(db: &DatabaseConnection) -> repository::Model {

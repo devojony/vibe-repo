@@ -21,7 +21,7 @@ use crate::{logging, state::AppState};
     info(
         title = "VibeRepo API - Simplified MVP",
         version = "0.4.0-mvp",
-        description = "VibeRepo automated programming assistant API - Simplified MVP with 8 core endpoints"
+        description = "VibeRepo automated programming assistant API - Simplified MVP with 10 core endpoints"
     ),
     paths(
         repositories::handlers::list_repositories,

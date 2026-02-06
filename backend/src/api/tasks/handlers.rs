@@ -234,32 +234,7 @@ pub async fn delete_task(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Assign agent to task
-#[utoipa::path(
-    post,
-    path = "/api/tasks/{id}/assign",
-    params(
-        ("id" = i32, Path, description = "Task ID")
-    ),
-    request_body = AssignAgentRequest,
-    responses(
-        (status = 200, description = "Agent assigned successfully", body = TaskResponse),
-        (status = 404, description = "Task not found"),
-        (status = 500, description = "Internal server error"),
-    ),
-    tag = "tasks"
-)]
-pub async fn assign_agent(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i32>,
-    Json(req): Json<AssignAgentRequest>,
-) -> Result<Json<TaskResponse>> {
-    let service = TaskService::new(state.db.clone());
 
-    let task = service.assign_agent(id, req.agent_id).await?;
-
-    Ok(Json(task.into()))
-}
 
 /// Start task execution
 #[utoipa::path(
@@ -342,30 +317,7 @@ pub async fn fail_task(
     Ok(Json(task.into()))
 }
 
-/// Retry a failed task
-#[utoipa::path(
-    post,
-    path = "/api/tasks/{id}/retry",
-    params(
-        ("id" = i32, Path, description = "Task ID")
-    ),
-    responses(
-        (status = 200, description = "Task retry initiated", body = TaskResponse),
-        (status = 404, description = "Task not found"),
-        (status = 500, description = "Internal server error"),
-    ),
-    tag = "tasks"
-)]
-pub async fn retry_task(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i32>,
-) -> Result<Json<TaskResponse>> {
-    let service = TaskService::new(state.db.clone());
 
-    let task = service.retry_task(id).await?;
-
-    Ok(Json(task.into()))
-}
 
 /// Cancel a task
 #[utoipa::path(
@@ -724,29 +676,6 @@ mod tests {
         let service = TaskService::new(state.db.clone());
         let deleted_task = service.get_task_by_id(task.id).await.unwrap();
         assert!(deleted_task.deleted_at.is_some());
-    }
-
-    /// Test assign_agent handler assigns agent
-    /// Requirements: Task API - assign agent endpoint
-    #[tokio::test]
-    async fn test_assign_agent_handler_success() {
-        // Arrange
-        let state = create_test_state()
-            .await
-            .expect("Failed to create test state");
-        let workspace = create_test_workspace(&state).await;
-        let task = create_test_task(&state, workspace.id).await;
-
-        let req = AssignAgentRequest { agent_id: None };
-
-        // Act
-        let result = assign_agent(State(state), Path(task.id), Json(req)).await;
-
-        // Assert
-        assert!(result.is_ok());
-        let Json(response) = result.unwrap();
-        assert_eq!(response.assigned_agent_id, None);
-        assert_eq!(response.task_status, "pending"); // Status remains pending in simplified MVP
     }
 
     /// Test start_task handler starts task

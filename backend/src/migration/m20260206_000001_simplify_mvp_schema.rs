@@ -126,8 +126,16 @@ impl MigrationTrait for Migration {
         // Note: SQLite doesn't support DROP COLUMN directly, so we skip this for SQLite
 
         // Step 10: Add UNIQUE constraint on agents(workspace_id)
-        // Note: This will be handled in the entity definition for now
-        // For explicit constraint: manager.create_index(...).await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_agents_workspace_unique")
+                    .table(Agents::Table)
+                    .col(Agents::WorkspaceId)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
 
         Ok(())
     }

@@ -1,17 +1,19 @@
 # VibeRepo
 
-**Version:** 0.3.0 (Pre-1.0 - Breaking changes allowed)
+**Version:** 0.4.0-mvp (Simplified MVP)
+
+> **🎯 Simplified MVP**: This version focuses on core Issue-to-PR automation with a streamlined architecture. Many advanced features have been removed to create a solid foundation for future development. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 VibeRepo is an automated programming assistant that converts Git repository Issues directly into Pull Requests. The system combines Rust's high-performance concurrency, Docker's environment isolation, and AI CLI tools to achieve end-to-end development automation.
 
-## ✨ Key Features
+## ✨ Key Features (Simplified MVP)
 
-- **Automated Issue-to-PR Workflow** - Convert issues to pull requests automatically
-- **Multi-Provider Support** - Unified interface for Gitea, GitHub, and GitLab
-- **Docker-based Workspaces** - Isolated development environments with health monitoring
-- **Task Scheduler** - Automatic background execution with priority-based scheduling
-- **Real-time Monitoring** - WebSocket log streaming and intelligent failure analysis
-- **Dual-Mode Issue Tracking** - Webhook-first with automatic polling fallback
+- **Automated Issue-to-PR Workflow** - Convert issues to pull requests automatically via webhooks
+- **Single Agent per Repository** - Simplified agent management with environment-based configuration
+- **Docker-based Workspaces** - Isolated development environments for each repository
+- **Task Management** - Simple task lifecycle (Pending → Running → Completed/Failed/Cancelled)
+- **Webhook Integration** - GitHub webhook support for automatic task creation
+- **Environment-based Configuration** - All settings via environment variables (no database configuration)
 
 ## 🚀 Quick Start
 

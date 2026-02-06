@@ -5,7 +5,10 @@
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
-use crate::config::AppConfig;
+use crate::config::{
+    AgentConfig, AppConfig, DatabaseConfig, GitProviderConfig, IssuePollingConfig, ServerConfig,
+    WebhookConfig, WorkspaceConfig,
+};
 use crate::services::{DockerService, RepositoryService};
 
 /// Shared application state
@@ -88,6 +91,8 @@ mod tests {
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
             workspace: WorkspaceConfig::default(),
+            git_provider: GitProviderConfig::default(),
+            agent: AgentConfig::default(),
         };
         let config_arc = Arc::new(config.clone());
         let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
