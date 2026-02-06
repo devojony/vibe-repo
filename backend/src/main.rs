@@ -10,10 +10,7 @@ use vibe_repo::{
     config::AppConfig,
     db::database::DatabasePool,
     logging,
-    services::{
-        IssuePollingService, LogCleanupService, RepositoryService, ServiceManager,
-        TaskSchedulerService, WebhookCleanupService, WebhookRetryService,
-    },
+    services::{RepositoryService, ServiceManager, TaskSchedulerService},
     state::AppState,
 };
 
@@ -69,31 +66,11 @@ async fn main() -> Result<()> {
         RepositoryService::new(db_pool.connection().clone(), config_arc.clone());
     service_manager.register(background_service);
 
-    // Register WebhookRetryService for background webhook retry
-    let webhook_retry_service =
-        WebhookRetryService::new(db_pool.connection().clone(), config_arc.clone());
-    service_manager.register(webhook_retry_service);
-
-    // Register WebhookCleanupService for orphaned webhook cleanup
-    let webhook_cleanup_service =
-        WebhookCleanupService::new(db_pool.connection().clone(), config_arc.clone());
-    service_manager.register(webhook_cleanup_service);
-
-    // Register LogCleanupService for init script log cleanup
-    let log_cleanup_service = LogCleanupService::new(db_pool.connection().clone(), None, None);
-    service_manager.register(log_cleanup_service);
-
-    // Register IssuePollingService for background issue polling
-    let issue_polling_service =
-        IssuePollingService::new(db_pool.connection().clone(), config.issue_polling.clone());
-    service_manager.register(issue_polling_service);
-
     // Register TaskSchedulerService for automatic task execution
     let task_scheduler_service = TaskSchedulerService::new(
         db_pool.connection().clone(),
         None,
         config.workspace.base_dir.clone(),
-        state.log_broadcaster.clone(),
     );
     service_manager.register(task_scheduler_service);
 

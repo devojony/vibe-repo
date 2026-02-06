@@ -1,4 +1,7 @@
-use crate::entities::{prelude::*, task::{self, TaskStatus}};
+use crate::entities::{
+    prelude::*,
+    task::{self, TaskStatus},
+};
 use crate::error::{Result, VibeRepoError};
 use chrono::Utc;
 use sea_orm::{
@@ -33,8 +36,6 @@ impl TaskService {
             task_status: Set(TaskStatus::Pending),
             priority: Set(priority),
             assigned_agent_id: Set(assigned_agent_id),
-            retry_count: Set(0),
-            max_retries: Set(3),
             ..Default::default()
         };
 
@@ -86,22 +87,13 @@ impl TaskService {
         Ok(task)
     }
 
-    /// Assign an agent to a task
+    /// Assign an agent to a task (simplified MVP - no status change)
     pub async fn assign_agent(&self, task_id: i32, agent_id: Option<i32>) -> Result<task::Model> {
         let task = self.get_task_by_id(task_id).await?;
 
-        // Validate state transition
-        if !task.task_status.can_transition_to(&TaskStatus::Assigned) {
-            return Err(VibeRepoError::InvalidStateTransition {
-                current: task.task_status,
-                target: TaskStatus::Assigned,
-                allowed: task.task_status.allowed_transitions(),
-            });
-        }
-
+        // In simplified MVP, we just update the assigned_agent_id without changing status
         let mut task: task::ActiveModel = task.into();
         task.assigned_agent_id = Set(agent_id);
-        task.task_status = Set(TaskStatus::Assigned);
         task.updated_at = Set(Utc::now());
 
         let task = task
@@ -177,10 +169,7 @@ impl TaskService {
     pub async fn fail_task(&self, task_id: i32, error_message: String) -> Result<task::Model> {
         let task = self.get_task_by_id(task_id).await?;
 
-        let new_retry_count = task.retry_count + 1;
-        let should_retry = new_retry_count < task.max_retries;
-
-        // Always transition to Failed first
+        // Transition to Failed (terminal state in simplified MVP)
         if !task.task_status.can_transition_to(&TaskStatus::Failed) {
             return Err(VibeRepoError::InvalidStateTransition {
                 current: task.task_status,
@@ -190,7 +179,6 @@ impl TaskService {
         }
 
         let mut task: task::ActiveModel = task.into();
-        task.retry_count = Set(new_retry_count);
         task.error_message = Set(Some(error_message));
         task.task_status = Set(TaskStatus::Failed);
         task.updated_at = Set(Utc::now());
@@ -199,11 +187,6 @@ impl TaskService {
             .update(&self.db)
             .await
             .map_err(VibeRepoError::Database)?;
-
-        // If we should retry, automatically transition to Pending
-        if should_retry {
-            return self.retry_task(task.id).await;
-        }
 
         Ok(task)
     }
@@ -420,8 +403,6 @@ mod tests {
         assert_eq!(task.task_status, TaskStatus::Pending);
         assert_eq!(task.priority, "high");
         assert_eq!(task.assigned_agent_id, None);
-        assert_eq!(task.retry_count, 0);
-        assert_eq!(task.max_retries, 3);
     }
 
     /// Test get_task_by_id returns task when exists
@@ -575,13 +556,13 @@ mod tests {
 
         // Act
         let result = service
-            .update_task_status(task.id, TaskStatus::Assigned)
+            .update_task_status(task.id, TaskStatus::Running)
             .await;
 
         // Assert
         assert!(result.is_ok());
         let updated = result.unwrap();
-        assert_eq!(updated.task_status, TaskStatus::Assigned);
+        assert_eq!(updated.task_status, TaskStatus::Running);
         assert!(updated.updated_at > task.updated_at);
     }
 
@@ -640,7 +621,7 @@ mod tests {
         assert!(result.is_ok());
         let updated = result.unwrap();
         assert_eq!(updated.assigned_agent_id, None);
-        assert_eq!(updated.task_status, TaskStatus::Assigned);
+        assert_eq!(updated.task_status, TaskStatus::Pending);
         assert!(updated.updated_at > task.updated_at);
     }
 
@@ -734,7 +715,7 @@ mod tests {
         assert!(updated.updated_at > task.updated_at);
     }
 
-    /// Test fail_task increments retry count and sets error message
+    /// Test fail_task marks task as failed
     /// Requirements: Task API - fail task
     #[tokio::test]
     async fn test_fail_task_with_retry() {
@@ -770,59 +751,14 @@ mod tests {
         // Assert
         assert!(result.is_ok());
         let updated = result.unwrap();
-        assert_eq!(updated.retry_count, 1);
-        // Error message is cleared when task is retried (transitioned to Pending)
-        assert_eq!(updated.error_message, None);
-        assert_eq!(updated.task_status, TaskStatus::Pending); // Should retry
+        assert_eq!(
+            updated.error_message,
+            Some("Test error message".to_string())
+        );
+        assert_eq!(updated.task_status, TaskStatus::Failed);
         assert!(updated.updated_at > task.updated_at);
     }
 
-    /// Test fail_task marks as failed when max retries reached
-    /// Requirements: Task API - fail task with max retries
-    #[tokio::test]
-    async fn test_fail_task_max_retries() {
-        // Arrange
-        let test_db = TestDatabase::new()
-            .await
-            .expect("Failed to create test database");
-        let db = &test_db.connection;
-
-        let workspace = create_test_workspace(db).await;
-        let service = TaskService::new(db.clone());
-        let mut task = service
-            .create_task(
-                workspace.id,
-                104,
-                "Test Task".to_string(),
-                None,
-                None,
-                "high".to_string(),
-            )
-            .await
-            .unwrap();
-
-        // Fail task multiple times to reach max retries
-        for _ in 0..3 {
-            // Get current task state
-            let current_task = service.get_task_by_id(task.id).await.unwrap();
-            
-            // Only assign and start if task is pending
-            if current_task.task_status == TaskStatus::Pending {
-                service.assign_agent(task.id, None).await.unwrap();
-                service.start_task(task.id).await.unwrap();
-            }
-            
-            task = service
-                .fail_task(task.id, "Test error".to_string())
-                .await
-                .unwrap();
-        }
-
-        // Assert
-        assert_eq!(task.retry_count, 3);
-        assert_eq!(task.task_status, TaskStatus::Failed); // Should be failed now
-    }
-    
     /// Test invalid transition from Completed to Failed
     /// Requirements: Task state machine - terminal state validation
     #[tokio::test]
@@ -835,7 +771,7 @@ mod tests {
 
         let workspace = create_test_workspace(db).await;
         let service = TaskService::new(db.clone());
-        
+
         // Create and complete a task
         let task = service
             .create_task(
@@ -848,7 +784,7 @@ mod tests {
             )
             .await
             .unwrap();
-        
+
         // Assign, start, and complete the task
         service.assign_agent(task.id, None).await.unwrap();
         service.start_task(task.id).await.unwrap();
@@ -868,7 +804,9 @@ mod tests {
         // Assert
         assert!(result.is_err());
         match result.unwrap_err() {
-            VibeRepoError::InvalidStateTransition { current, target, .. } => {
+            VibeRepoError::InvalidStateTransition {
+                current, target, ..
+            } => {
                 assert_eq!(current, TaskStatus::Completed);
                 // Target will be Failed (fail_task always transitions to Failed first)
                 assert_eq!(target, TaskStatus::Failed);
@@ -889,7 +827,7 @@ mod tests {
 
         let workspace = create_test_workspace(db).await;
         let service = TaskService::new(db.clone());
-        
+
         // Create and cancel a task
         let task = service
             .create_task(
@@ -902,7 +840,7 @@ mod tests {
             )
             .await
             .unwrap();
-        
+
         service.cancel_task(task.id).await.unwrap();
 
         // Act - Try to start a cancelled task
@@ -911,7 +849,9 @@ mod tests {
         // Assert
         assert!(result.is_err());
         match result.unwrap_err() {
-            VibeRepoError::InvalidStateTransition { current, target, .. } => {
+            VibeRepoError::InvalidStateTransition {
+                current, target, ..
+            } => {
                 assert_eq!(current, TaskStatus::Cancelled);
                 assert_eq!(target, TaskStatus::Running);
             }
@@ -919,10 +859,10 @@ mod tests {
         }
     }
 
-    /// Test invalid transition from Pending to Running
-    /// Requirements: Task state machine - must assign before running
+    /// Test valid transition from Pending to Running (simplified MVP)
+    /// Requirements: Task state machine - direct transition allowed
     #[tokio::test]
-    async fn test_invalid_transition_pending_to_running() {
+    async fn test_valid_transition_pending_to_running() {
         // Arrange
         let test_db = TestDatabase::new()
             .await
@@ -931,7 +871,7 @@ mod tests {
 
         let workspace = create_test_workspace(db).await;
         let service = TaskService::new(db.clone());
-        
+
         // Create a pending task
         let task = service
             .create_task(
@@ -945,18 +885,13 @@ mod tests {
             .await
             .unwrap();
 
-        // Act - Try to start a pending task without assigning
+        // Act - Start a pending task (now allowed in simplified MVP)
         let result = service.start_task(task.id).await;
 
-        // Assert
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            VibeRepoError::InvalidStateTransition { current, target, .. } => {
-                assert_eq!(current, TaskStatus::Pending);
-                assert_eq!(target, TaskStatus::Running);
-            }
-            _ => panic!("Expected InvalidStateTransition error"),
-        }
+        // Assert - Should succeed
+        assert!(result.is_ok());
+        let updated_task = result.unwrap();
+        assert_eq!(updated_task.task_status, TaskStatus::Running);
     }
 
     /// Test terminal state validation - Completed cannot transition
@@ -971,7 +906,7 @@ mod tests {
 
         let workspace = create_test_workspace(db).await;
         let service = TaskService::new(db.clone());
-        
+
         // Create and complete a task
         let task = service
             .create_task(
@@ -984,7 +919,7 @@ mod tests {
             )
             .await
             .unwrap();
-        
+
         service.assign_agent(task.id, None).await.unwrap();
         service.start_task(task.id).await.unwrap();
         service
@@ -998,9 +933,7 @@ mod tests {
             .unwrap();
 
         // Act & Assert - Try various transitions from Completed
-        assert!(service.assign_agent(task.id, None).await.is_err());
         assert!(service.start_task(task.id).await.is_err());
-        assert!(service.retry_task(task.id).await.is_err());
         assert!(service.cancel_task(task.id).await.is_err());
     }
 
@@ -1016,7 +949,7 @@ mod tests {
 
         let workspace = create_test_workspace(db).await;
         let service = TaskService::new(db.clone());
-        
+
         // Create and cancel a task
         let task = service
             .create_task(
@@ -1029,13 +962,11 @@ mod tests {
             )
             .await
             .unwrap();
-        
+
         service.cancel_task(task.id).await.unwrap();
 
         // Act & Assert - Try various transitions from Cancelled
-        assert!(service.assign_agent(task.id, None).await.is_err());
         assert!(service.start_task(task.id).await.is_err());
-        assert!(service.retry_task(task.id).await.is_err());
         assert!(service
             .complete_task(
                 task.id,
@@ -1052,12 +983,6 @@ mod tests {
         let repo = create_test_repository(db).await;
         let ws = workspace::ActiveModel {
             repository_id: Set(repo.id),
-            workspace_status: Set("Active".to_string()),
-            image_source: Set("default".to_string()),
-            max_concurrent_tasks: Set(3),
-            cpu_limit: Set(2.0),
-            memory_limit: Set("4GB".to_string()),
-            disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
         Workspace::insert(ws).exec_with_returning(db).await.unwrap()

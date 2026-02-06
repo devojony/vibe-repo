@@ -12,14 +12,8 @@ mod repository_initialization_property_tests;
 #[path = "repositories/repository_integration_tests.rs"]
 mod repository_integration_tests;
 
-#[path = "repositories/repository_sync_integration_tests.rs"]
-mod repository_sync_integration_tests;
-
 #[path = "repositories/repository_sync_property_tests.rs"]
 mod repository_sync_property_tests;
 
 #[path = "repositories/repository_webhook_status_tests.rs"]
 mod repository_webhook_status_tests;
-
-#[path = "repositories/repository_polling_api_tests.rs"]
-mod repository_polling_api_tests;

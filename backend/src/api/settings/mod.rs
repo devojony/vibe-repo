@@ -1,6 +1,3 @@
 //! Settings API module
 //!
-//! Namespace for global configuration resources.
-
-pub mod providers;
-pub mod workspace;
+//! This module is now empty as all settings are managed via environment variables in the simplified MVP.

@@ -18,6 +18,8 @@ pub fn task_routes() -> Router<Arc<AppState>> {
         .route("/api/tasks/:id", delete(handlers::delete_task))
         // Status management operations
         .route("/api/tasks/:id/status", patch(handlers::update_task_status))
+        .route("/api/tasks/:id/status", get(handlers::get_task_status))
+        .route("/api/tasks/:id/logs", get(handlers::get_task_logs))
         .route("/api/tasks/:id/assign", post(handlers::assign_agent))
         .route("/api/tasks/:id/start", post(handlers::start_task))
         .route("/api/tasks/:id/complete", post(handlers::complete_task))
@@ -26,11 +28,6 @@ pub fn task_routes() -> Router<Arc<AppState>> {
         .route("/api/tasks/:id/cancel", post(handlers::cancel_task))
         // Task execution
         .route("/api/tasks/:id/execute", post(handlers::execute_task))
-        // Failure analysis
-        .route(
-            "/api/tasks/:id/failure-analysis",
-            get(handlers::get_failure_analysis),
-        )
         // Manual PR operations
         .route(
             "/api/tasks/:id/create-pr",
@@ -39,10 +36,5 @@ pub fn task_routes() -> Router<Arc<AppState>> {
         .route(
             "/api/tasks/:id/close-issue",
             post(handlers::close_issue_for_task),
-        )
-        // WebSocket log streaming
-        .route(
-            "/api/tasks/:id/logs/stream",
-            get(super::websocket::stream_task_logs),
         )
 }

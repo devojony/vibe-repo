@@ -204,22 +204,6 @@ impl Default for WorkspaceConfig {
     }
 }
 
-/// WebSocket configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebSocketConfig {
-    /// Authentication token for WebSocket connections
-    /// If empty, authentication is disabled (not recommended for production)
-    pub auth_token: Option<String>,
-}
-
-impl Default for WebSocketConfig {
-    fn default() -> Self {
-        Self {
-            auth_token: std::env::var("WEBSOCKET_AUTH_TOKEN").ok(),
-        }
-    }
-}
-
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -233,8 +217,6 @@ pub struct AppConfig {
     pub issue_polling: IssuePollingConfig,
     /// Workspace configuration
     pub workspace: WorkspaceConfig,
-    /// WebSocket configuration
-    pub websocket: WebSocketConfig,
 }
 
 impl AppConfig {
@@ -535,7 +517,6 @@ mod tests {
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
                     workspace: WorkspaceConfig::default(),
-                    websocket: WebSocketConfig::default(),
                 };
 
                 let result = config.validate();
@@ -567,7 +548,6 @@ mod tests {
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
                     workspace: WorkspaceConfig::default(),
-                    websocket: WebSocketConfig::default(),
                 };
 
                 let result = config.validate();
@@ -604,7 +584,6 @@ mod tests {
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
                     workspace: WorkspaceConfig::default(),
-                    websocket: WebSocketConfig::default(),
                 };
 
                 let result = config.validate();
@@ -641,7 +620,6 @@ mod tests {
                     webhook: WebhookConfig::default(),
                     issue_polling: IssuePollingConfig::default(),
                     workspace: WorkspaceConfig::default(),
-                    websocket: WebSocketConfig::default(),
                 };
 
                 let result = config.validate();
@@ -678,7 +656,6 @@ mod tests {
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
         };
 
         assert!(
@@ -698,7 +675,6 @@ mod tests {
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -728,7 +704,6 @@ mod tests {
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -758,7 +733,6 @@ mod tests {
             webhook: WebhookConfig::default(),
             issue_polling: IssuePollingConfig::default(),
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -901,7 +875,6 @@ mod tests {
                 max_retries: 3,
             },
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -939,7 +912,6 @@ mod tests {
                 max_retries: 3,
             },
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -977,7 +949,6 @@ mod tests {
                 max_retries: 3,
             },
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();
@@ -1003,7 +974,6 @@ mod tests {
                 max_retries: 3,
             },
             workspace: WorkspaceConfig::default(),
-            websocket: WebSocketConfig::default(),
         };
 
         let result = config.validate();

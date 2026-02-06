@@ -10,9 +10,13 @@ use tokio::sync::RwLock;
 use tokio::time::interval;
 use tracing::{error, info};
 
-use crate::entities::{prelude::*, task::{self, TaskStatus}, workspace};
+use crate::entities::{
+    prelude::*,
+    task::{self, TaskStatus},
+    workspace,
+};
 use crate::error::{Result, VibeRepoError};
-use crate::services::{BackgroundService, TaskExecutorService, TaskLogBroadcaster};
+use crate::services::{BackgroundService, TaskExecutorService};
 use crate::state::AppState;
 
 /// Task scheduler configuration
@@ -39,7 +43,6 @@ pub struct TaskSchedulerService {
     config: SchedulerConfig,
     running: Arc<RwLock<bool>>,
     workspace_base_dir: String,
-    log_broadcaster: TaskLogBroadcaster,
 }
 
 impl TaskSchedulerService {
@@ -48,14 +51,12 @@ impl TaskSchedulerService {
         db: DatabaseConnection,
         config: Option<SchedulerConfig>,
         workspace_base_dir: String,
-        log_broadcaster: TaskLogBroadcaster,
     ) -> Self {
         Self {
             db,
             config: config.unwrap_or_default(),
             running: Arc::new(RwLock::new(false)),
             workspace_base_dir,
-            log_broadcaster,
         }
     }
 
@@ -125,15 +126,18 @@ impl TaskSchedulerService {
         // Get running tasks count for this workspace
         let running_count = self.get_running_tasks_count(workspace.id).await?;
 
+        // Use hardcoded value of 3 for max concurrent tasks in simplified MVP
+        let max_concurrent_tasks = 3;
+
         info!(
             workspace_id = workspace.id,
             running_count = running_count,
-            max_concurrent = workspace.max_concurrent_tasks,
+            max_concurrent = max_concurrent_tasks,
             "Workspace task status"
         );
 
         // Check if we can execute more tasks
-        if running_count >= workspace.max_concurrent_tasks {
+        if running_count >= max_concurrent_tasks {
             info!(
                 workspace_id = workspace.id,
                 "Workspace at max concurrent task limit, skipping"
@@ -142,7 +146,7 @@ impl TaskSchedulerService {
         }
 
         // Calculate how many tasks we can start
-        let available_slots = workspace.max_concurrent_tasks - running_count;
+        let available_slots = max_concurrent_tasks - running_count;
 
         // Get pending tasks ordered by priority
         let pending_tasks = self
@@ -161,11 +165,7 @@ impl TaskSchedulerService {
         );
 
         // Execute tasks
-        let executor = TaskExecutorService::new(
-            self.db.clone(),
-            self.workspace_base_dir.clone(),
-            self.log_broadcaster.clone(),
-        );
+        let executor = TaskExecutorService::new(self.db.clone(), self.workspace_base_dir.clone());
 
         for task in pending_tasks {
             info!(
@@ -257,7 +257,6 @@ impl BackgroundService for TaskSchedulerService {
         let config = self.config.clone();
         let running = self.running.clone();
         let workspace_base_dir = self.workspace_base_dir.clone();
-        let log_broadcaster = self.log_broadcaster.clone();
 
         tokio::spawn(async move {
             let scheduler = TaskSchedulerService {
@@ -265,7 +264,6 @@ impl BackgroundService for TaskSchedulerService {
                 config: config.clone(),
                 running: running.clone(),
                 workspace_base_dir,
-                log_broadcaster,
             };
 
             let mut ticker = interval(Duration::from_secs(config.polling_interval_seconds));
@@ -332,12 +330,8 @@ mod tests {
             .await
             .unwrap();
 
-        let scheduler = TaskSchedulerService::new(
-            db.clone(),
-            None,
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let scheduler =
+            TaskSchedulerService::new(db.clone(), None, "/tmp/test-workspace".to_string());
 
         // Act
         let result = scheduler.get_workspaces_with_pending_tasks().await;
@@ -385,16 +379,11 @@ mod tests {
             .await
             .unwrap();
 
-        // Assign and start task1 (make it running)
-        task_service.assign_agent(task1.id, None).await.unwrap();
+        // Start task1 (make it running)
         task_service.start_task(task1.id).await.unwrap();
 
-        let scheduler = TaskSchedulerService::new(
-            db.clone(),
-            None,
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let scheduler =
+            TaskSchedulerService::new(db.clone(), None, "/tmp/test-workspace".to_string());
 
         // Act
         let result = scheduler.get_running_tasks_count(workspace.id).await;
@@ -452,12 +441,8 @@ mod tests {
             .await
             .unwrap();
 
-        let scheduler = TaskSchedulerService::new(
-            db.clone(),
-            None,
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let scheduler =
+            TaskSchedulerService::new(db.clone(), None, "/tmp/test-workspace".to_string());
 
         // Act
         let result = scheduler
@@ -500,12 +485,8 @@ mod tests {
                 .unwrap();
         }
 
-        let scheduler = TaskSchedulerService::new(
-            db.clone(),
-            None,
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let scheduler =
+            TaskSchedulerService::new(db.clone(), None, "/tmp/test-workspace".to_string());
 
         // Act - request only 2 tasks
         let result = scheduler
@@ -536,12 +517,8 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let scheduler = TaskSchedulerService::new(
-            db.clone(),
-            None,
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let scheduler =
+            TaskSchedulerService::new(db.clone(), None, "/tmp/test-workspace".to_string());
         *scheduler.running.write().await = true;
 
         // Act
@@ -559,12 +536,8 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let scheduler = TaskSchedulerService::new(
-            db.clone(),
-            None,
-            "/tmp/test-workspace".to_string(),
-            TaskLogBroadcaster::new(),
-        );
+        let scheduler =
+            TaskSchedulerService::new(db.clone(), None, "/tmp/test-workspace".to_string());
         *scheduler.running.write().await = false;
 
         // Act
@@ -578,12 +551,6 @@ mod tests {
         let repo = create_test_repository(db).await;
         let ws = workspace::ActiveModel {
             repository_id: Set(repo.id),
-            workspace_status: Set("Active".to_string()),
-            image_source: Set("default".to_string()),
-            max_concurrent_tasks: Set(3),
-            cpu_limit: Set(2.0),
-            memory_limit: Set("4GB".to_string()),
-            disk_limit: Set("10GB".to_string()),
             ..Default::default()
         };
         Workspace::insert(ws).exec_with_returning(db).await.unwrap()
