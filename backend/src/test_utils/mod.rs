@@ -10,6 +10,6 @@ pub mod db;
 pub mod gitea;
 pub mod state;
 
-pub use db::{create_test_database, TestDatabase};
-pub use gitea::{is_gitea_available, wait_for_repositories, GiteaTestConfig};
+pub use db::{create_test_database, create_test_repository, TestDatabase};
+pub use gitea::{is_gitea_available, GiteaTestConfig};
 pub use state::{create_test_app, create_test_state};

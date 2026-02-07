@@ -1,4 +1,4 @@
-use crate::entities::repo_provider;
+use crate::entities::repository;
 
 use super::{error::GitProviderError, gitea::GiteaClient, GitClient, GitHubClient, GitLabClient};
 
@@ -40,23 +40,22 @@ impl GitClientFactory {
         }
     }
 
-    /// Create a GitClient instance from a RepoProvider entity
+    /// Create a GitClient instance from a Repository entity
     ///
     /// # Arguments
-    /// * `provider` - RepoProvider entity model
+    /// * `repo` - Repository entity model
     ///
     /// # Returns
-    /// A GitClient enum variant for the provider's type
+    /// A GitClient enum variant for the repository's provider type
     ///
     /// # Errors
     /// Returns `UnsupportedProvider` if the provider type is not recognized
-    pub fn from_provider(provider: &repo_provider::Model) -> Result<GitClient, GitProviderError> {
-        let provider_type = match provider.provider_type {
-            repo_provider::ProviderType::Gitea => "gitea",
-            // Future implementations:
-            // repo_provider::ProviderType::GitHub => "github",
-            // repo_provider::ProviderType::GitLab => "gitlab",
-        };
-        Self::create(provider_type, &provider.base_url, &provider.access_token)
+    /// Returns `ClientCreationError` if the HTTP client cannot be created
+    pub fn from_repository(repo: &repository::Model) -> Result<GitClient, GitProviderError> {
+        Self::create(
+            &repo.provider_type,
+            &repo.provider_base_url,
+            &repo.access_token,
+        )
     }
 }

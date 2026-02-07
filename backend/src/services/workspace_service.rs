@@ -311,9 +311,8 @@ impl WorkspaceService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::prelude::{RepoProvider, Repository};
     use crate::test_utils::db::TestDatabase;
-    use sea_orm::{DatabaseConnection, EntityTrait, Set};
+    use sea_orm::DatabaseConnection;
 
     #[tokio::test]
     async fn test_create_workspace_success() {
@@ -323,37 +322,27 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        // Create a test provider first
-        let provider = crate::entities::repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(crate::entities::repo_provider::ProviderType::Gitea),
-            base_url: Set("https://git.example.com".to_string()),
-            access_token: Set("test-token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = RepoProvider::insert(provider).exec(db).await.unwrap();
-
         // Create a test repository
-        let repo = crate::entities::repository::ActiveModel {
-            name: Set("test-repo".to_string()),
-            full_name: Set("owner/test-repo".to_string()),
-            clone_url: Set("https://git.example.com/owner/test-repo.git".to_string()),
-            default_branch: Set("main".to_string()),
-            provider_id: Set(provider.last_insert_id),
-            ..Default::default()
-        };
-        let repo = Repository::insert(repo).exec(db).await.unwrap();
+        let repo = crate::test_utils::create_test_repository(
+            db,
+            "test-repo",
+            "owner/test-repo",
+            "gitea",
+            "https://git.example.com",
+            "test-token",
+        )
+        .await
+        .unwrap();
 
         let service = WorkspaceService::new(db.clone(), None);
 
         // Act
-        let result = service.create_workspace(repo.last_insert_id).await;
+        let result = service.create_workspace(repo.id).await;
 
         // Assert
         assert!(result.is_ok());
         let workspace = result.unwrap();
-        assert_eq!(workspace.repository_id, repo.last_insert_id);
+        assert_eq!(workspace.repository_id, repo.id);
         assert_eq!(workspace.workspace_status, "Initializing");
     }
 
@@ -470,31 +459,21 @@ mod tests {
 
     // Helper function
     async fn create_test_repository(db: &DatabaseConnection) -> crate::entities::repository::Model {
-        use crate::entities::repository;
+        use crate::test_utils::create_test_repository as create_repo;
 
-        // Create a test provider first
-        let provider = crate::entities::repo_provider::ActiveModel {
-            name: Set(format!("Test Provider {}", uuid::Uuid::new_v4())),
-            provider_type: Set(crate::entities::repo_provider::ProviderType::Gitea),
-            base_url: Set("https://git.example.com".to_string()),
-            access_token: Set("test-token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = RepoProvider::insert(provider).exec(db).await.unwrap();
+        let repo_name = format!("test-repo-{}", uuid::Uuid::new_v4());
+        let full_name = format!("owner/{}", repo_name);
 
-        let repo = repository::ActiveModel {
-            name: Set(format!("test-repo-{}", uuid::Uuid::new_v4())),
-            full_name: Set(format!("owner/test-repo-{}", uuid::Uuid::new_v4())),
-            clone_url: Set("https://git.example.com/owner/test-repo.git".to_string()),
-            default_branch: Set("main".to_string()),
-            provider_id: Set(provider.last_insert_id),
-            ..Default::default()
-        };
-        Repository::insert(repo)
-            .exec_with_returning(db)
-            .await
-            .unwrap()
+        create_repo(
+            db,
+            &repo_name,
+            &full_name,
+            "gitea",
+            "https://git.example.com",
+            "test-token",
+        )
+        .await
+        .unwrap()
     }
 
     // ============================================

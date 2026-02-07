@@ -4,10 +4,7 @@
 
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
-use vibe_repo::{
-    entities::{repo_provider, repository},
-    test_utils::db::create_test_database,
-};
+use vibe_repo::{entities::repository, test_utils::db::create_test_database};
 
 /// Test that webhook_status column exists in repositories table
 #[tokio::test]
@@ -16,9 +13,8 @@ async fn test_migration_repository_webhook_status_column_exists() {
         .await
         .expect("Failed to setup test db");
 
-    // Create a test provider and repository
-    let provider = create_test_provider(&db).await;
-    let repo = create_test_repository(&db, provider.id).await;
+    // Create a test repository
+    let repo = create_test_repository(&db).await;
 
     // Verify webhook_status field is accessible
     assert_eq!(
@@ -35,15 +31,15 @@ async fn test_migration_repository_webhook_status_default_value() {
         .await
         .expect("Failed to setup test db");
 
-    // Create a test provider
-    let provider = create_test_provider(&db).await;
-
     // Create a repository without explicitly setting webhook_status
     let repo = repository::ActiveModel {
-        provider_id: Set(provider.id),
         name: Set("test-repo-default".to_string()),
         full_name: Set("org/test-repo-default".to_string()),
-        clone_url: Set("https://gitea.example.com/org/test-repo-default.git".to_string()),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set("test_token".to_string()),
+        webhook_secret: Set(Some("test_secret".to_string())),
+        clone_url: Set("https://api.github.com/org/test-repo-default.git".to_string()),
         default_branch: Set("main".to_string()),
         branches: Set(serde_json::json!(["main"])),
         validation_status: Set(repository::ValidationStatus::Valid),
@@ -76,51 +72,33 @@ async fn test_repository_webhook_status_valid_values() {
         .await
         .expect("Failed to setup test db");
 
-    let provider = create_test_provider(&db).await;
-
     // Test 'pending' status
-    let repo_pending = create_test_repository_with_webhook_status(
-        &db,
-        provider.id,
-        repository::WebhookStatus::Pending,
-    )
-    .await;
+    let repo_pending =
+        create_test_repository_with_webhook_status(&db, repository::WebhookStatus::Pending).await;
     assert_eq!(
         repo_pending.webhook_status,
         repository::WebhookStatus::Pending
     );
 
     // Test 'active' status
-    let repo_active = create_test_repository_with_webhook_status(
-        &db,
-        provider.id,
-        repository::WebhookStatus::Active,
-    )
-    .await;
+    let repo_active =
+        create_test_repository_with_webhook_status(&db, repository::WebhookStatus::Active).await;
     assert_eq!(
         repo_active.webhook_status,
         repository::WebhookStatus::Active
     );
 
     // Test 'failed' status
-    let repo_failed = create_test_repository_with_webhook_status(
-        &db,
-        provider.id,
-        repository::WebhookStatus::Failed,
-    )
-    .await;
+    let repo_failed =
+        create_test_repository_with_webhook_status(&db, repository::WebhookStatus::Failed).await;
     assert_eq!(
         repo_failed.webhook_status,
         repository::WebhookStatus::Failed
     );
 
     // Test 'disabled' status
-    let repo_disabled = create_test_repository_with_webhook_status(
-        &db,
-        provider.id,
-        repository::WebhookStatus::Disabled,
-    )
-    .await;
+    let repo_disabled =
+        create_test_repository_with_webhook_status(&db, repository::WebhookStatus::Disabled).await;
     assert_eq!(
         repo_disabled.webhook_status,
         repository::WebhookStatus::Disabled
@@ -134,8 +112,7 @@ async fn test_update_repository_webhook_status() {
         .await
         .expect("Failed to setup test db");
 
-    let provider = create_test_provider(&db).await;
-    let repo = create_test_repository(&db, provider.id).await;
+    let repo = create_test_repository(&db).await;
 
     // Initial status should be pending
     assert_eq!(repo.webhook_status, repository::WebhookStatus::Pending);
@@ -159,34 +136,20 @@ async fn test_update_repository_webhook_status() {
 
 // Helper functions
 
-/// Create a test provider
-async fn create_test_provider(db: &sea_orm::DatabaseConnection) -> repo_provider::Model {
-    repo_provider::ActiveModel {
-        name: Set(format!("test-provider-{}", Utc::now().timestamp_millis())),
-        provider_type: Set(repo_provider::ProviderType::Gitea),
-        base_url: Set("https://gitea.example.com".to_string()),
-        access_token: Set(format!("test-token-{}", Utc::now().timestamp_millis())),
-        locked: Set(false),
-        created_at: Set(Utc::now()),
-        updated_at: Set(Utc::now()),
-        ..Default::default()
-    }
-    .insert(db)
-    .await
-    .expect("Failed to create test provider")
-}
-
 /// Create a test repository with default webhook_status
-async fn create_test_repository(
-    db: &sea_orm::DatabaseConnection,
-    provider_id: i32,
-) -> repository::Model {
+async fn create_test_repository(db: &sea_orm::DatabaseConnection) -> repository::Model {
     repository::ActiveModel {
-        provider_id: Set(provider_id),
         name: Set(format!("test-repo-{}", Utc::now().timestamp_millis())),
         full_name: Set(format!("org/test-repo-{}", Utc::now().timestamp_millis())),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set(format!("test-token-{}", Utc::now().timestamp_millis())),
+        webhook_secret: Set(Some(format!(
+            "test-secret-{}",
+            Utc::now().timestamp_millis()
+        ))),
         clone_url: Set(format!(
-            "https://gitea.example.com/org/test-repo-{}.git",
+            "https://api.github.com/org/test-repo-{}.git",
             Utc::now().timestamp_millis()
         )),
         default_branch: Set("main".to_string()),
@@ -212,11 +175,9 @@ async fn create_test_repository(
 /// Create a test repository with specific webhook_status
 async fn create_test_repository_with_webhook_status(
     db: &sea_orm::DatabaseConnection,
-    provider_id: i32,
     webhook_status: repository::WebhookStatus,
 ) -> repository::Model {
     repository::ActiveModel {
-        provider_id: Set(provider_id),
         name: Set(format!(
             "test-repo-{:?}-{}",
             webhook_status,
@@ -227,8 +188,20 @@ async fn create_test_repository_with_webhook_status(
             webhook_status,
             Utc::now().timestamp_millis()
         )),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set(format!(
+            "test-token-{:?}-{}",
+            webhook_status,
+            Utc::now().timestamp_millis()
+        )),
+        webhook_secret: Set(Some(format!(
+            "test-secret-{:?}-{}",
+            webhook_status,
+            Utc::now().timestamp_millis()
+        ))),
         clone_url: Set(format!(
-            "https://gitea.example.com/org/test-repo-{:?}-{}.git",
+            "https://api.github.com/org/test-repo-{:?}-{}.git",
             webhook_status,
             Utc::now().timestamp_millis()
         )),

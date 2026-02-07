@@ -1,17 +1,17 @@
 //! Repository Service
 //!
-//! Background service for managing repository operations and synchronization.
+//! Background service for managing repository operations.
 //!
-//! This service supports both direct method calls (for API handlers) and
-//! periodic background synchronization tasks.
+//! This service provides methods for adding, initializing, and managing repositories.
 
 use async_trait::async_trait;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    TransactionTrait,
 };
 use std::sync::Arc;
 
-use crate::entities::{prelude::*, repository, webhook_config};
+use crate::entities::{agent, prelude::*, repository, workspace};
 use crate::error::{Result, VibeRepoError};
 use crate::git_provider::{
     CreateBranchRequest, CreateWebhookRequest, GitClientFactory, GitProvider, GitProviderError,
@@ -20,22 +20,9 @@ use crate::git_provider::{
 use crate::services::BackgroundService;
 use crate::state::AppState;
 
-/// Validation status update parameters
-struct ValidationUpdate {
-    status: repository::ValidationStatus,
-    branches: Vec<String>,
-    has_branches: bool,
-    has_labels: bool,
-    can_manage_prs: bool,
-    can_manage_issues: bool,
-    message: Option<String>,
-}
-
-/// Repository service manages repository synchronization and validation
+/// Repository service manages repository operations
 ///
-/// This service is designed to be stateless and thread-safe, supporting:
-/// - Direct method calls from API handlers via `process_provider()`
-/// - Periodic background synchronization via `sync_all_providers()`
+/// This service is designed to be stateless and thread-safe.
 pub struct RepositoryService {
     db: DatabaseConnection,
     config: Arc<crate::config::AppConfig>,
@@ -52,59 +39,222 @@ impl RepositoryService {
         self.db.clone()
     }
 
-    /// Sync all providers (called by periodic task)
-    pub async fn sync_all_providers(&self) -> Result<()> {
-        let providers = RepoProvider::find().all(&self.db).await?;
+    /// Add a new repository with provider configuration
+    ///
+    /// This method performs the following steps atomically:
+    /// 1. Validates token by fetching repository info from provider
+    /// 2. Validates permissions (branches, labels, PRs, issues, webhooks)
+    /// 3. Generates random webhook secret
+    /// 4. Stores repository record
+    /// 5. Creates workspace and agent
+    /// 6. Initializes branch and labels
+    /// 7. Creates webhook on provider
+    ///
+    /// # Arguments
+    /// * `provider_type` - Provider type (github, gitea, gitlab)
+    /// * `provider_base_url` - Provider API base URL
+    /// * `access_token` - Access token for authentication
+    /// * `full_name` - Repository full name (owner/repo)
+    /// * `branch_name` - Work branch name to create
+    ///
+    /// # Returns
+    /// The created repository model
+    ///
+    /// # Errors
+    /// - `Validation` - Invalid parameters or repository already exists
+    /// - `Unauthorized` - Invalid token
+    /// - `Forbidden` - Insufficient permissions
+    /// - `NotFound` - Repository not found on provider
+    /// - `ServiceUnavailable` - Provider unreachable
+    pub async fn add_repository(
+        &self,
+        provider_type: String,
+        provider_base_url: String,
+        access_token: String,
+        full_name: String,
+        branch_name: String,
+    ) -> Result<repository::Model> {
+        tracing::info!("Adding repository: {}", full_name);
 
-        tracing::info!("Starting periodic sync for {} providers", providers.len());
+        // Start transaction for atomic operation
+        let txn = self.db.begin().await?;
 
-        for provider in providers {
-            if let Err(e) = self.process_provider(provider.id).await {
-                tracing::error!("Failed to sync provider {}: {}", provider.id, e);
-                // Continue with other providers
-            }
+        // 1. Check if repository already exists
+        let existing = Repository::find()
+            .filter(repository::Column::FullName.eq(&full_name))
+            .filter(repository::Column::ProviderType.eq(&provider_type))
+            .filter(repository::Column::ProviderBaseUrl.eq(&provider_base_url))
+            .one(&txn)
+            .await?;
+
+        if existing.is_some() {
+            return Err(VibeRepoError::Conflict(format!(
+                "Repository {} already exists",
+                full_name
+            )));
         }
 
-        Ok(())
+        // 2. Create GitClient with provided credentials
+        let git_client =
+            GitClientFactory::create(&provider_type, &provider_base_url, &access_token).map_err(
+                |e| VibeRepoError::Validation(format!("Invalid provider configuration: {}", e)),
+            )?;
+
+        // 3. Fetch repository info from provider (validates token + repo exists)
+        let (owner, repo_name) = self.parse_full_name(&full_name)?;
+        let git_repo = git_client
+            .get_repository(owner, repo_name)
+            .await
+            .map_err(|e| match e {
+                GitProviderError::Unauthorized(_) => {
+                    VibeRepoError::Forbidden("Invalid access token".to_string())
+                }
+                GitProviderError::Forbidden(_) => VibeRepoError::Forbidden(
+                    "Insufficient permissions to access repository".to_string(),
+                ),
+                GitProviderError::NotFound(_) => {
+                    VibeRepoError::NotFound(format!("Repository {} not found", full_name))
+                }
+                GitProviderError::NetworkError(_) => {
+                    VibeRepoError::ServiceUnavailable("Git provider unreachable".to_string())
+                }
+                _ => VibeRepoError::Internal(format!("Failed to fetch repository: {}", e)),
+            })?;
+
+        // 4. Validate permissions
+        let permissions = self
+            .validate_permissions(&git_client, owner, repo_name)
+            .await?;
+        if !permissions.can_write {
+            return Err(VibeRepoError::Forbidden(
+                "Token must have write permissions (branches, labels, PRs, issues, webhooks)"
+                    .to_string(),
+            ));
+        }
+
+        // 5. Generate random webhook secret (32 bytes = 64 hex chars)
+        let webhook_secret = self.generate_webhook_secret();
+
+        // 6. Store repository record
+        let repo = repository::ActiveModel {
+            provider_type: ActiveValue::Set(provider_type),
+            provider_base_url: ActiveValue::Set(provider_base_url),
+            access_token: ActiveValue::Set(access_token),
+            webhook_secret: ActiveValue::Set(Some(webhook_secret.clone())),
+            name: ActiveValue::Set(git_repo.name.clone()),
+            full_name: ActiveValue::Set(full_name.clone()),
+            clone_url: ActiveValue::Set(git_repo.clone_url.clone()),
+            default_branch: ActiveValue::Set(git_repo.default_branch.clone()),
+            branches: ActiveValue::Set(serde_json::json!([])),
+            validation_status: ActiveValue::Set(repository::ValidationStatus::Pending),
+            status: ActiveValue::Set(repository::RepositoryStatus::Uninitialized),
+            webhook_status: ActiveValue::Set(repository::WebhookStatus::Pending),
+            has_workspace: ActiveValue::Set(false),
+            has_required_branches: ActiveValue::Set(false),
+            has_required_labels: ActiveValue::Set(false),
+            can_manage_prs: ActiveValue::Set(permissions.can_write),
+            can_manage_issues: ActiveValue::Set(permissions.can_write),
+            validation_message: ActiveValue::Set(None),
+            deleted_at: ActiveValue::Set(None),
+            created_at: ActiveValue::Set(chrono::Utc::now()),
+            updated_at: ActiveValue::Set(chrono::Utc::now()),
+            ..Default::default()
+        };
+
+        let repo = repo.insert(&txn).await?;
+
+        // 7. Create workspace
+        let workspace = workspace::ActiveModel {
+            repository_id: ActiveValue::Set(repo.id),
+            container_id: ActiveValue::Set(None),
+            workspace_status: ActiveValue::Set("idle".to_string()),
+            created_at: ActiveValue::Set(chrono::Utc::now()),
+            updated_at: ActiveValue::Set(chrono::Utc::now()),
+            ..Default::default()
+        };
+        let workspace = workspace.insert(&txn).await?;
+
+        // 8. Create agent
+        let agent = agent::ActiveModel {
+            workspace_id: ActiveValue::Set(workspace.id),
+            name: ActiveValue::Set("default".to_string()),
+            tool_type: ActiveValue::Set("opencode".to_string()),
+            command: ActiveValue::Set(self.config.agent.default_command.clone()),
+            env_vars: ActiveValue::Set(serde_json::json!({})),
+            timeout: ActiveValue::Set(self.config.agent.default_timeout as i32),
+            created_at: ActiveValue::Set(chrono::Utc::now()),
+            updated_at: ActiveValue::Set(chrono::Utc::now()),
+            ..Default::default()
+        };
+        agent.insert(&txn).await?;
+
+        // Update repository has_workspace flag
+        let mut repo_active: repository::ActiveModel = repo.clone().into();
+        repo_active.has_workspace = ActiveValue::Set(true);
+        let repo = repo_active.update(&txn).await?;
+
+        // Commit transaction before external API calls
+        txn.commit().await?;
+
+        // 9. Initialize branch and labels (best-effort, don't fail if these fail)
+        let init_result = self
+            .initialize_repository_external(
+                repo.id,
+                &branch_name,
+                Some(self.config.webhook.domain.clone()),
+                Some(webhook_secret),
+            )
+            .await;
+
+        match init_result {
+            Ok(updated_repo) => {
+                tracing::info!(
+                    "Repository {} added and initialized successfully",
+                    full_name
+                );
+                Ok(updated_repo)
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Repository {} added but initialization failed: {}",
+                    full_name,
+                    e
+                );
+                // Return the repository even if initialization failed
+                // User can retry initialization later
+                Ok(repo)
+            }
+        }
+    }
+
+    /// Generate a cryptographically secure random webhook secret
+    fn generate_webhook_secret(&self) -> String {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        let bytes: Vec<u8> = (0..32).map(|_| rng.random()).collect();
+        hex::encode(bytes)
     }
 
     /// Create webhook for a repository
     ///
-    /// Creates a webhook on the Git provider and stores the configuration in the database.
+    /// Creates a webhook on the Git provider and updates the webhook status in the database.
     /// This method is idempotent - if a webhook already exists for this repository, it returns success.
     ///
     /// # Arguments
     /// * `repo` - The repository model
-    /// * `provider` - The provider model
     /// * `webhook_url` - The webhook endpoint URL
     /// * `webhook_secret` - The secret for signing webhooks
     ///
     /// # Returns
-    /// The created or existing webhook config model
+    /// Ok(()) on success
     async fn create_webhook_for_repository(
         &self,
         repo: &repository::Model,
-        provider: &crate::entities::repo_provider::Model,
         webhook_url: String,
         webhook_secret: String,
-    ) -> Result<webhook_config::Model> {
-        // Check if webhook already exists
-        let existing = WebhookConfig::find()
-            .filter(webhook_config::Column::RepositoryId.eq(repo.id))
-            .one(&self.db)
-            .await?;
-
-        if let Some(existing_webhook) = existing {
-            tracing::info!(
-                repository_id = repo.id,
-                webhook_id = %existing_webhook.webhook_id,
-                "Webhook already exists for repository"
-            );
-            return Ok(existing_webhook);
-        }
-
+    ) -> Result<()> {
         // Create Git client
-        let client = GitClientFactory::from_provider(provider)
+        let client = GitClientFactory::from_repository(repo)
             .map_err(|e| VibeRepoError::Internal(format!("Failed to create git client: {}", e)))?;
 
         // Parse repository owner and name from full_name
@@ -132,7 +282,7 @@ impl RepositoryService {
             "Creating webhook on Git provider"
         );
 
-        let git_webhook = client
+        client
             .create_webhook(owner, repo_name, webhook_request)
             .await
             .map_err(|e| match e {
@@ -154,27 +304,12 @@ impl RepositoryService {
                 )),
             })?;
 
-        // Store webhook config in database (simplified MVP version)
-        let webhook_config = webhook_config::ActiveModel {
-            repository_id: ActiveValue::Set(repo.id),
-            webhook_id: ActiveValue::Set(git_webhook.id.clone()),
-            webhook_secret: ActiveValue::Set(webhook_secret),
-            created_at: ActiveValue::Set(chrono::Utc::now()),
-            ..Default::default()
-        };
+        tracing::info!(repository_id = repo.id, "Webhook created successfully");
 
-        let saved_webhook = webhook_config.insert(&self.db).await?;
-
-        tracing::info!(
-            repository_id = repo.id,
-            webhook_id = %saved_webhook.webhook_id,
-            "Webhook created and saved to database"
-        );
-
-        Ok(saved_webhook)
+        Ok(())
     }
 
-    /// Initialize a single repository by creating work branch and required labels
+    /// Initialize a single repository by creating work branch and required labels (external API calls)
     ///
     /// This method creates the specified work branch from the default branch's latest commit,
     /// creates all required labels with vibe/ prefix, creates a webhook for the repository,
@@ -193,11 +328,11 @@ impl RepositoryService {
     /// The updated repository model on success
     ///
     /// # Errors
-    /// - `NotFound` - Repository or provider not found
+    /// - `NotFound` - Repository not found
     /// - `Forbidden` - Insufficient permissions to create branch or labels
     /// - `ServiceUnavailable` - Git provider unreachable
     /// - `Validation` - Default branch not found
-    pub async fn initialize_repository(
+    async fn initialize_repository_external(
         &self,
         repo_id: i32,
         branch_name: &str,
@@ -212,20 +347,14 @@ impl RepositoryService {
             .await?
             .ok_or_else(|| VibeRepoError::NotFound("Repository not found".to_string()))?;
 
-        // 2. Fetch provider
-        let provider = RepoProvider::find_by_id(repo.provider_id)
-            .one(&self.db)
-            .await?
-            .ok_or_else(|| VibeRepoError::NotFound("Provider not found".to_string()))?;
-
-        // 3. Create GitProvider client
-        let git_client = GitClientFactory::from_provider(&provider)
+        // 2. Create GitProvider client
+        let git_client = GitClientFactory::from_repository(&repo)
             .map_err(|e| VibeRepoError::Internal(format!("Failed to create git client: {}", e)))?;
 
-        // 4. Parse owner/repo from full_name
+        // 3. Parse owner/repo from full_name
         let (owner, repo_name) = self.parse_full_name(&repo.full_name)?;
 
-        // 5. Try to create work branch
+        // 4. Try to create work branch
         let create_result = self
             .create_work_branch(
                 &git_client,
@@ -236,7 +365,7 @@ impl RepositoryService {
             )
             .await;
 
-        // 6. Handle branch creation result
+        // 5. Handle branch creation result
         match create_result {
             Ok(_) => {
                 tracing::info!("Created {} branch for repository {}", branch_name, repo_id);
@@ -257,7 +386,7 @@ impl RepositoryService {
             }
         }
 
-        // 7. Try to create required labels
+        // 6. Try to create required labels
         if let Err(e) = self
             .create_required_labels(&git_client, owner, repo_name)
             .await
@@ -270,21 +399,17 @@ impl RepositoryService {
             // Continue - label creation failure should not block initialization
         }
 
-        // 8. Create webhook if domain and secret are provided
+        // 7. Create webhook if domain and secret are provided
         let mut webhook_status = repository::WebhookStatus::Pending;
         if let (Some(domain), Some(secret)) = (webhook_domain, webhook_secret) {
             let webhook_url = format!("{}/api/webhooks/{}", domain, repo.id);
 
             match self
-                .create_webhook_for_repository(&repo, &provider, webhook_url, secret)
+                .create_webhook_for_repository(&repo, webhook_url, secret)
                 .await
             {
-                Ok(webhook) => {
-                    tracing::info!(
-                        repository_id = repo.id,
-                        webhook_id = %webhook.webhook_id,
-                        "Webhook created successfully"
-                    );
+                Ok(_) => {
+                    tracing::info!(repository_id = repo.id, "Webhook created successfully");
                     webhook_status = repository::WebhookStatus::Active;
                 }
                 Err(e) => {
@@ -300,7 +425,7 @@ impl RepositoryService {
             }
         }
 
-        // 9. Re-fetch branches and update database
+        // 8. Re-fetch branches and update database
         let updated_branches = git_client
             .list_branches(owner, repo_name)
             .await
@@ -349,6 +474,29 @@ impl RepositoryService {
         tracing::info!("Repository {} initialized successfully", repo_id);
 
         Ok(updated)
+    }
+
+    /// Initialize a single repository by creating work branch and required labels
+    ///
+    /// This is the public API for repository initialization.
+    ///
+    /// # Arguments
+    /// * `repo_id` - The ID of the repository to initialize
+    /// * `branch_name` - The name of the work branch to create (e.g., "vibe-dev")
+    /// * `webhook_domain` - Optional webhook domain for creating webhooks
+    /// * `webhook_secret` - Optional webhook secret for signing webhooks
+    ///
+    /// # Returns
+    /// The updated repository model on success
+    pub async fn initialize_repository(
+        &self,
+        repo_id: i32,
+        branch_name: &str,
+        webhook_domain: Option<String>,
+        webhook_secret: Option<String>,
+    ) -> Result<repository::Model> {
+        self.initialize_repository_external(repo_id, branch_name, webhook_domain, webhook_secret)
+            .await
     }
 
     /// Create work branch from default branch
@@ -430,76 +578,6 @@ impl RepositoryService {
         }
     }
 
-    /// Batch initialize all repositories for a provider
-    ///
-    /// This method initializes all repositories where `has_required_branches` OR
-    /// `has_required_labels` is false for the specified provider. It continues
-    /// processing even if some repositories fail to initialize.
-    ///
-    /// # Arguments
-    /// * `provider_id` - The ID of the provider whose repositories should be initialized
-    /// * `branch_name` - The name of the work branch to create (e.g., "vibe-dev")
-    /// * `webhook_domain` - Optional webhook domain for creating webhooks
-    /// * `webhook_secret` - Optional webhook secret for signing webhooks
-    ///
-    /// # Returns
-    /// Ok(()) on completion (even if some repositories failed)
-    ///
-    /// # Errors
-    /// - Database errors when fetching repositories
-    pub async fn batch_initialize(
-        &self,
-        provider_id: i32,
-        branch_name: &str,
-        webhook_domain: Option<String>,
-        webhook_secret: Option<String>,
-    ) -> Result<()> {
-        // 1. Fetch all repositories where has_required_branches OR has_required_labels is false
-        let repos = Repository::find()
-            .filter(repository::Column::ProviderId.eq(provider_id))
-            .filter(
-                sea_orm::Condition::any()
-                    .add(repository::Column::HasRequiredBranches.eq(false))
-                    .add(repository::Column::HasRequiredLabels.eq(false)),
-            )
-            .all(&self.db)
-            .await?;
-
-        tracing::info!(
-            "Batch initializing {} repositories for provider {}",
-            repos.len(),
-            provider_id
-        );
-
-        // 2. Initialize each repository, continuing on errors
-        for repo in repos {
-            match self
-                .initialize_repository(
-                    repo.id,
-                    branch_name,
-                    webhook_domain.clone(),
-                    webhook_secret.clone(),
-                )
-                .await
-            {
-                Ok(_) => {
-                    tracing::info!("Repository {} initialized successfully", repo.id);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to initialize repository {}: {}", repo.id, e);
-                    // Continue with remaining repositories (Requirements 3.5)
-                }
-            }
-        }
-
-        tracing::info!(
-            "Batch initialization completed for provider {}",
-            provider_id
-        );
-
-        Ok(())
-    }
-
     /// Update validation message for a repository
     ///
     /// # Arguments
@@ -536,143 +614,6 @@ impl RepositoryService {
             )));
         }
         Ok((parts[0], parts[1]))
-    }
-
-    /// Process a provider - fetch and validate all repositories
-    pub async fn process_provider(&self, provider_id: i32) -> Result<()> {
-        tracing::info!("Processing provider {}", provider_id);
-
-        // Fetch provider from database
-        let provider = RepoProvider::find_by_id(provider_id)
-            .one(&self.db)
-            .await?
-            .ok_or_else(|| {
-                VibeRepoError::NotFound(format!("Provider {} not found", provider_id))
-            })?;
-
-        // Create GitProvider client
-        let git_client = GitClientFactory::from_provider(&provider)
-            .map_err(|e| VibeRepoError::Internal(format!("Failed to create git client: {}", e)))?;
-
-        // Fetch repositories using GitProvider
-        let repos = git_client
-            .list_repositories()
-            .await
-            .map_err(|e| VibeRepoError::Internal(format!("Failed to fetch repositories: {}", e)))?;
-
-        tracing::info!(
-            "Found {} repositories for provider {}",
-            repos.len(),
-            provider_id
-        );
-
-        // Process each repository
-        for repo in repos {
-            // Store repository with pending status
-            let repo_id = self.store_repository(provider_id, &repo).await?;
-
-            // Validate repository
-            let validation = self.validate_repository(&git_client, &repo.full_name).await;
-
-            // Update validation status
-            match validation {
-                Ok(info) => {
-                    // Valid only when all four conditions are met
-                    let is_valid = info.has_required_branches
-                        && info.has_required_labels
-                        && info.can_manage_prs
-                        && info.can_manage_issues;
-
-                    let status = if is_valid {
-                        repository::ValidationStatus::Valid
-                    } else {
-                        repository::ValidationStatus::Invalid
-                    };
-
-                    self.update_validation_status(
-                        repo_id,
-                        ValidationUpdate {
-                            status,
-                            branches: info.branches,
-                            has_branches: info.has_required_branches,
-                            has_labels: info.has_required_labels,
-                            can_manage_prs: info.can_manage_prs,
-                            can_manage_issues: info.can_manage_issues,
-                            message: None,
-                        },
-                    )
-                    .await?;
-                }
-                Err(e) => {
-                    self.update_validation_status(
-                        repo_id,
-                        ValidationUpdate {
-                            status: repository::ValidationStatus::Invalid,
-                            branches: Vec::new(),
-                            has_branches: false,
-                            has_labels: false,
-                            can_manage_prs: false,
-                            can_manage_issues: false,
-                            message: Some(e.to_string()),
-                        },
-                    )
-                    .await?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Store or update repository in database
-    pub(crate) async fn store_repository(
-        &self,
-        provider_id: i32,
-        repo: &crate::git_provider::GitRepository,
-    ) -> Result<i32> {
-        // Check if repository already exists
-        let existing = Repository::find()
-            .filter(repository::Column::ProviderId.eq(provider_id))
-            .filter(repository::Column::FullName.eq(&repo.full_name))
-            .one(&self.db)
-            .await?;
-
-        let repo_id = if let Some(existing_repo) = existing {
-            // Update existing repository
-            let mut active: repository::ActiveModel = existing_repo.into();
-            active.name = ActiveValue::Set(repo.name.clone());
-            active.clone_url = ActiveValue::Set(repo.clone_url.clone());
-            active.default_branch = ActiveValue::Set(repo.default_branch.clone());
-            active.validation_status = ActiveValue::Set(repository::ValidationStatus::Pending);
-            active.updated_at = ActiveValue::Set(chrono::Utc::now());
-
-            let updated = active.update(&self.db).await?;
-            updated.id
-        } else {
-            // Create new repository
-            let new_repo = repository::ActiveModel {
-                provider_id: ActiveValue::Set(provider_id),
-                name: ActiveValue::Set(repo.name.clone()),
-                full_name: ActiveValue::Set(repo.full_name.clone()),
-                clone_url: ActiveValue::Set(repo.clone_url.clone()),
-                default_branch: ActiveValue::Set(repo.default_branch.clone()),
-                branches: ActiveValue::Set(serde_json::json!([])),
-                validation_status: ActiveValue::Set(repository::ValidationStatus::Pending),
-                has_required_branches: ActiveValue::Set(false),
-                has_required_labels: ActiveValue::Set(false),
-                can_manage_prs: ActiveValue::Set(false),
-                can_manage_issues: ActiveValue::Set(false),
-                validation_message: ActiveValue::Set(None),
-                created_at: ActiveValue::Set(chrono::Utc::now()),
-                updated_at: ActiveValue::Set(chrono::Utc::now()),
-                ..Default::default()
-            };
-
-            let inserted = new_repo.insert(&self.db).await?;
-            inserted.id
-        };
-
-        Ok(repo_id)
     }
 
     /// Validate a repository
@@ -849,28 +790,6 @@ impl RepositoryService {
         Ok(())
     }
 
-    /// Update repository validation status
-    async fn update_validation_status(&self, repo_id: i32, update: ValidationUpdate) -> Result<()> {
-        let repo = Repository::find_by_id(repo_id)
-            .one(&self.db)
-            .await?
-            .ok_or_else(|| VibeRepoError::NotFound(format!("Repository {} not found", repo_id)))?;
-
-        let mut active: repository::ActiveModel = repo.into();
-        active.validation_status = ActiveValue::Set(update.status);
-        active.branches = ActiveValue::Set(serde_json::json!(update.branches));
-        active.has_required_branches = ActiveValue::Set(update.has_branches);
-        active.has_required_labels = ActiveValue::Set(update.has_labels);
-        active.can_manage_prs = ActiveValue::Set(update.can_manage_prs);
-        active.can_manage_issues = ActiveValue::Set(update.can_manage_issues);
-        active.validation_message = ActiveValue::Set(update.message);
-        active.updated_at = ActiveValue::Set(chrono::Utc::now());
-
-        active.update(&self.db).await?;
-
-        Ok(())
-    }
-
     /// Archive a repository
     ///
     /// Sets the repository status to Archived. Archived repositories:
@@ -999,11 +918,11 @@ impl RepositoryService {
         Ok(())
     }
 
-    /// Delete a repository and its associated webhooks
+    /// Delete a repository and its webhook
     ///
     /// This method performs a hard delete:
-    /// 1. Deletes the webhook from the Git provider
-    /// 2. Deletes the repository record (cascade deletes webhook_config)
+    /// 1. Deletes the webhook from the Git provider (best-effort)
+    /// 2. Deletes the repository record
     ///
     /// # Arguments
     /// * `repo_id` - The ID of the repository to delete
@@ -1016,7 +935,6 @@ impl RepositoryService {
     ///
     /// # Notes
     /// - Webhook deletion from Git provider is best-effort; repository deletion proceeds even if it fails
-    /// - Database cascade delete ensures webhook_config is removed
     pub async fn delete_repository(&self, repo_id: i32) -> Result<()> {
         tracing::info!(repository_id = repo_id, "Deleting repository");
 
@@ -1026,26 +944,17 @@ impl RepositoryService {
             .await?
             .ok_or_else(|| VibeRepoError::NotFound(format!("Repository {} not found", repo_id)))?;
 
-        // Get webhook config
-        let webhook = WebhookConfig::find()
-            .filter(webhook_config::Column::RepositoryId.eq(repo_id))
-            .one(&self.db)
-            .await?;
-
-        // If webhook exists, delete from Git provider
-        if let Some(webhook) = webhook {
-            if let Err(e) = self.delete_webhook_from_provider(&repo, &webhook).await {
-                tracing::error!(
-                    repository_id = repo_id,
-                    webhook_id = %webhook.webhook_id,
-                    error = %e,
-                    "Failed to delete webhook from Git provider, continuing with repository deletion"
-                );
-                // Continue with deletion even if webhook deletion fails
-            }
+        // Try to delete webhook from Git provider (best-effort)
+        if let Err(e) = self.delete_webhook_from_provider(&repo).await {
+            tracing::error!(
+                repository_id = repo_id,
+                error = %e,
+                "Failed to delete webhook from Git provider, continuing with repository deletion"
+            );
+            // Continue with deletion even if webhook deletion fails
         }
 
-        // Delete repository (cascade deletes webhook_config)
+        // Delete repository
         let repo_active: repository::ActiveModel = repo.into();
         repo_active.delete(&self.db).await?;
 
@@ -1058,28 +967,15 @@ impl RepositoryService {
     ///
     /// # Arguments
     /// * `repo` - The repository model
-    /// * `webhook` - The webhook config model
     ///
     /// # Returns
     /// Ok(()) on success
     ///
     /// # Errors
     /// - Various errors from Git provider API
-    async fn delete_webhook_from_provider(
-        &self,
-        repo: &repository::Model,
-        webhook: &webhook_config::Model,
-    ) -> Result<()> {
-        // Get provider from repository
-        let provider = RepoProvider::find_by_id(repo.provider_id)
-            .one(&self.db)
-            .await?
-            .ok_or_else(|| {
-                VibeRepoError::NotFound(format!("Provider {} not found", repo.provider_id))
-            })?;
-
+    async fn delete_webhook_from_provider(&self, repo: &repository::Model) -> Result<()> {
         // Create Git client
-        let client = GitClientFactory::from_provider(&provider)
+        let client = GitClientFactory::from_repository(repo)
             .map_err(|e| VibeRepoError::Internal(format!("Failed to create git client: {}", e)))?;
 
         // Parse repository owner and name
@@ -1092,31 +988,45 @@ impl RepositoryService {
         }
         let (owner, repo_name) = (parts[0], parts[1]);
 
-        // Delete webhook from Git provider
-        match client
-            .delete_webhook(owner, repo_name, &webhook.webhook_id)
+        // List webhooks to find the one we created
+        let webhooks = client
+            .list_webhooks(owner, repo_name)
             .await
-        {
-            Ok(_) => {
-                tracing::info!(
-                    webhook_id = %webhook.webhook_id,
-                    repository_id = repo.id,
-                    "Webhook deleted from Git provider"
-                );
-                Ok(())
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to list webhooks: {}", e)))?;
+
+        // Find webhook by URL pattern (contains our repo_id)
+        let webhook_url_pattern = format!("/api/webhooks/{}", repo.id);
+        let webhook_to_delete = webhooks
+            .iter()
+            .find(|w| w.url.contains(&webhook_url_pattern));
+
+        if let Some(webhook) = webhook_to_delete {
+            // Delete webhook from Git provider
+            match client.delete_webhook(owner, repo_name, &webhook.id).await {
+                Ok(_) => {
+                    tracing::info!(
+                        webhook_id = %webhook.id,
+                        repository_id = repo.id,
+                        "Webhook deleted from Git provider"
+                    );
+                    Ok(())
+                }
+                Err(GitProviderError::NotFound(_)) => {
+                    tracing::warn!(
+                        webhook_id = %webhook.id,
+                        "Webhook not found on Git provider, may have been deleted manually"
+                    );
+                    // Not an error - webhook already gone
+                    Ok(())
+                }
+                Err(e) => Err(VibeRepoError::Internal(format!(
+                    "Failed to delete webhook from Git provider: {}",
+                    e
+                ))),
             }
-            Err(GitProviderError::NotFound(_)) => {
-                tracing::warn!(
-                    webhook_id = %webhook.webhook_id,
-                    "Webhook not found on Git provider, may have been deleted manually"
-                );
-                // Not an error - webhook already gone
-                Ok(())
-            }
-            Err(e) => Err(VibeRepoError::Internal(format!(
-                "Failed to delete webhook from Git provider: {}",
-                e
-            ))),
+        } else {
+            tracing::warn!(repository_id = repo.id, "No webhook found for repository");
+            Ok(())
         }
     }
 
@@ -1205,29 +1115,8 @@ impl BackgroundService for RepositoryService {
         "repository_service"
     }
 
-    async fn start(&self, state: Arc<AppState>) -> Result<()> {
-        tracing::info!("RepositoryService started");
-
-        // Spawn a periodic sync task (runs every hour)
-        let db = self.db.clone();
-        let config = Arc::new(state.config.clone());
-        tokio::spawn(async move {
-            let service = RepositoryService::new(db, config);
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
-
-            // Skip the first immediate tick
-            interval.tick().await;
-
-            loop {
-                interval.tick().await;
-                tracing::info!("Starting periodic repository sync");
-
-                if let Err(e) = service.sync_all_providers().await {
-                    tracing::error!("Periodic sync failed: {}", e);
-                }
-            }
-        });
-
+    async fn start(&self, _state: Arc<AppState>) -> Result<()> {
+        tracing::info!("RepositoryService started (no periodic sync in per-repo-provider-config)");
         Ok(())
     }
 
@@ -1244,6 +1133,7 @@ impl BackgroundService for RepositoryService {
 
 /// Validation information for a repository
 #[derive(Debug)]
+#[allow(dead_code)]
 struct ValidationInfo {
     branches: Vec<String>,
     has_required_branches: bool,
@@ -1271,7 +1161,6 @@ pub struct BranchInfo {
 mod tests {
     use super::*;
     use crate::api::repositories::models::REQUIRED_LABELS;
-    use crate::entities::repo_provider;
     use crate::test_utils::db::create_test_database;
     use sea_orm::Set;
 
@@ -1315,13 +1204,11 @@ mod tests {
     // Helper function to create test repository
     async fn create_test_repo(
         db: &DatabaseConnection,
-        provider_id: i32,
         name: &str,
         status: repository::RepositoryStatus,
         has_workspace: bool,
     ) -> repository::Model {
         let repo = repository::ActiveModel {
-            provider_id: Set(provider_id),
             name: Set(name.to_string()),
             full_name: Set(format!("owner/{}", name)),
             clone_url: Set(format!("https://gitea.example.com/owner/{}.git", name)),
@@ -1336,6 +1223,9 @@ mod tests {
             can_manage_issues: Set(true),
             validation_message: Set(None),
             deleted_at: Set(None),
+            provider_type: Set("gitea".to_string()),
+            provider_base_url: Set("https://gitea.example.com".to_string()),
+            access_token: Set("test_token".to_string()),
             ..Default::default()
         };
         repo.insert(db).await.unwrap()
@@ -1347,26 +1237,9 @@ mod tests {
         let db = create_test_database().await.unwrap();
         let service = create_test_service(db.clone());
 
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://gitea.example.com".to_string()),
-            access_token: Set("test_token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = provider.insert(&db).await.unwrap();
-
         // Create idle repository without workspace
-        let repo = create_test_repo(
-            &db,
-            provider.id,
-            "test-repo",
-            repository::RepositoryStatus::Idle,
-            false,
-        )
-        .await;
+        let repo =
+            create_test_repo(&db, "test-repo", repository::RepositoryStatus::Idle, false).await;
 
         // Archive the repository
         let result = service.archive_repository(repo.id).await;
@@ -1380,26 +1253,9 @@ mod tests {
         let db = create_test_database().await.unwrap();
         let service = create_test_service(db.clone());
 
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://gitea.example.com".to_string()),
-            access_token: Set("test_token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = provider.insert(&db).await.unwrap();
-
         // Create active repository with workspace
-        let repo = create_test_repo(
-            &db,
-            provider.id,
-            "test-repo",
-            repository::RepositoryStatus::Active,
-            true,
-        )
-        .await;
+        let repo =
+            create_test_repo(&db, "test-repo", repository::RepositoryStatus::Active, true).await;
 
         // Try to archive - should fail
         let result = service.archive_repository(repo.id).await;
@@ -1412,21 +1268,9 @@ mod tests {
         let db = create_test_database().await.unwrap();
         let service = create_test_service(db.clone());
 
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://gitea.example.com".to_string()),
-            access_token: Set("test_token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = provider.insert(&db).await.unwrap();
-
         // Create archived repository
         let repo = create_test_repo(
             &db,
-            provider.id,
             "test-repo",
             repository::RepositoryStatus::Archived,
             false,
@@ -1445,21 +1289,9 @@ mod tests {
         let db = create_test_database().await.unwrap();
         let service = create_test_service(db.clone());
 
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://gitea.example.com".to_string()),
-            access_token: Set("test_token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = provider.insert(&db).await.unwrap();
-
         // Create archived repository with valid status
         let repo = create_test_repo(
             &db,
-            provider.id,
             "test-repo",
             repository::RepositoryStatus::Archived,
             false,
@@ -1478,26 +1310,9 @@ mod tests {
         let db = create_test_database().await.unwrap();
         let service = create_test_service(db.clone());
 
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://gitea.example.com".to_string()),
-            access_token: Set("test_token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = provider.insert(&db).await.unwrap();
-
         // Create idle repository
-        let repo = create_test_repo(
-            &db,
-            provider.id,
-            "test-repo",
-            repository::RepositoryStatus::Idle,
-            false,
-        )
-        .await;
+        let repo =
+            create_test_repo(&db, "test-repo", repository::RepositoryStatus::Idle, false).await;
 
         // Try to unarchive - should fail
         let result = service.unarchive_repository(repo.id).await;
@@ -1511,26 +1326,9 @@ mod tests {
         let db = create_test_database().await.unwrap();
         let service = create_test_service(db.clone());
 
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://gitea.example.com".to_string()),
-            access_token: Set("test_token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = provider.insert(&db).await.unwrap();
-
         // Create idle repository without workspace
-        let repo = create_test_repo(
-            &db,
-            provider.id,
-            "test-repo",
-            repository::RepositoryStatus::Idle,
-            false,
-        )
-        .await;
+        let repo =
+            create_test_repo(&db, "test-repo", repository::RepositoryStatus::Idle, false).await;
 
         // Soft delete the repository
         let result = service.soft_delete_repository(repo.id).await;
@@ -1550,26 +1348,9 @@ mod tests {
         let db = create_test_database().await.unwrap();
         let service = create_test_service(db.clone());
 
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://gitea.example.com".to_string()),
-            access_token: Set("test_token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = provider.insert(&db).await.unwrap();
-
         // Create active repository with workspace
-        let repo = create_test_repo(
-            &db,
-            provider.id,
-            "test-repo",
-            repository::RepositoryStatus::Active,
-            true,
-        )
-        .await;
+        let repo =
+            create_test_repo(&db, "test-repo", repository::RepositoryStatus::Active, true).await;
 
         // Try to delete - should fail
         let result = service.soft_delete_repository(repo.id).await;
@@ -1583,26 +1364,9 @@ mod tests {
         let db = create_test_database().await.unwrap();
         let service = create_test_service(db.clone());
 
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://gitea.example.com".to_string()),
-            access_token: Set("test_token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = provider.insert(&db).await.unwrap();
-
         // Create and soft delete a repository
-        let repo = create_test_repo(
-            &db,
-            provider.id,
-            "test-repo",
-            repository::RepositoryStatus::Idle,
-            false,
-        )
-        .await;
+        let repo =
+            create_test_repo(&db, "test-repo", repository::RepositoryStatus::Idle, false).await;
         service.soft_delete_repository(repo.id).await.unwrap();
 
         // Restore the repository
@@ -1618,26 +1382,9 @@ mod tests {
         let db = create_test_database().await.unwrap();
         let service = create_test_service(db.clone());
 
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://gitea.example.com".to_string()),
-            access_token: Set("test_token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = provider.insert(&db).await.unwrap();
-
         // Create active repository (not deleted)
-        let repo = create_test_repo(
-            &db,
-            provider.id,
-            "test-repo",
-            repository::RepositoryStatus::Idle,
-            false,
-        )
-        .await;
+        let repo =
+            create_test_repo(&db, "test-repo", repository::RepositoryStatus::Idle, false).await;
 
         // Try to restore - should fail
         let result = service.restore_repository(repo.id).await;

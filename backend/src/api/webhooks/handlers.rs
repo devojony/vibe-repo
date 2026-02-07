@@ -21,19 +21,14 @@ use super::models::WebhookResponse;
 
 /// Verify webhook request signature
 ///
-/// Retrieves repository and webhook config from database and verifies webhook signature
+/// Retrieves repository from database and verifies webhook signature
 async fn verify_webhook_request(
     repository_id: i32,
     headers: &HeaderMap,
     body: &[u8],
     state: &AppState,
 ) -> Result<(), VibeRepoError> {
-    // Get repository, webhook config, and provider from database
-    use crate::entities::prelude::*;
-    use crate::entities::webhook_config;
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-
-    // Get repository first
+    // Get repository with provider configuration
     let repo = Repository::find_by_id(repository_id)
         .one(&state.db)
         .await?
@@ -45,37 +40,17 @@ async fn verify_webhook_request(
             VibeRepoError::NotFound(format!("Repository {} not found", repository_id))
         })?;
 
-    // Get webhook_config to get the secret
-    let webhook = WebhookConfig::find()
-        .filter(webhook_config::Column::RepositoryId.eq(repository_id))
-        .one(&state.db)
-        .await?
-        .ok_or_else(|| {
-            tracing::error!(
-                repository_id = repository_id,
-                "Webhook config not found for repository"
-            );
-            VibeRepoError::NotFound(format!(
-                "Webhook config not found for repository {}",
-                repository_id
-            ))
-        })?;
-
-    // Get provider for signature verification algorithm
-    let provider = RepoProvider::find_by_id(repo.provider_id)
-        .one(&state.db)
-        .await?
-        .ok_or_else(|| {
-            tracing::error!(
-                repository_id = repository_id,
-                provider_id = repo.provider_id,
-                "Provider not found for repository"
-            );
-            VibeRepoError::NotFound(format!("Provider {} not found", repo.provider_id))
-        })?;
-
-    // Use webhook.webhook_secret instead of placeholder
-    let secret = &webhook.webhook_secret;
+    // Get webhook secret from repository
+    let secret = repo.webhook_secret.as_ref().ok_or_else(|| {
+        tracing::error!(
+            repository_id = repository_id,
+            "Webhook secret not configured for repository"
+        );
+        VibeRepoError::Validation(format!(
+            "Webhook secret not configured for repository {}",
+            repository_id
+        ))
+    })?;
 
     // Get signature from headers based on provider type
     let signature = headers
@@ -102,7 +77,7 @@ async fn verify_webhook_request(
     })?;
 
     let is_valid = crate::api::webhooks::verification::verify_webhook_signature(
-        &provider.provider_type,
+        &repo.provider_type,
         signature,
         body_str,
         secret,

@@ -5,14 +5,14 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
-use crate::{entities::repo_provider::ProviderType, error::Result};
+use crate::error::Result;
 
 type HmacSha256 = Hmac<Sha256>;
 
 /// Verify webhook signature based on provider type
 ///
 /// # Arguments
-/// * `provider_type` - Type of Git provider (Gitea, GitHub, GitLab)
+/// * `provider_type` - Type of Git provider (github, gitea, gitlab)
 /// * `signature` - Signature from webhook header
 /// * `body` - Raw webhook payload body
 /// * `secret` - Webhook secret for verification
@@ -22,14 +22,15 @@ type HmacSha256 = Hmac<Sha256>;
 /// * `Ok(false)` - Signature is invalid
 /// * `Err(_)` - Verification error
 pub fn verify_webhook_signature(
-    provider_type: &ProviderType,
+    provider_type: &str,
     signature: &str,
     body: &str,
     secret: &str,
 ) -> Result<bool> {
-    match provider_type {
-        ProviderType::Gitea => verify_hmac_sha256(signature, body, secret),
-        // GitHub and GitLab would be added here when implemented
+    match provider_type.to_lowercase().as_str() {
+        "gitea" | "github" => verify_hmac_sha256(signature, body, secret),
+        // GitLab would be added here when implemented
+        _ => verify_hmac_sha256(signature, body, secret), // Default to HMAC-SHA256
     }
 }
 

@@ -37,7 +37,7 @@ async fn test_server_binds_to_configured_address() {
     // Assert - Try to connect to the server
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("http://{}/health", addr))
+        .get(format!("http://{}/api-docs/openapi.json", addr))
         .send()
         .await
         .expect("Failed to send request");
@@ -45,7 +45,7 @@ async fn test_server_binds_to_configured_address() {
     assert_eq!(
         response.status().as_u16(),
         200,
-        "Server should respond to health check"
+        "Server should respond to OpenAPI endpoint"
     );
 
     // Cleanup - Abort the server task
@@ -89,7 +89,7 @@ async fn test_server_graceful_shutdown() {
     // Verify server is running
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("http://{}/health", addr))
+        .get(format!("http://{}/api-docs/openapi.json", addr))
         .send()
         .await
         .expect("Failed to send request");
@@ -145,7 +145,7 @@ async fn test_server_logs_listening_address() {
     // Verify server is accessible at the logged address
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("http://{}/health", addr))
+        .get(format!("http://{}/api-docs/openapi.json", addr))
         .send()
         .await
         .expect("Failed to send request");

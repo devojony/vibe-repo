@@ -568,6 +568,7 @@ impl TaskExecutorService {
 }
 
 struct ExecutionResult {
+    #[allow(dead_code)]
     exit_code: Option<i32>,
     stdout: String,
     stderr: String,
@@ -585,7 +586,7 @@ mod tests {
     use super::*;
     use crate::entities::{repository, workspace};
     use crate::test_utils::db::TestDatabase;
-    use sea_orm::{ActiveModelTrait, Set};
+    use sea_orm::Set;
     use serde_json::json;
 
     #[tokio::test]
@@ -856,33 +857,21 @@ mod tests {
     }
 
     async fn create_test_repository(db: &DatabaseConnection) -> repository::Model {
-        use crate::entities::repo_provider;
+        use crate::test_utils::create_test_repository as create_repo;
 
-        let provider = repo_provider::ActiveModel {
-            name: Set(format!("Test Provider {}", uuid::Uuid::new_v4())),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://git.example.com".to_string()),
-            access_token: Set("test-token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = RepoProvider::insert(provider)
-            .exec_with_returning(db)
-            .await
-            .unwrap();
+        let repo_name = format!("test-repo-{}", uuid::Uuid::new_v4());
+        let full_name = format!("owner/{}", repo_name);
 
-        let repo = repository::ActiveModel {
-            name: Set(format!("test-repo-{}", uuid::Uuid::new_v4())),
-            full_name: Set(format!("owner/test-repo-{}", uuid::Uuid::new_v4())),
-            clone_url: Set("https://git.example.com/owner/test-repo.git".to_string()),
-            default_branch: Set("main".to_string()),
-            provider_id: Set(provider.id),
-            ..Default::default()
-        };
-        Repository::insert(repo)
-            .exec_with_returning(db)
-            .await
-            .unwrap()
+        create_repo(
+            db,
+            &repo_name,
+            &full_name,
+            "gitea",
+            "https://git.example.com",
+            "test-token",
+        )
+        .await
+        .unwrap()
     }
 
     /// Test execute_task_creates_pr_on_success

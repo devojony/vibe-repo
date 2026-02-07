@@ -61,15 +61,15 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 ### Simplified Architecture
 
 ```
-Repository (entity)
+Repository (entity) [self-contained with provider config]
 └── Workspace (entity) [one-to-one]
     ├── Agent (entity) [one-to-one, unique constraint]
     └── Task (entity) [one-to-many]
 ```
 
 **Key Simplifications:**
-- No separate Provider entity (configured via environment variables)
-- No WebhookConfig entity (configured via environment variables)
+- No separate Provider entity (configuration stored in repository)
+- No WebhookConfig entity (webhook_secret stored in repository)
 - No InitScript entity (workspaces use default setup)
 - No TaskExecution entity (logs stored in tasks.last_log field)
 - Single agent per workspace (enforced by unique constraint)
@@ -178,8 +178,8 @@ For detailed development patterns, see **[docs/development/README.md](./docs/dev
 ```rust
 use crate::git_provider::{GitProvider, GitClientFactory};
 
-// Create a client from a RepoProvider entity
-let client = GitClientFactory::from_provider(&provider)?;
+// Create a client from a Repository entity
+let client = GitClientFactory::from_repository(&repository)?;
 
 // Use the unified interface
 let repos = client.list_repositories(None).await?;
@@ -209,21 +209,21 @@ For complete database schema documentation, see **[docs/database/schema.md](./do
 
 ### Simplified Tables (v0.4.0-mvp)
 
-- **repositories** - Repository records with agent configuration
+- **repositories** - Repository records with self-contained provider configuration
 - **workspaces** - Docker-based development environments
 - **agents** - AI agent configurations (one per workspace)
 - **tasks** - Automated development tasks with inline logs
 
 **Removed Tables:**
-- ~~repo_providers~~ (configured via environment variables)
-- ~~webhook_configs~~ (configured via environment variables)
+- ~~repo_providers~~ (configuration stored in repository)
+- ~~webhook_configs~~ (webhook_secret stored in repository)
 - ~~init_scripts~~ (workspaces use default setup)
 - ~~task_executions~~ (logs stored in tasks.last_log)
 
 ### Entity Relationships
 
 ```
-Repository (entity)
+Repository (entity) [self-contained with provider config]
 └── Workspace (entity) [one-to-one]
     ├── Agent (entity) [one-to-one, unique constraint]
     └── Task (entity) [one-to-many]
@@ -232,6 +232,22 @@ Repository (entity)
 ## ⚙️ Configuration
 
 For complete configuration guide, see **[docs/development/README.md](./docs/development/README.md#configuration)**.
+
+### Repository Configuration
+
+Each repository is self-contained with its own provider configuration. Add repositories via the API:
+
+```bash
+curl -X POST http://localhost:3000/api/repositories \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider_type": "github",
+    "provider_base_url": "https://api.github.com",
+    "access_token": "ghp_xxxxxxxxxxxx",
+    "full_name": "owner/my-repo",
+    "branch_name": "vibe-dev"
+  }'
+```
 
 ### Environment Variables
 
@@ -246,11 +262,6 @@ DATABASE_MAX_CONNECTIONS=10
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
 
-# Git Provider Configuration
-GITHUB_TOKEN=your_github_token_here
-GITHUB_BASE_URL=https://api.github.com
-WEBHOOK_SECRET=your_webhook_secret_here
-
 # Agent Configuration
 DEFAULT_AGENT_COMMAND=opencode
 DEFAULT_AGENT_TIMEOUT=600
@@ -263,6 +274,8 @@ WORKSPACE_BASE_DIR=./data/vibe-repo/workspaces
 RUST_LOG=info
 LOG_FORMAT=human
 ```
+
+**Note:** Git provider configuration (tokens, base URLs) is now stored per-repository in the database, not in environment variables.
 
 ## 📋 Development Standards
 

@@ -10,8 +10,8 @@ use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
 use std::sync::Arc;
 use tower::ServiceExt;
 use vibe_repo::api::tasks::models::TaskResponse;
-use vibe_repo::entities::{repo_provider, repository, task, workspace};
-use vibe_repo::test_utils::TestDatabase;
+use vibe_repo::entities::{task, workspace};
+use vibe_repo::test_utils::{create_test_repository, TestDatabase};
 
 // ============================================================================
 // Helper Functions
@@ -28,50 +28,6 @@ async fn create_test_app_with_db(db: DatabaseConnection) -> axum::Router {
     let repository_service = Arc::new(RepositoryService::new(db.clone(), config.clone()));
     let state = Arc::new(AppState::new(db, (*config).clone(), repository_service));
     create_router(state)
-}
-
-/// Create a test provider
-async fn create_test_provider(db: &DatabaseConnection) -> repo_provider::Model {
-    repo_provider::ActiveModel {
-        name: Set("test-provider".to_string()),
-        provider_type: Set(repo_provider::ProviderType::Gitea),
-        base_url: Set("https://gitea.example.com".to_string()),
-        access_token: Set("test-token".to_string()),
-        locked: Set(false),
-        created_at: Set(Utc::now()),
-        updated_at: Set(Utc::now()),
-        ..Default::default()
-    }
-    .insert(db)
-    .await
-    .expect("Failed to create test provider")
-}
-
-/// Create a test repository
-async fn create_test_repository(db: &DatabaseConnection, provider_id: i32) -> repository::Model {
-    repository::ActiveModel {
-        provider_id: Set(provider_id),
-        name: Set("test-repo".to_string()),
-        full_name: Set("org/test-repo".to_string()),
-        clone_url: Set("https://gitea.example.com/org/test-repo.git".to_string()),
-        default_branch: Set("main".to_string()),
-        branches: Set(serde_json::json!(["main"])),
-        validation_status: Set(repository::ValidationStatus::Valid),
-        status: Set(repository::RepositoryStatus::Idle),
-        has_workspace: Set(false),
-        has_required_branches: Set(true),
-        has_required_labels: Set(true),
-        can_manage_prs: Set(true),
-        can_manage_issues: Set(true),
-        validation_message: Set(None),
-        deleted_at: Set(None),
-        created_at: Set(Utc::now()),
-        updated_at: Set(Utc::now()),
-        ..Default::default()
-    }
-    .insert(db)
-    .await
-    .expect("Failed to create test repository")
 }
 
 /// Create a test workspace
@@ -156,8 +112,16 @@ async fn test_create_pr_endpoint_returns_400_when_no_branch() {
         .expect("Failed to create test database");
     let db = &test_db.connection;
 
-    let provider = create_test_provider(db).await;
-    let repository = create_test_repository(db, provider.id).await;
+    let repository = create_test_repository(
+        db,
+        "test-repo",
+        "org/test-repo",
+        "gitea",
+        "https://gitea.example.com",
+        "test-token",
+    )
+    .await
+    .expect("Failed to create test repository");
     let workspace = create_test_workspace(db, repository.id).await;
 
     // Create task without branch_name
@@ -232,8 +196,16 @@ async fn test_close_issue_endpoint_returns_400_when_no_pr() {
         .expect("Failed to create test database");
     let db = &test_db.connection;
 
-    let provider = create_test_provider(db).await;
-    let repository = create_test_repository(db, provider.id).await;
+    let repository = create_test_repository(
+        db,
+        "test-repo",
+        "org/test-repo",
+        "gitea",
+        "https://gitea.example.com",
+        "test-token",
+    )
+    .await
+    .expect("Failed to create test repository");
     let workspace = create_test_workspace(db, repository.id).await;
     let task = create_test_task(db, workspace.id).await;
 
@@ -266,8 +238,16 @@ async fn test_create_pr_endpoint_response_format() {
         .expect("Failed to create test database");
     let db = &test_db.connection;
 
-    let provider = create_test_provider(db).await;
-    let repository = create_test_repository(db, provider.id).await;
+    let repository = create_test_repository(
+        db,
+        "test-repo",
+        "org/test-repo",
+        "gitea",
+        "https://gitea.example.com",
+        "test-token",
+    )
+    .await
+    .expect("Failed to create test repository");
     let workspace = create_test_workspace(db, repository.id).await;
     let task = create_test_task(db, workspace.id).await;
 
@@ -309,8 +289,16 @@ async fn test_close_issue_endpoint_response_format() {
         .expect("Failed to create test database");
     let db = &test_db.connection;
 
-    let provider = create_test_provider(db).await;
-    let repository = create_test_repository(db, provider.id).await;
+    let repository = create_test_repository(
+        db,
+        "test-repo",
+        "org/test-repo",
+        "gitea",
+        "https://gitea.example.com",
+        "test-token",
+    )
+    .await
+    .expect("Failed to create test repository");
     let workspace = create_test_workspace(db, repository.id).await;
 
     // Create task with PR info
@@ -375,8 +363,16 @@ async fn test_create_pr_endpoint_skips_if_pr_exists() {
         .expect("Failed to create test database");
     let db = &test_db.connection;
 
-    let provider = create_test_provider(db).await;
-    let repository = create_test_repository(db, provider.id).await;
+    let repository = create_test_repository(
+        db,
+        "test-repo",
+        "org/test-repo",
+        "gitea",
+        "https://gitea.example.com",
+        "test-token",
+    )
+    .await
+    .expect("Failed to create test repository");
     let workspace = create_test_workspace(db, repository.id).await;
 
     // Create task with existing PR

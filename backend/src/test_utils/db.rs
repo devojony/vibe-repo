@@ -1,11 +1,12 @@
 //! Test database utilities
 //!
-//! Provides helpers for creating isolated test databases.
+//! Provides helpers for creating isolated test databases and test entities.
 
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, Database, DatabaseConnection};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tempfile::NamedTempFile;
 
+use crate::entities::repository;
 use crate::error::{Result, VibeRepoError};
 use crate::migration::Migrator;
 use sea_orm_migration::MigratorTrait;
@@ -93,6 +94,72 @@ pub async fn create_test_database() -> Result<DatabaseConnection> {
     Ok(connection)
 }
 
+/// Create a test repository with provider configuration
+///
+/// Creates a repository with the specified provider configuration.
+/// Generates a random webhook_secret for security testing.
+///
+/// # Arguments
+///
+/// * `db` - Database connection
+/// * `name` - Repository name (e.g., "test-repo")
+/// * `full_name` - Full repository name (e.g., "owner/test-repo")
+/// * `provider_type` - Provider type (e.g., "github", "gitea", "gitlab")
+/// * `provider_base_url` - Provider base URL (e.g., "https://api.github.com")
+/// * `access_token` - Access token for the provider
+///
+/// # Returns
+///
+/// Returns the created repository model with a randomly generated webhook_secret.
+pub async fn create_test_repository(
+    db: &DatabaseConnection,
+    name: &str,
+    full_name: &str,
+    provider_type: &str,
+    provider_base_url: &str,
+    access_token: &str,
+) -> Result<repository::Model> {
+    use rand::Rng;
+
+    // Generate random webhook_secret (32 bytes = 64 hex characters)
+    let mut rng = rand::rng();
+    let secret_bytes: [u8; 32] = rng.random();
+    let webhook_secret = hex::encode(secret_bytes);
+
+    let repo = repository::ActiveModel {
+        name: Set(name.to_string()),
+        full_name: Set(full_name.to_string()),
+        provider_type: Set(provider_type.to_string()),
+        provider_base_url: Set(provider_base_url.to_string()),
+        access_token: Set(access_token.to_string()),
+        webhook_secret: Set(Some(webhook_secret)),
+        clone_url: Set(format!("{}/{}.git", provider_base_url, full_name)),
+        default_branch: Set("main".to_string()),
+        branches: Set(sea_orm::JsonValue::Array(vec![sea_orm::JsonValue::String(
+            "main".to_string(),
+        )])),
+        validation_status: Set(repository::ValidationStatus::Valid),
+        status: Set(repository::RepositoryStatus::Idle),
+        has_workspace: Set(false),
+        has_required_branches: Set(true),
+        has_required_labels: Set(true),
+        can_manage_prs: Set(true),
+        can_manage_issues: Set(true),
+        validation_message: Set(None),
+        webhook_status: Set(repository::WebhookStatus::Active),
+        agent_command: Set(Some("opencode".to_string())),
+        agent_timeout: Set(600),
+        agent_env_vars: Set(None),
+        docker_image: Set("ubuntu:22.04".to_string()),
+        deleted_at: Set(None),
+        created_at: Set(chrono::Utc::now()),
+        updated_at: Set(chrono::Utc::now()),
+        ..Default::default()
+    };
+
+    repo.insert(db).await.map_err(VibeRepoError::Database)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,11 +181,11 @@ mod tests {
 
         // Assert - they should be different connections
         // We can't directly compare connections, but we can verify both work
-        use crate::entities::prelude::RepoProvider;
+        use crate::entities::prelude::Repository;
         use sea_orm::EntityTrait;
 
-        let count1 = RepoProvider::find().all(&db1).await.unwrap().len();
-        let count2 = RepoProvider::find().all(&db2).await.unwrap().len();
+        let count1 = Repository::find().all(&db1).await.unwrap().len();
+        let count2 = Repository::find().all(&db2).await.unwrap().len();
 
         assert_eq!(count1, 0);
         assert_eq!(count2, 0);
@@ -153,37 +220,113 @@ mod tests {
         let db2 = TestDatabase::new_in_memory().await.unwrap();
 
         // Assert - they should be isolated
-        use crate::entities::repo_provider;
-        use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
+        use sea_orm::EntityTrait;
 
         // Insert into db1
-        let provider = repo_provider::ActiveModel {
-            name: ActiveValue::Set("Test Provider".to_string()),
-            provider_type: ActiveValue::Set(repo_provider::ProviderType::Gitea),
-            base_url: ActiveValue::Set("https://example.com".to_string()),
-            access_token: ActiveValue::Set("token123".to_string()),
-            locked: ActiveValue::Set(false),
-            created_at: ActiveValue::Set(chrono::Utc::now()),
-            updated_at: ActiveValue::Set(chrono::Utc::now()),
-            ..Default::default()
-        };
-        provider.insert(&db1.connection).await.unwrap();
+        let _repo = create_test_repository(
+            &db1.connection,
+            "test-repo",
+            "owner/test-repo",
+            "github",
+            "https://api.github.com",
+            "test-token",
+        )
+        .await
+        .unwrap();
 
-        // Verify db1 has the provider
-        use crate::entities::prelude::RepoProvider;
-        let count1 = RepoProvider::find()
-            .all(&db1.connection)
-            .await
-            .unwrap()
-            .len();
+        // Verify db1 has the repository
+        use crate::entities::prelude::Repository;
+        let count1 = Repository::find().all(&db1.connection).await.unwrap().len();
         assert_eq!(count1, 1);
 
         // Verify db2 is empty (isolated)
-        let count2 = RepoProvider::find()
-            .all(&db2.connection)
-            .await
-            .unwrap()
-            .len();
+        let count2 = Repository::find().all(&db2.connection).await.unwrap().len();
         assert_eq!(count2, 0);
+    }
+
+    #[tokio::test]
+    async fn test_create_test_repository_generates_webhook_secret() {
+        // Arrange
+        let db = create_test_database().await.unwrap();
+
+        // Act
+        let repo = create_test_repository(
+            &db,
+            "test-repo",
+            "owner/test-repo",
+            "github",
+            "https://api.github.com",
+            "test-token",
+        )
+        .await
+        .unwrap();
+
+        // Assert
+        assert!(repo.webhook_secret.is_some());
+        let secret = repo.webhook_secret.unwrap();
+        assert_eq!(secret.len(), 64); // 32 bytes = 64 hex characters
+        assert!(secret.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[tokio::test]
+    async fn test_create_test_repository_sets_correct_fields() {
+        // Arrange
+        let db = create_test_database().await.unwrap();
+
+        // Act
+        let repo = create_test_repository(
+            &db,
+            "my-repo",
+            "myorg/my-repo",
+            "gitlab",
+            "https://gitlab.com",
+            "secret-token",
+        )
+        .await
+        .unwrap();
+
+        // Assert
+        assert_eq!(repo.name, "my-repo");
+        assert_eq!(repo.full_name, "myorg/my-repo");
+        assert_eq!(repo.provider_type, "gitlab");
+        assert_eq!(repo.provider_base_url, "https://gitlab.com");
+        assert_eq!(repo.access_token, "secret-token");
+        assert_eq!(repo.clone_url, "https://gitlab.com/myorg/my-repo.git");
+        assert_eq!(repo.default_branch, "main");
+        assert_eq!(repo.validation_status, repository::ValidationStatus::Valid);
+        assert_eq!(repo.status, repository::RepositoryStatus::Idle);
+        assert!(!repo.has_workspace);
+    }
+
+    #[tokio::test]
+    async fn test_create_test_repository_generates_unique_secrets() {
+        // Arrange
+        let db = create_test_database().await.unwrap();
+
+        // Act - create two repositories
+        let repo1 = create_test_repository(
+            &db,
+            "repo1",
+            "owner/repo1",
+            "github",
+            "https://api.github.com",
+            "token1",
+        )
+        .await
+        .unwrap();
+
+        let repo2 = create_test_repository(
+            &db,
+            "repo2",
+            "owner/repo2",
+            "github",
+            "https://api.github.com",
+            "token2",
+        )
+        .await
+        .unwrap();
+
+        // Assert - webhook secrets should be different
+        assert_ne!(repo1.webhook_secret, repo2.webhook_secret);
     }
 }

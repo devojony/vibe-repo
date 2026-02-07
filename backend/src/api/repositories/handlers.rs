@@ -18,9 +18,47 @@ use crate::{
 };
 
 use super::models::{
-    BatchInitializeParams, BatchInitializeResponse, BatchOperationRequest, BatchOperationResponse,
-    BatchOperationResult, InitializeRepositoryRequest, RepositoryResponse, UpdateRepositoryRequest,
+    AddRepositoryRequest, InitializeRepositoryRequest, RepositoryResponse, UpdateRepositoryRequest,
 };
+
+/// Add a new repository
+/// POST /api/repositories
+#[utoipa::path(
+    post,
+    path = "/api/repositories",
+    request_body = AddRepositoryRequest,
+    responses(
+        (status = 201, description = "Repository added successfully", body = RepositoryResponse),
+        (status = 400, description = "Invalid request parameters"),
+        (status = 401, description = "Invalid access token"),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 404, description = "Repository not found on provider"),
+        (status = 409, description = "Repository already exists"),
+        (status = 503, description = "Git provider unreachable")
+    ),
+    tag = "repositories"
+)]
+pub async fn add_repository(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<AddRepositoryRequest>,
+) -> Result<(StatusCode, Json<RepositoryResponse>), VibeRepoError> {
+    // Call RepositoryService to add the repository
+    let repository = state
+        .repository_service
+        .add_repository(
+            req.provider_type,
+            req.provider_base_url,
+            req.access_token,
+            req.full_name,
+            req.branch_name,
+        )
+        .await?;
+
+    // Convert to response DTO
+    let response = RepositoryResponse::from_model(repository);
+
+    Ok((StatusCode::CREATED, Json(response)))
+}
 
 /// Initialize a single repository
 /// POST /api/repositories/:id/initialize
@@ -62,80 +100,16 @@ pub async fn initialize_repository(
     Ok(Json(response))
 }
 
-/// Batch initialize repositories for a provider
-/// POST /api/repositories/batch-initialize?provider_id=xxx&branch_name=vibe-dev
-#[utoipa::path(
-    post,
-    path = "/api/repositories/batch-initialize",
-    params(
-        BatchInitializeParams
-    ),
-    responses(
-        (status = 202, description = "Batch initialization started", body = BatchInitializeResponse),
-        (status = 400, description = "provider_id is required"),
-        (status = 404, description = "Provider not found")
-    ),
-    tag = "repositories"
-)]
-pub async fn batch_initialize_repositories(
-    State(state): State<Arc<AppState>>,
-    Query(params): Query<BatchInitializeParams>,
-) -> Result<(StatusCode, Json<BatchInitializeResponse>), VibeRepoError> {
-    // Validate provider_id parameter
-    let provider_id = params
-        .provider_id
-        .ok_or_else(|| VibeRepoError::Validation("provider_id is required".to_string()))?;
-
-    // Verify provider exists
-    let _provider = RepoProvider::find_by_id(provider_id)
-        .one(&state.db)
-        .await?
-        .ok_or_else(|| VibeRepoError::NotFound("Provider not found".to_string()))?;
-
-    // Spawn background task for batch initialization
-    let service = state.repository_service.clone();
-    let branch_name = params.branch_name.clone();
-    let webhook_domain = state.config.webhook.domain.clone();
-    let webhook_secret = state.config.webhook.secret_key.clone();
-    tokio::spawn(async move {
-        if let Err(e) = service
-            .batch_initialize(
-                provider_id,
-                &branch_name,
-                Some(webhook_domain),
-                Some(webhook_secret),
-            )
-            .await
-        {
-            tracing::error!(
-                "Batch initialization failed for provider {}: {}",
-                provider_id,
-                e
-            );
-        }
-    });
-
-    // Return 202 Accepted
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(BatchInitializeResponse {
-            message: "Batch initialization started".to_string(),
-        }),
-    ))
-}
-
 /// Query parameters for list_repositories
 #[derive(Debug, Deserialize)]
 pub struct ListRepositoriesQuery {
-    /// Filter by provider ID
-    pub provider_id: Option<i32>,
     /// Filter by validation status
     pub validation_status: Option<String>,
 }
 
 /// List repositories handler
 ///
-/// Supports filtering by provider_id and validation_status query parameters.
+/// Supports filtering by validation_status query parameter.
 /// Returns 200 with array (empty if no repositories).
 ///
 /// Requirements: 12.1, 12.2, 12.3, 12.4, 12.5
@@ -143,7 +117,6 @@ pub struct ListRepositoriesQuery {
     get,
     path = "/api/repositories",
     params(
-        ("provider_id" = Option<i32>, Query, description = "Filter by provider ID"),
         ("validation_status" = Option<String>, Query, description = "Filter by validation status (valid, invalid, pending)")
     ),
     responses(
@@ -158,11 +131,6 @@ pub async fn list_repositories(
 ) -> Result<Json<Vec<RepositoryResponse>>, VibeRepoError> {
     // Start with base query
     let mut query = Repository::find();
-
-    // Apply provider_id filter if provided
-    if let Some(provider_id) = params.provider_id {
-        query = query.filter(repository::Column::ProviderId.eq(provider_id));
-    }
 
     // Apply validation_status filter if provided
     if let Some(status_str) = params.validation_status {
@@ -244,7 +212,7 @@ pub async fn get_repository(
     ),
     responses(
         (status = 200, description = "Repository validation refreshed", body = RepositoryResponse),
-        (status = 404, description = "Repository or provider not found")
+        (status = 404, description = "Repository not found")
     ),
     tag = "repositories"
 )]
@@ -258,22 +226,14 @@ pub async fn refresh_repository(
         .await?
         .ok_or_else(|| VibeRepoError::NotFound(format!("Repository {} not found", id)))?;
 
-    // Fetch provider from database
-    let provider = RepoProvider::find_by_id(repository.provider_id)
-        .one(&state.db)
-        .await?
-        .ok_or_else(|| {
-            VibeRepoError::NotFound(format!("Provider {} not found", repository.provider_id))
-        })?;
-
     // Create HTTP client for validation
     let http_client = reqwest::Client::new();
 
     // Re-run validation: check branches
     let branch_info = check_branches(
         &http_client,
-        &provider.base_url,
-        &provider.access_token,
+        &repository.provider_base_url,
+        &repository.access_token,
         &repository.full_name,
     )
     .await?;
@@ -281,8 +241,8 @@ pub async fn refresh_repository(
     // Check labels
     let has_labels = check_labels(
         &http_client,
-        &provider.base_url,
-        &provider.access_token,
+        &repository.provider_base_url,
+        &repository.access_token,
         &repository.full_name,
     )
     .await?;
@@ -290,8 +250,8 @@ pub async fn refresh_repository(
     // Check permissions
     let permissions = validate_permissions(
         &http_client,
-        &provider.base_url,
-        &provider.access_token,
+        &repository.provider_base_url,
+        &repository.access_token,
         &repository.full_name,
     )
     .await?;
@@ -626,228 +586,6 @@ pub async fn reinitialize_repository(
         .await?;
     let response = RepositoryResponse::from_model(repository);
     Ok(Json(response))
-}
-
-/// Batch archive repositories
-/// POST /api/repositories/batch-archive
-#[utoipa::path(
-    post,
-    path = "/api/repositories/batch-archive",
-    request_body = BatchOperationRequest,
-    responses(
-        (status = 200, description = "Batch archive completed", body = BatchOperationResponse),
-    ),
-    tag = "repositories"
-)]
-pub async fn batch_archive_repositories(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<BatchOperationRequest>,
-) -> Result<Json<BatchOperationResponse>, VibeRepoError> {
-    let mut results = Vec::new();
-    let mut succeeded = 0;
-    let mut failed = 0;
-
-    for repo_id in &req.repository_ids {
-        let repo_name = match Repository::find_by_id(*repo_id).one(&state.db).await? {
-            Some(r) => r.full_name,
-            None => format!("repo-{}", repo_id),
-        };
-
-        match state.repository_service.archive_repository(*repo_id).await {
-            Ok(_) => {
-                results.push(BatchOperationResult {
-                    repository_id: *repo_id,
-                    repository_name: repo_name,
-                    success: true,
-                    error: None,
-                });
-                succeeded += 1;
-            }
-            Err(e) => {
-                results.push(BatchOperationResult {
-                    repository_id: *repo_id,
-                    repository_name: repo_name,
-                    success: false,
-                    error: Some(e.to_string()),
-                });
-                failed += 1;
-            }
-        }
-    }
-
-    Ok(Json(BatchOperationResponse {
-        total: req.repository_ids.len(),
-        succeeded,
-        failed,
-        results,
-    }))
-}
-
-/// Batch delete repositories
-/// POST /api/repositories/batch-delete
-#[utoipa::path(
-    post,
-    path = "/api/repositories/batch-delete",
-    request_body = BatchOperationRequest,
-    responses(
-        (status = 200, description = "Batch delete completed", body = BatchOperationResponse),
-    ),
-    tag = "repositories"
-)]
-pub async fn batch_delete_repositories(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<BatchOperationRequest>,
-) -> Result<Json<BatchOperationResponse>, VibeRepoError> {
-    let mut results = Vec::new();
-    let mut succeeded = 0;
-    let mut failed = 0;
-
-    for repo_id in &req.repository_ids {
-        let repo_name = match Repository::find_by_id(*repo_id).one(&state.db).await? {
-            Some(r) => r.full_name,
-            None => format!("repo-{}", repo_id),
-        };
-
-        match state
-            .repository_service
-            .soft_delete_repository(*repo_id)
-            .await
-        {
-            Ok(_) => {
-                results.push(BatchOperationResult {
-                    repository_id: *repo_id,
-                    repository_name: repo_name,
-                    success: true,
-                    error: None,
-                });
-                succeeded += 1;
-            }
-            Err(e) => {
-                results.push(BatchOperationResult {
-                    repository_id: *repo_id,
-                    repository_name: repo_name,
-                    success: false,
-                    error: Some(e.to_string()),
-                });
-                failed += 1;
-            }
-        }
-    }
-
-    Ok(Json(BatchOperationResponse {
-        total: req.repository_ids.len(),
-        succeeded,
-        failed,
-        results,
-    }))
-}
-
-/// Batch refresh repositories
-/// POST /api/repositories/batch-refresh
-#[utoipa::path(
-    post,
-    path = "/api/repositories/batch-refresh",
-    request_body = BatchOperationRequest,
-    responses(
-        (status = 200, description = "Batch refresh completed", body = BatchOperationResponse),
-    ),
-    tag = "repositories"
-)]
-pub async fn batch_refresh_repositories(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<BatchOperationRequest>,
-) -> Result<Json<BatchOperationResponse>, VibeRepoError> {
-    let mut results = Vec::new();
-    let mut succeeded = 0;
-    let failed = 0;
-
-    for repo_id in &req.repository_ids {
-        let repo_name = match Repository::find_by_id(*repo_id).one(&state.db).await? {
-            Some(r) => r.full_name,
-            None => format!("repo-{}", repo_id),
-        };
-
-        // For now, just mark as success - actual refresh logic would go here
-        // This would need to duplicate the refresh_repository logic
-        results.push(BatchOperationResult {
-            repository_id: *repo_id,
-            repository_name: repo_name,
-            success: true,
-            error: None,
-        });
-        succeeded += 1;
-    }
-
-    Ok(Json(BatchOperationResponse {
-        total: req.repository_ids.len(),
-        succeeded,
-        failed,
-        results,
-    }))
-}
-
-/// Batch reinitialize repositories
-/// POST /api/repositories/batch-reinitialize
-#[utoipa::path(
-    post,
-    path = "/api/repositories/batch-reinitialize",
-    request_body = BatchOperationRequest,
-    responses(
-        (status = 200, description = "Batch reinitialize completed", body = BatchOperationResponse),
-    ),
-    tag = "repositories"
-)]
-pub async fn batch_reinitialize_repositories(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<BatchOperationRequest>,
-) -> Result<Json<BatchOperationResponse>, VibeRepoError> {
-    let mut results = Vec::new();
-    let mut succeeded = 0;
-    let mut failed = 0;
-
-    for repo_id in &req.repository_ids {
-        let repo_name = match Repository::find_by_id(*repo_id).one(&state.db).await? {
-            Some(r) => r.full_name,
-            None => format!("repo-{}", repo_id),
-        };
-
-        match state
-            .repository_service
-            .initialize_repository(
-                *repo_id,
-                "vibe-dev",
-                Some(state.config.webhook.domain.clone()),
-                Some(state.config.webhook.secret_key.clone()),
-            )
-            .await
-        {
-            Ok(_) => {
-                results.push(BatchOperationResult {
-                    repository_id: *repo_id,
-                    repository_name: repo_name,
-                    success: true,
-                    error: None,
-                });
-                succeeded += 1;
-            }
-            Err(e) => {
-                results.push(BatchOperationResult {
-                    repository_id: *repo_id,
-                    repository_name: repo_name,
-                    success: false,
-                    error: Some(e.to_string()),
-                });
-                failed += 1;
-            }
-        }
-    }
-
-    Ok(Json(BatchOperationResponse {
-        total: req.repository_ids.len(),
-        succeeded,
-        failed,
-        results,
-    }))
 }
 
 /// Permission information for a repository

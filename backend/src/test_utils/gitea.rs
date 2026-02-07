@@ -66,51 +66,6 @@ pub async fn is_gitea_available(config: &GiteaTestConfig, timeout: Duration) -> 
     client.get(&url).send().await.is_ok()
 }
 
-/// Wait for repositories to be synced with polling
-///
-/// Returns true if repositories are found within the timeout, false otherwise.
-pub async fn wait_for_repositories(
-    app: axum::Router,
-    provider_id: i32,
-    timeout: Duration,
-    poll_interval: Duration,
-) -> bool {
-    use axum::body::Body;
-    use axum::http::Request;
-    use std::time::Instant;
-    use tower::ServiceExt;
-
-    let start = Instant::now();
-
-    while start.elapsed() < timeout {
-        let resp = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("GET")
-                    .uri(format!("/api/repositories?provider_id={}", provider_id))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        // Use axum's body handling
-        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await;
-        if let Ok(bytes) = body_bytes {
-            if let Ok(repos) = serde_json::from_slice::<Vec<serde_json::Value>>(&bytes) {
-                if !repos.is_empty() {
-                    return true;
-                }
-            }
-        }
-
-        tokio::time::sleep(poll_interval).await;
-    }
-
-    false
-}
-
 /// Skip test if Gitea is not available
 ///
 /// Use this macro at the start of tests that require the Gitea test instance.

@@ -68,14 +68,6 @@ impl PRCreationService {
                 VibeRepoError::NotFound(format!("Repository {} not found", workspace.repository_id))
             })?;
 
-        // Load provider
-        let provider = RepoProvider::find_by_id(repository.provider_id)
-            .one(&self.db)
-            .await?
-            .ok_or_else(|| {
-                VibeRepoError::NotFound(format!("Provider {} not found", repository.provider_id))
-            })?;
-
         // Parse owner/repo from clone_url
         let (owner, repo_name) = self.parse_clone_url(&repository.clone_url)?;
 
@@ -83,7 +75,7 @@ impl PRCreationService {
         let base_branch = self.get_default_branch(&repository).await?;
 
         // Create Git Provider client
-        let git_client = GitClientFactory::from_provider(&provider)
+        let git_client = GitClientFactory::from_repository(&repository)
             .map_err(|e| VibeRepoError::Internal(format!("Failed to create git client: {}", e)))?;
 
         // Build PR body
@@ -133,7 +125,7 @@ impl PRCreationService {
                 pr_number = pr.number,
                 "PR API response missing html_url, falling back to manual URL construction"
             );
-            let web_base_url = provider.base_url.trim_end_matches("/api/v1");
+            let web_base_url = repository.provider_base_url.trim_end_matches("/api/v1");
             Some(format!(
                 "{}/{}/{}/pulls/{}",
                 web_base_url, owner, repo_name, pr.number
@@ -316,7 +308,7 @@ impl PRCreationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::{repo_provider, repository, task::TaskStatus, workspace};
+    use crate::entities::{repository, task::TaskStatus, workspace};
     use crate::test_utils::db::TestDatabase;
 
     /// Test create_pr_for_task_success
@@ -333,7 +325,7 @@ mod tests {
         let db = &test_db.connection;
 
         // Create test data
-        let (task, _workspace, _repository, _provider) = create_test_task_with_branch(db).await;
+        let (task, _workspace, _repository) = create_test_task_with_branch(db).await;
 
         let service = PRCreationService::new(db.clone());
 
@@ -359,7 +351,7 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let (mut task, _workspace, _repository, _provider) = create_test_task_with_branch(db).await;
+        let (mut task, _workspace, _repository) = create_test_task_with_branch(db).await;
 
         // Set PR info to simulate already created PR
         let mut task_active: task::ActiveModel = task.clone().into();
@@ -394,7 +386,7 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let (task, _workspace, _repository, _provider) = create_test_task_without_branch(db).await;
+        let (task, _workspace, _repository) = create_test_task_without_branch(db).await;
 
         let service = PRCreationService::new(db.clone());
 
@@ -445,7 +437,7 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let (mut task, _workspace, _repository, _provider) = create_test_task_with_branch(db).await;
+        let (mut task, _workspace, _repository) = create_test_task_with_branch(db).await;
 
         let mut task_active: task::ActiveModel = task.clone().into();
         task_active.pr_number = Set(Some(123));
@@ -470,7 +462,7 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let (task, _workspace, _repository, _provider) = create_test_task_with_branch(db).await;
+        let (task, _workspace, _repository) = create_test_task_with_branch(db).await;
 
         let service = PRCreationService::new(db.clone());
 
@@ -491,7 +483,7 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let (_task, _workspace, repository, _provider) = create_test_task_with_branch(db).await;
+        let (_task, _workspace, repository) = create_test_task_with_branch(db).await;
 
         let service = PRCreationService::new(db.clone());
 
@@ -629,13 +621,8 @@ mod tests {
 
     async fn create_test_task_with_branch(
         db: &DatabaseConnection,
-    ) -> (
-        task::Model,
-        workspace::Model,
-        repository::Model,
-        repo_provider::Model,
-    ) {
-        let (workspace, repository, provider) = create_test_workspace(db).await;
+    ) -> (task::Model, workspace::Model, repository::Model) {
+        let (workspace, repository) = create_test_workspace(db).await;
 
         let task = task::ActiveModel {
             workspace_id: Set(workspace.id),
@@ -653,18 +640,13 @@ mod tests {
             .await
             .expect("Failed to create test task");
 
-        (task, workspace, repository, provider)
+        (task, workspace, repository)
     }
 
     async fn create_test_task_without_branch(
         db: &DatabaseConnection,
-    ) -> (
-        task::Model,
-        workspace::Model,
-        repository::Model,
-        repo_provider::Model,
-    ) {
-        let (workspace, repository, provider) = create_test_workspace(db).await;
+    ) -> (task::Model, workspace::Model, repository::Model) {
+        let (workspace, repository) = create_test_workspace(db).await;
 
         let task = task::ActiveModel {
             workspace_id: Set(workspace.id),
@@ -682,38 +664,21 @@ mod tests {
             .await
             .expect("Failed to create test task");
 
-        (task, workspace, repository, provider)
+        (task, workspace, repository)
     }
 
     async fn create_test_workspace(
         db: &DatabaseConnection,
-    ) -> (workspace::Model, repository::Model, repo_provider::Model) {
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set(format!("Test Provider {}", uuid::Uuid::new_v4())),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://git.example.com".to_string()),
-            access_token: Set("test-token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = RepoProvider::insert(provider)
-            .exec(db)
-            .await
-            .expect("Failed to create provider");
-        let provider = RepoProvider::find_by_id(provider.last_insert_id)
-            .one(db)
-            .await
-            .expect("Failed to fetch provider")
-            .expect("Provider not found");
-
-        // Create repository
+    ) -> (workspace::Model, repository::Model) {
+        // Create repository with provider configuration
         let repository = repository::ActiveModel {
             name: Set(format!("test-repo-{}", uuid::Uuid::new_v4())),
             full_name: Set(format!("owner/test-repo-{}", uuid::Uuid::new_v4())),
             clone_url: Set("https://git.example.com/owner/test-repo.git".to_string()),
             default_branch: Set("main".to_string()),
-            provider_id: Set(provider.id),
+            provider_type: Set("gitea".to_string()),
+            provider_base_url: Set("https://git.example.com".to_string()),
+            access_token: Set("test-token".to_string()),
             ..Default::default()
         };
         let repository = Repository::insert(repository)
@@ -731,6 +696,6 @@ mod tests {
             .await
             .expect("Failed to create workspace");
 
-        (workspace, repository, provider)
+        (workspace, repository)
     }
 }

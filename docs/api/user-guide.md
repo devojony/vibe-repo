@@ -89,31 +89,115 @@ http://localhost:3000/swagger-ui
 
 ### Overview
 
-In the simplified MVP, Git provider configuration is managed through environment variables instead of a database-backed API. This simplifies deployment and reduces complexity.
+In v0.4.0-mvp, the architecture has changed from Provider-Centric to Repository-Centric. Instead of configuring a provider and auto-syncing all repositories, you now manually add only the repositories you want, providing provider configuration for each one.
 
-### Environment-based Configuration
+**Key Changes:**
+- No separate provider entity - configuration stored per repository
+- No auto-discovery - explicitly add only desired repositories
+- Self-contained repositories - each has its own provider credentials
+- Single-step addition - repository, workspace, and webhook created atomically
 
-Configure your Git provider in the `.env` file:
+### Adding a Repository
+
+To add a repository to VibeRepo, use the `POST /api/repositories` endpoint with complete provider configuration:
 
 ```bash
-# GitHub Configuration
-GITHUB_TOKEN=ghp_your_token_here
-GITHUB_BASE_URL=https://api.github.com
-WEBHOOK_SECRET=your_webhook_secret_here
+curl -X POST http://localhost:3000/api/repositories \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider_type": "github",
+    "provider_base_url": "https://api.github.com",
+    "access_token": "ghp_xxxxxxxxxxxx",
+    "full_name": "owner/my-repo",
+    "branch_name": "vibe-dev"
+  }'
 ```
 
-**Supported Providers:**
-- GitHub (fully supported)
-- Gitea (planned)
-- GitLab (planned)
+**Request Fields:**
+- `provider_type` (required) - Git provider: "github", "gitea", or "gitlab"
+- `provider_base_url` (required) - Provider API base URL
+  - GitHub: `https://api.github.com`
+  - Gitea: `https://gitea.example.com/api/v1`
+  - GitLab: `https://gitlab.com/api/v4`
+- `access_token` (required) - Personal access token with required permissions
+- `full_name` (required) - Repository full name (owner/repo)
+- `branch_name` (optional) - Branch for automation (default: "vibe-dev")
+
+**What Happens:**
+1. System validates your access token with the provider
+2. Fetches repository information (name, clone URL, default branch)
+3. Validates token permissions (branches, labels, PRs, issues, webhooks)
+4. Generates a unique webhook secret for this repository
+5. Creates repository record in database
+6. Creates workspace and agent automatically
+7. Initializes the vibe-dev branch (if it doesn't exist)
+8. Creates required labels (vibe/pending-ack, vibe/todo-ai, etc.)
+9. Creates webhook on the provider
+10. Returns complete repository details
+
+**Success Response (201 Created):**
+```json
+{
+  "id": 1,
+  "name": "my-repo",
+  "full_name": "owner/my-repo",
+  "clone_url": "https://github.com/owner/my-repo.git",
+  "default_branch": "main",
+  "branches": ["main", "vibe-dev"],
+  "provider_type": "github",
+  "provider_base_url": "https://api.github.com",
+  "validation_status": "valid",
+  "has_required_branches": true,
+  "has_required_labels": true,
+  "can_manage_prs": true,
+  "can_manage_issues": true,
+  "webhook_status": "active",
+  "created_at": "2026-02-06T10:00:00Z"
+}
+```
+
+**Note:** The `access_token` and `webhook_secret` are never returned in API responses for security.
+
+### Required Token Permissions
+
+Your access token must have the following permissions:
+
+**GitHub:**
+- `repo` - Full repository access
+- `admin:repo_hook` - Webhook management
+
+**Gitea:**
+- `read:repository` - Read repository information
+- `write:repository` - Create branches and labels
+- `write:issue` - Close issues
+- `write:pull_request` - Create pull requests
+- `write:webhook` - Create webhooks
+
+**GitLab:**
+- `api` - Full API access (includes all required permissions)
+
+### Supported Providers
+
+- **GitHub** - Fully supported (github.com and GitHub Enterprise)
+- **Gitea** - Fully supported (self-hosted)
+- **GitLab** - Fully supported (gitlab.com and self-hosted)
 
 ### Repository Operations
 
 #### List Repositories
 
 ```bash
+# List all repositories
 curl http://localhost:3000/api/repositories
+
+# Filter by validation status
+curl "http://localhost:3000/api/repositories?validation_status=valid"
+
+# Filter by repository status
+curl "http://localhost:3000/api/repositories?status=idle"
 ```
+
+**Note:** The `provider_id` filter has been removed. Each repository is now self-contained.
 
 #### Get Repository Details
 
@@ -121,9 +205,9 @@ curl http://localhost:3000/api/repositories
 curl http://localhost:3000/api/repositories/:id
 ```
 
-#### Initialize Repository
+#### Re-initialize Repository
 
-Initialize a repository with the vibe-dev branch and required labels:
+If you need to re-create branches or labels after manual changes:
 
 ```bash
 curl -X POST http://localhost:3000/api/repositories/:id/initialize \
@@ -133,6 +217,8 @@ curl -X POST http://localhost:3000/api/repositories/:id/initialize \
     "create_labels": true
   }'
 ```
+
+**Note:** This is typically not needed since `POST /api/repositories` automatically initializes everything.
 
 ---
 
@@ -269,27 +355,68 @@ Webhooks enable real-time issue-to-PR automation. When an issue is opened or lab
 
 ### Webhook Configuration
 
-Webhooks are configured via environment variables:
+Webhooks are automatically created when you add a repository. Each repository has its own unique webhook secret.
 
-```bash
-WEBHOOK_SECRET=your_webhook_secret_here
-```
-
-### Webhook URL Format
-
+**Webhook URL Format:**
 ```
 https://your-domain.com/api/webhooks/:repository_id
 ```
 
-### Setting Up GitHub Webhooks
+**Example:**
+```
+https://vibe-repo.example.com/api/webhooks/1
+```
 
-1. Go to your repository settings
-2. Navigate to Webhooks → Add webhook
-3. Set Payload URL: `https://your-domain.com/api/webhooks/1`
-4. Set Content type: `application/json`
-5. Set Secret: (same as `WEBHOOK_SECRET` in `.env`)
-6. Select events: `Issues`, `Pull requests`
+### Setting Up Webhooks Manually (If Needed)
+
+If automatic webhook creation fails, you can set it up manually:
+
+**GitHub:**
+1. Go to repository settings → Webhooks → Add webhook
+2. Set Payload URL: `https://your-domain.com/api/webhooks/1`
+3. Set Content type: `application/json`
+4. Set Secret: (contact admin for webhook secret)
+5. Select events: `Issues`, `Pull requests`
+6. Click "Add webhook"
+
+**Gitea:**
+1. Go to repository settings → Webhooks → Add webhook
+2. Set Target URL: `https://your-domain.com/api/webhooks/1`
+3. Set HTTP Method: `POST`
+4. Set POST Content Type: `application/json`
+5. Set Secret: (contact admin for webhook secret)
+6. Select trigger events: `Issues`, `Pull requests`
 7. Click "Add webhook"
+
+**GitLab:**
+1. Go to repository settings → Webhooks
+2. Set URL: `https://your-domain.com/api/webhooks/1`
+3. Set Secret token: (contact admin for webhook secret)
+4. Select trigger events: `Issues events`, `Merge request events`
+5. Click "Add webhook"
+
+### Migration from v0.3.0
+
+If you're upgrading from v0.3.0, the workflow has changed significantly:
+
+**Before (v0.3.0):**
+1. Configure provider via environment variables
+2. System auto-syncs all repositories from provider
+3. Archive unwanted repositories (e.g., 97 of 100)
+4. Initialize desired repositories (e.g., 3)
+
+**After (v0.4.0-mvp):**
+1. Add only desired repositories via API (e.g., 3 API calls)
+2. Each repository includes its own provider configuration
+3. No auto-sync, no archiving needed
+
+**Benefits:**
+- 97% fewer API operations for selective usage (3 vs 102)
+- Explicit intent - only add what you want
+- Per-repository token management (principle of least privilege)
+- Support for mixed providers (GitHub + Gitea + GitLab)
+
+See [MIGRATION.md](../../MIGRATION.md) for detailed migration guide.
 
 ### Webhook Events
 

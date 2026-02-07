@@ -121,13 +121,9 @@ mod tests {
         let service = AgentService::new(db.clone());
         let workspace = create_test_workspace(db).await;
 
-        // Create multiple agents
+        // Create one agent for the workspace (one agent per workspace constraint)
         service
             .create_agent(workspace.id, "Agent 1", "opencode", "cmd1", json!({}), 1800)
-            .await
-            .unwrap();
-        service
-            .create_agent(workspace.id, "Agent 2", "aider", "cmd2", json!({}), 1800)
             .await
             .unwrap();
 
@@ -137,7 +133,8 @@ mod tests {
         // Assert
         assert!(result.is_ok());
         let agents = result.unwrap();
-        assert_eq!(agents.len(), 2);
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, "Agent 1");
     }
 
     #[tokio::test]
@@ -176,33 +173,20 @@ mod tests {
     }
 
     async fn create_test_repository(db: &DatabaseConnection) -> repository::Model {
-        use crate::entities::repo_provider;
+        use crate::test_utils::create_test_repository as create_repo;
 
-        // Create a provider first
-        let provider = repo_provider::ActiveModel {
-            name: Set("Test Provider".to_string()),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://git.example.com".to_string()),
-            access_token: Set("test-token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = RepoProvider::insert(provider)
-            .exec_with_returning(db)
-            .await
-            .unwrap();
+        let repo_name = format!("test-repo-{}", uuid::Uuid::new_v4());
+        let full_name = format!("owner/{}", repo_name);
 
-        let repo = repository::ActiveModel {
-            name: Set(format!("test-repo-{}", uuid::Uuid::new_v4())),
-            full_name: Set(format!("owner/test-repo-{}", uuid::Uuid::new_v4())),
-            clone_url: Set("https://git.example.com/owner/test-repo.git".to_string()),
-            default_branch: Set("main".to_string()),
-            provider_id: Set(provider.id),
-            ..Default::default()
-        };
-        Repository::insert(repo)
-            .exec_with_returning(db)
-            .await
-            .unwrap()
+        create_repo(
+            db,
+            &repo_name,
+            &full_name,
+            "gitea",
+            "https://git.example.com",
+            "test-token",
+        )
+        .await
+        .unwrap()
     }
 }

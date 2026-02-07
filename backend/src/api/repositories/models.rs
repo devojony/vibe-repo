@@ -6,7 +6,7 @@
 use crate::entities::repository::RepositoryStatus;
 use crate::entities::repository::{Model as RepositoryModel, ValidationStatus};
 use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 
 /// Required labels with vibe/ prefix for workflow management
 pub const REQUIRED_LABELS: &[&str] = &[
@@ -22,8 +22,10 @@ pub const REQUIRED_LABELS: &[&str] = &[
 pub struct RepositoryResponse {
     /// Repository ID
     pub id: i32,
-    /// Provider ID (foreign key)
-    pub provider_id: i32,
+    /// Provider type (github, gitea, gitlab)
+    pub provider_type: String,
+    /// Provider base URL
+    pub provider_base_url: String,
     /// Repository name (e.g., "my-repo")
     pub name: String,
     /// Full repository name (e.g., "owner/my-repo")
@@ -56,6 +58,7 @@ impl RepositoryResponse {
     /// Convert entity model to response DTO
     ///
     /// Requirements: 12.5, 13.3
+    /// Note: Excludes sensitive fields (access_token, webhook_secret)
     pub fn from_model(model: RepositoryModel) -> Self {
         // Parse branches JSON array
         let branches: Vec<String> =
@@ -63,7 +66,8 @@ impl RepositoryResponse {
 
         Self {
             id: model.id,
-            provider_id: model.provider_id,
+            provider_type: model.provider_type,
+            provider_base_url: model.provider_base_url,
             name: model.name,
             full_name: model.full_name,
             clone_url: model.clone_url,
@@ -81,6 +85,22 @@ impl RepositoryResponse {
     }
 }
 
+/// Request body for adding a new repository
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AddRepositoryRequest {
+    /// Provider type (github, gitea, gitlab)
+    pub provider_type: String,
+    /// Provider API base URL (e.g., "https://api.github.com" or "https://gitea.example.com")
+    pub provider_base_url: String,
+    /// Access token for authentication
+    pub access_token: String,
+    /// Full repository name (e.g., "owner/repo")
+    pub full_name: String,
+    /// Custom branch name for automated development (defaults to "vibe-dev")
+    #[serde(default = "default_branch_name")]
+    pub branch_name: String,
+}
+
 /// Request body for single repository initialization
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct InitializeRepositoryRequest {
@@ -92,56 +112,6 @@ pub struct InitializeRepositoryRequest {
 /// Default branch name for initialization
 fn default_branch_name() -> String {
     "vibe-dev".to_string()
-}
-
-/// Query parameters for batch initialization
-#[derive(Debug, Deserialize, IntoParams, ToSchema)]
-pub struct BatchInitializeParams {
-    /// Provider ID (required)
-    pub provider_id: Option<i32>,
-    /// Custom branch name for automated development (defaults to "vibe-dev")
-    #[serde(default = "default_branch_name")]
-    pub branch_name: String,
-}
-
-/// Response for batch initialization
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct BatchInitializeResponse {
-    /// Status message
-    pub message: String,
-}
-
-/// Request body for batch operations
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct BatchOperationRequest {
-    /// List of repository IDs to operate on
-    pub repository_ids: Vec<i32>,
-}
-
-/// Response for batch operations
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct BatchOperationResponse {
-    /// Total number of repositories processed
-    pub total: usize,
-    /// Number of successful operations
-    pub succeeded: usize,
-    /// Number of failed operations
-    pub failed: usize,
-    /// Detailed results for each repository
-    pub results: Vec<BatchOperationResult>,
-}
-
-/// Result for a single repository in a batch operation
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct BatchOperationResult {
-    /// Repository ID
-    pub repository_id: i32,
-    /// Repository name
-    pub repository_name: String,
-    /// Whether the operation succeeded
-    pub success: bool,
-    /// Error message if operation failed
-    pub error: Option<String>,
 }
 
 /// Request body for updating repository metadata
@@ -165,7 +135,10 @@ mod tests {
 
         let model = RepositoryModel {
             id: 1,
-            provider_id: 10,
+            provider_type: "gitea".to_string(),
+            provider_base_url: "https://gitea.example.com".to_string(),
+            access_token: "test_token".to_string(),
+            webhook_secret: Some("test_secret".to_string()),
             name: "test-repo".to_string(),
             full_name: "owner/test-repo".to_string(),
             clone_url: "https://gitea.example.com/owner/test-repo.git".to_string(),
@@ -180,9 +153,6 @@ mod tests {
             can_manage_issues: true,
             validation_message: None,
             webhook_status: WebhookStatus::Pending,
-            polling_enabled: false,
-            polling_interval_seconds: None,
-            last_issue_poll_at: None,
             agent_command: None,
             agent_timeout: 600,
             agent_env_vars: None,
@@ -197,7 +167,8 @@ mod tests {
 
         // Assert: All fields are correctly converted
         assert_eq!(response.id, 1);
-        assert_eq!(response.provider_id, 10);
+        assert_eq!(response.provider_type, "gitea");
+        assert_eq!(response.provider_base_url, "https://gitea.example.com");
         assert_eq!(response.name, "test-repo");
         assert_eq!(response.full_name, "owner/test-repo");
         assert_eq!(
@@ -223,7 +194,10 @@ mod tests {
 
         let model = RepositoryModel {
             id: 2,
-            provider_id: 10,
+            provider_type: "gitea".to_string(),
+            provider_base_url: "https://gitea.example.com".to_string(),
+            access_token: "test_token".to_string(),
+            webhook_secret: Some("test_secret".to_string()),
             name: "invalid-repo".to_string(),
             full_name: "owner/invalid-repo".to_string(),
             clone_url: "https://gitea.example.com/owner/invalid-repo.git".to_string(),
@@ -238,9 +212,6 @@ mod tests {
             can_manage_issues: false,
             validation_message: Some("Missing required branches".to_string()),
             webhook_status: WebhookStatus::Pending,
-            polling_enabled: false,
-            polling_interval_seconds: None,
-            last_issue_poll_at: None,
             agent_command: None,
             agent_timeout: 600,
             agent_env_vars: None,
@@ -272,7 +243,10 @@ mod tests {
 
         let model = RepositoryModel {
             id: 3,
-            provider_id: 10,
+            provider_type: "gitea".to_string(),
+            provider_base_url: "https://gitea.example.com".to_string(),
+            access_token: "test_token".to_string(),
+            webhook_secret: Some("test_secret".to_string()),
             name: "test-repo".to_string(),
             full_name: "owner/test-repo".to_string(),
             clone_url: "https://gitea.example.com/owner/test-repo.git".to_string(),
@@ -287,9 +261,6 @@ mod tests {
             can_manage_issues: false,
             validation_message: None,
             webhook_status: WebhookStatus::Pending,
-            polling_enabled: false,
-            polling_interval_seconds: None,
-            last_issue_poll_at: None,
             agent_command: None,
             agent_timeout: 600,
             agent_env_vars: None,
@@ -316,7 +287,10 @@ mod tests {
 
         let model = RepositoryModel {
             id: 4,
-            provider_id: 10,
+            provider_type: "gitea".to_string(),
+            provider_base_url: "https://gitea.example.com".to_string(),
+            access_token: "test_token".to_string(),
+            webhook_secret: Some("test_secret".to_string()),
             name: "empty-branches".to_string(),
             full_name: "owner/empty-branches".to_string(),
             clone_url: "https://gitea.example.com/owner/empty-branches.git".to_string(),
@@ -331,9 +305,6 @@ mod tests {
             can_manage_issues: false,
             validation_message: None,
             webhook_status: WebhookStatus::Pending,
-            polling_enabled: false,
-            polling_interval_seconds: None,
-            last_issue_poll_at: None,
             agent_command: None,
             agent_timeout: 600,
             agent_env_vars: None,
@@ -368,28 +339,6 @@ mod tests {
 
         // Assert: Custom branch name is preserved
         assert_eq!(request.branch_name, "custom-branch");
-    }
-
-    #[test]
-    fn test_batch_initialize_params_default_branch_name() {
-        // Arrange & Act: Deserialize with only provider_id
-        let json = r#"{"provider_id": 1}"#;
-        let params: BatchInitializeParams = serde_json::from_str(json).unwrap();
-
-        // Assert: Default branch name is "vibe-dev"
-        assert_eq!(params.branch_name, "vibe-dev");
-        assert_eq!(params.provider_id, Some(1));
-    }
-
-    #[test]
-    fn test_batch_initialize_params_custom_branch_name() {
-        // Arrange & Act: Deserialize with custom branch name
-        let json = r#"{"provider_id": 1, "branch_name": "feature-branch"}"#;
-        let params: BatchInitializeParams = serde_json::from_str(json).unwrap();
-
-        // Assert: Custom branch name is preserved
-        assert_eq!(params.branch_name, "feature-branch");
-        assert_eq!(params.provider_id, Some(1));
     }
 
     #[test]
