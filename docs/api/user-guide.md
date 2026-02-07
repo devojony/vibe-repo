@@ -351,7 +351,9 @@ curl -X POST http://localhost:3000/api/tasks/:id/close-issue
 
 ### Overview
 
-Webhooks enable real-time issue-to-PR automation. When an issue is opened or labeled, a webhook event triggers task creation and execution.
+Webhooks enable real-time issue-to-PR automation using a **mention-based workflow**. When you mention the bot in an issue comment (e.g., `@vibe-repo-bot`), a webhook event triggers task creation and execution.
+
+**Important:** Simply creating or labeling an issue does NOT trigger automation. You must explicitly mention the bot in a comment to request assistance.
 
 ### Webhook Configuration
 
@@ -376,7 +378,7 @@ If automatic webhook creation fails, you can set it up manually:
 2. Set Payload URL: `https://your-domain.com/api/webhooks/1`
 3. Set Content type: `application/json`
 4. Set Secret: (contact admin for webhook secret)
-5. Select events: `Issues`, `Pull requests`
+5. Select events: `Issue comments`, `Pull request comments`, `Pull requests`
 6. Click "Add webhook"
 
 **Gitea:**
@@ -421,12 +423,20 @@ See [MIGRATION.md](../../MIGRATION.md) for detailed migration guide.
 ### Webhook Events
 
 **Supported Events:**
-- `issues` - Issue opened, edited, labeled
-- `pull_request` - PR opened, merged, closed
+- `issue_comment` - Comment on issue (bot mention triggers automation)
+- `pull_request_comment` - Comment on PR (bot mention triggers automation)
+- `pull_request` - PR merged (closes linked issue)
 
-**Removed Features:**
-- ~~Webhook retry mechanism~~ (simplified error handling)
-- ~~Webhook status tracking~~ (no webhook_configs table)
+**How to Trigger Automation:**
+1. Create an issue in your repository
+2. Add a comment mentioning the bot: `@vibe-repo-bot please implement this feature`
+3. The bot will detect the mention and create a task
+4. Task execution begins automatically
+
+**Bot Username Configuration:**
+The default bot username is `vibe-repo-bot`. You can customize it with the `WEBHOOK_BOT_USERNAME` environment variable.
+
+**Note:** The system uses a mention-based workflow for user control. Issues are not automatically processed when created or labeled - you must explicitly request bot assistance by mentioning it in a comment.
 
 ---
 

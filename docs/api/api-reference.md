@@ -247,10 +247,17 @@ GitHub/Gitea webhook payload (varies by event type)
 ```json
 {
   "status": "processed",
-  "event_type": "issues",
-  "action": "opened"
+  "event_type": "issue_comment",
+  "action": "created"
 }
 ```
+
+**Supported Event Types:**
+- `issue_comment` - Comment on issue (checks for bot mention)
+- `pull_request_comment` - Comment on PR (checks for bot mention)
+- `pull_request` - PR events (merge triggers issue closure)
+
+**Note:** The system uses a mention-based workflow. Only comments that mention the bot (e.g., `@vibe-repo-bot`) will trigger task creation.
 
 ---
 

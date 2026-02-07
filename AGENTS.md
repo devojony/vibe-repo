@@ -24,13 +24,20 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 **Core Features:**
 - ✅ Backend Foundation & Repository API
 - ✅ Git Provider Abstraction (GitHub/Gitea/GitLab)
-- ✅ Webhook Integration (GitHub)
+- ✅ Webhook Integration (Mention-based workflow)
 - ✅ Docker-based Workspaces
 - ✅ Single Agent per Repository
 - ✅ Task Management (Simplified State Machine)
 - ✅ Task Execution Engine
 - ✅ PR Creation & Issue Closure
 - ✅ Environment-based Configuration
+
+**Webhook Workflow:**
+The system uses a **mention-based workflow** for user control:
+1. Create an issue in your repository
+2. Mention the bot in a comment: `@vibe-repo-bot please implement this`
+3. Bot creates a task and begins execution
+4. **Note:** Simply creating or labeling issues does NOT trigger automation
 
 **Removed Features (from v0.3.0):**
 - ❌ Issue Polling Service
