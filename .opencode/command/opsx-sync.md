@@ -6,7 +6,7 @@ Sync delta specs from a change to main specs.
 
 This is an **agent-driven** operation - you will read delta specs and directly edit main specs to apply the changes. This allows intelligent merging (e.g., adding a scenario without copying the entire requirement).
 
-**Input**: Optionally specify a change name after `/opsx:sync` (e.g., `/opsx:sync add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+**Input**: Optionally specify a change name after `/opsx-sync` (e.g., `/opsx-sync add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
 **Steps**
 
@@ -101,6 +101,7 @@ The system SHALL do something new.
 **Key Principle: Intelligent Merging**
 
 Unlike programmatic merging, you can apply **partial updates**:
+
 - To add a scenario, just include that scenario under MODIFIED - don't copy existing scenarios
 - The delta represents *intent*, not a wholesale replacement
 - Use your judgment to merge changes sensibly
@@ -124,6 +125,7 @@ Main specs are now updated. The change remains active - archive when implementat
 ```
 
 **Guardrails**
+
 - Read both delta and main specs before making changes
 - Preserve existing content not mentioned in delta
 - If something is unclear, ask for clarification
