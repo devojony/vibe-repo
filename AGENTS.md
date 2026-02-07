@@ -279,6 +279,12 @@ For detailed standards, see **[docs/development/README.md](./docs/development/RE
 - The `tmp/` directory is git-ignored and safe for temporary experiments
 - Never commit experimental code outside of `tmp/` directory
 
+### Git Worktree Standards
+
+- **Worktree Directory**: All git worktrees must be created in the `.worktrees/` directory at project root
+- The `.worktrees/` directory is git-ignored and safe for parallel development
+- Use worktrees for working on multiple branches simultaneously without switching contexts
+
 ### Commit Message Standards
 
 Follow Conventional Commits specification:

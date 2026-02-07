@@ -648,6 +648,40 @@ cargo new test-feature
 
 ## 🔄 Git Workflow
 
+### Git Worktree Standards
+
+When working on multiple branches simultaneously, use git worktrees:
+
+1. **Worktree Location**: All worktrees must be created in the `.worktrees/` directory at project root
+2. **Creating Worktrees**:
+   ```bash
+   # Create a new worktree for a feature branch
+   git worktree add .worktrees/feature-name -b feature/feature-name
+   
+   # Create a worktree from an existing branch
+   git worktree add .worktrees/fix-bug fix/bug-name
+   ```
+
+3. **Working with Worktrees**:
+   ```bash
+   # List all worktrees
+   git worktree list
+   
+   # Switch to worktree directory
+   cd .worktrees/feature-name
+   
+   # Remove worktree when done
+   git worktree remove .worktrees/feature-name
+   ```
+
+4. **Benefits**:
+   - Work on multiple branches without switching contexts
+   - Run tests on one branch while developing on another
+   - Compare implementations side-by-side
+   - No need to stash changes when switching branches
+
+**Note:** The `.worktrees/` directory is git-ignored and safe for parallel development.
+
 ### Commit Message Standards
 
 Follow Conventional Commits specification:
