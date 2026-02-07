@@ -619,6 +619,33 @@ impl Cache {
 }
 ```
 
+## 🧪 Experimentation Standards
+
+When conducting feature verification or experimental development:
+
+1. **Use the `tmp/` directory**: All experimental code must be placed in the `tmp/` directory at project root
+2. **Git-ignored**: The `tmp/` directory is automatically ignored by git
+3. **Isolation**: Keep experiments isolated from production code
+4. **Documentation**: Document your experiments in `tmp/README.md` if needed
+
+**Example:**
+```bash
+# Create experiment directory
+mkdir -p tmp/feature-experiment
+
+# Run your experiments
+cd tmp/feature-experiment
+cargo new test-feature
+
+# Experiments are safe and won't be committed
+```
+
+**Why this matters:**
+- Prevents accidental commits of experimental code
+- Keeps the repository clean
+- Allows safe experimentation without affecting the main codebase
+- Makes it easy to clean up experiments
+
 ## 🔄 Git Workflow
 
 ### Commit Message Standards

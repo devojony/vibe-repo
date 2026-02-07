@@ -273,6 +273,12 @@ For detailed standards, see **[docs/development/README.md](./docs/development/RE
 - **Primary Language**: English for all code, comments, documentation, and commit messages
 - **Breaking Changes**: Allowed before v1.0.0 (currently v0.3.0)
 
+### Experimentation Standards
+
+- **Experimentation Directory**: All feature verification and experimental code must be placed in the `tmp/` directory at project root
+- The `tmp/` directory is git-ignored and safe for temporary experiments
+- Never commit experimental code outside of `tmp/` directory
+
 ### Commit Message Standards
 
 Follow Conventional Commits specification:
