@@ -167,6 +167,7 @@ For detailed development patterns, see **[docs/development/README.md](./docs/dev
 - Use SeaORM for all database operations
 - Migrations run automatically on startup
 - Use `DatabasePool::new()` to create connection pool
+- **Pre-1.0 Migration Policy**: Breaking schema changes are allowed before v1.0.0 release
 
 **Background Services:**
 - Implement `BackgroundService` trait

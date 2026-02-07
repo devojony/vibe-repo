@@ -253,6 +253,8 @@ The following tables were removed in the simplified MVP:
 
 All migrations are located in `backend/src/migration/` and run automatically on application startup.
 
+> **⚠️ Pre-1.0 Migration Policy**: Before the official v1.0.0 release, we do not need to consider database migration compatibility. Breaking schema changes are allowed and expected as we iterate on the MVP design.
+
 ### Migration Files
 
 - `m20240101_000001_init.rs` - Initial database setup
