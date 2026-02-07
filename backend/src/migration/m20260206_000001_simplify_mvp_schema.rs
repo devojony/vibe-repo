@@ -150,6 +150,7 @@ impl MigrationTrait for Migration {
 }
 
 #[derive(DeriveIden)]
+#[allow(dead_code)]
 enum WebhookConfigs {
     Table,
 }
@@ -165,11 +166,13 @@ enum TaskExecutions {
 }
 
 #[derive(DeriveIden)]
+#[allow(dead_code)]
 enum Workspaces {
     Table,
 }
 
 #[derive(DeriveIden)]
+#[allow(dead_code)]
 enum Tasks {
     Table,
     TaskStatus,
@@ -188,6 +191,7 @@ enum Repositories {
 }
 
 #[derive(DeriveIden)]
+#[allow(dead_code)]
 enum Agents {
     Table,
     Enabled,

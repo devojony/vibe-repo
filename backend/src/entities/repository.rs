@@ -11,7 +11,10 @@ use utoipa::ToSchema;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub provider_id: i32,
+    pub provider_type: String,
+    pub provider_base_url: String,
+    pub access_token: String,
+    pub webhook_secret: Option<String>,
     pub name: String,
     pub full_name: String,
     pub clone_url: String,
@@ -26,9 +29,6 @@ pub struct Model {
     pub can_manage_issues: bool,
     pub validation_message: Option<String>,
     pub webhook_status: WebhookStatus,
-    pub polling_enabled: bool,
-    pub polling_interval_seconds: Option<i32>,
-    pub last_issue_poll_at: Option<DateTimeUtc>,
     #[sea_orm(column_type = "Text", nullable)]
     pub agent_command: Option<String>,
     pub agent_timeout: i32,
@@ -85,22 +85,7 @@ pub enum WebhookStatus {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::repo_provider::Entity",
-        from = "Column::ProviderId",
-        to = "super::repo_provider::Column::Id",
-        on_update = "Cascade",
-        on_delete = "Cascade"
-    )]
-    RepoProvider,
-}
-
-impl Related<super::repo_provider::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::RepoProvider.def()
-    }
-}
+pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 

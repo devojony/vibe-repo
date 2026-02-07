@@ -23,7 +23,7 @@ async fn test_request_id_added_to_response() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/health")
+                .uri("/api/repositories")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -50,7 +50,7 @@ async fn test_existing_request_id_preserved() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/health")
+                .uri("/api/repositories")
                 .header("x-request-id", request_id)
                 .body(Body::empty())
                 .unwrap(),
@@ -81,7 +81,7 @@ async fn test_request_id_unique_per_request() {
     let response1 = app1
         .oneshot(
             Request::builder()
-                .uri("/health")
+                .uri("/api/repositories")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -91,7 +91,7 @@ async fn test_request_id_unique_per_request() {
     let response2 = app2
         .oneshot(
             Request::builder()
-                .uri("/health")
+                .uri("/api/repositories")
                 .body(Body::empty())
                 .unwrap(),
         )

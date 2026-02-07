@@ -467,40 +467,29 @@ impl ContainerService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::prelude::{Container, RepoProvider, Repository, Workspace};
-    use crate::entities::{repo_provider, repository, workspace};
+    use crate::entities::prelude::{Container, Workspace};
+    use crate::entities::workspace;
     use crate::test_utils::db::TestDatabase;
     use sea_orm::Set;
 
     /// Helper function to create a test workspace
     async fn create_test_workspace(db: &DatabaseConnection) -> workspace::Model {
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set(format!("Test Provider {}", uuid::Uuid::new_v4())),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://git.example.com".to_string()),
-            access_token: Set("test-token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = RepoProvider::insert(provider)
-            .exec_with_returning(db)
-            .await
-            .unwrap();
-
         // Create repository
-        let repo = repository::ActiveModel {
-            name: Set(format!("test-repo-{}", uuid::Uuid::new_v4())),
-            full_name: Set(format!("owner/test-repo-{}", uuid::Uuid::new_v4())),
-            clone_url: Set("https://git.example.com/owner/test-repo.git".to_string()),
-            default_branch: Set("main".to_string()),
-            provider_id: Set(provider.id),
-            ..Default::default()
-        };
-        let repo = Repository::insert(repo)
-            .exec_with_returning(db)
-            .await
-            .unwrap();
+        use crate::test_utils::create_test_repository as create_repo;
+
+        let repo_name = format!("test-repo-{}", uuid::Uuid::new_v4());
+        let full_name = format!("owner/{}", repo_name);
+
+        let repo = create_repo(
+            db,
+            &repo_name,
+            &full_name,
+            "gitea",
+            "https://git.example.com",
+            "test-token",
+        )
+        .await
+        .unwrap();
 
         // Create workspace
         let workspace = workspace::ActiveModel {

@@ -157,35 +157,20 @@ mod tests {
         state: &AppState,
         full_name: &str,
     ) -> (repository::Model, workspace::Model) {
-        use crate::entities::repo_provider;
-
-        // Create provider
-        let provider = repo_provider::ActiveModel {
-            name: Set(format!("Test Provider {}", uuid::Uuid::new_v4())),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://git.example.com".to_string()),
-            access_token: Set("test-token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = RepoProvider::insert(provider)
-            .exec_with_returning(&state.db)
-            .await
-            .unwrap();
+        use crate::test_utils::create_test_repository as create_repo;
 
         // Create repository
-        let repo = repository::ActiveModel {
-            name: Set(full_name.split('/').next_back().unwrap().to_string()),
-            full_name: Set(full_name.to_string()),
-            clone_url: Set(format!("https://git.example.com/{}.git", full_name)),
-            default_branch: Set("main".to_string()),
-            provider_id: Set(provider.id),
-            ..Default::default()
-        };
-        let repo = Repository::insert(repo)
-            .exec_with_returning(&state.db)
-            .await
-            .unwrap();
+        let name = full_name.split('/').next_back().unwrap();
+        let repo = create_repo(
+            &state.db,
+            name,
+            full_name,
+            "gitea",
+            "https://git.example.com",
+            "test-token",
+        )
+        .await
+        .unwrap();
 
         // Create workspace (simplified MVP version)
         let ws = workspace::ActiveModel {
@@ -368,32 +353,17 @@ mod tests {
         let bot_username = &state.config.webhook.bot_username;
 
         // Create repository without workspace
-        use crate::entities::repo_provider;
-        let provider = repo_provider::ActiveModel {
-            name: Set(format!("Test Provider {}", uuid::Uuid::new_v4())),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://git.example.com".to_string()),
-            access_token: Set("test-token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = RepoProvider::insert(provider)
-            .exec_with_returning(&state.db)
-            .await
-            .unwrap();
-
-        let repo = repository::ActiveModel {
-            name: Set("no-workspace-repo".to_string()),
-            full_name: Set("owner/no-workspace-repo".to_string()),
-            clone_url: Set("https://git.example.com/owner/no-workspace-repo.git".to_string()),
-            default_branch: Set("main".to_string()),
-            provider_id: Set(provider.id),
-            ..Default::default()
-        };
-        Repository::insert(repo)
-            .exec_with_returning(&state.db)
-            .await
-            .unwrap();
+        use crate::test_utils::create_test_repository as create_repo;
+        let _repo = create_repo(
+            &state.db,
+            "no-workspace-repo",
+            "owner/no-workspace-repo",
+            "gitea",
+            "https://git.example.com",
+            "test-token",
+        )
+        .await
+        .unwrap();
 
         let comment_info = CommentInfo {
             comment_id: "203".to_string(),

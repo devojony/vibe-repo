@@ -44,9 +44,78 @@ Service health status with database connectivity check.
 
 ## Repository Module
 
+### POST /api/repositories
+
+Manually add a repository with complete provider configuration.
+
+**Request:**
+```json
+{
+  "provider_type": "github",
+  "provider_base_url": "https://api.github.com",
+  "access_token": "ghp_xxxxxxxxxxxx",
+  "full_name": "owner/my-repo",
+  "branch_name": "vibe-dev"
+}
+```
+
+**Request Fields:**
+- `provider_type` (required) - Git provider type: "github", "gitea", or "gitlab"
+- `provider_base_url` (required) - Provider API base URL
+- `access_token` (required) - Personal access token with required permissions
+- `full_name` (required) - Repository full name (owner/repo)
+- `branch_name` (optional) - Branch name for automation (default: "vibe-dev")
+
+**Response:** `201 Created`
+```json
+{
+  "id": 1,
+  "name": "my-repo",
+  "full_name": "owner/my-repo",
+  "clone_url": "https://github.com/owner/my-repo.git",
+  "default_branch": "main",
+  "branches": ["main", "vibe-dev"],
+  "provider_type": "github",
+  "provider_base_url": "https://api.github.com",
+  "validation_status": "valid",
+  "has_required_branches": true,
+  "has_required_labels": true,
+  "can_manage_prs": true,
+  "can_manage_issues": true,
+  "webhook_status": "active",
+  "created_at": "2026-02-06T10:00:00Z",
+  "updated_at": "2026-02-06T10:00:00Z"
+}
+```
+
+**Error Responses:**
+- `400 Bad Request` - Invalid provider_type or missing required fields
+- `401 Unauthorized` - Invalid access token
+- `403 Forbidden` - Token lacks required permissions
+- `404 Not Found` - Repository not found on provider
+- `500 Internal Server Error` - Failed to create workspace or webhook
+
+**What This Endpoint Does:**
+1. Validates the access token with the provider
+2. Fetches repository information from the provider
+3. Validates token permissions (branches, labels, PRs, issues, webhooks)
+4. Generates a unique webhook secret
+5. Creates repository record in database
+6. Creates workspace and agent automatically
+7. Initializes the vibe-dev branch (if it doesn't exist)
+8. Creates required labels (vibe/pending-ack, vibe/todo-ai, etc.)
+9. Creates webhook on the provider
+10. Returns complete repository details
+
+**Note:** This is an atomic operation - if any step fails, the entire operation is rolled back.
+
 ### GET /api/repositories
 
 List all repositories.
+
+**Query Parameters:**
+- `validation_status` (optional) - Filter by validation status (valid/invalid/pending)
+- `status` (optional) - Filter by repository status (idle/busy/error)
 
 **Response:**
 ```json
@@ -57,11 +126,16 @@ List all repositories.
     "full_name": "owner/my-repo",
     "clone_url": "https://github.com/owner/my-repo.git",
     "default_branch": "main",
+    "provider_type": "github",
+    "provider_base_url": "https://api.github.com",
     "validation_status": "valid",
+    "webhook_status": "active",
     "created_at": "2026-02-06T10:00:00Z"
   }
 ]
 ```
+
+**Note:** The `provider_id` filter has been removed. Each repository now contains its own provider configuration.
 
 ### GET /api/repositories/:id
 
@@ -76,19 +150,24 @@ Get repository details.
   "clone_url": "https://github.com/owner/my-repo.git",
   "default_branch": "main",
   "branches": ["main", "vibe-dev"],
+  "provider_type": "github",
+  "provider_base_url": "https://api.github.com",
   "validation_status": "valid",
   "has_required_branches": true,
   "has_required_labels": true,
   "can_manage_prs": true,
   "can_manage_issues": true,
+  "webhook_status": "active",
   "created_at": "2026-02-06T10:00:00Z",
   "updated_at": "2026-02-06T10:00:00Z"
 }
 ```
 
+**Security Note:** The `access_token` and `webhook_secret` fields are never included in API responses for security reasons.
+
 ### POST /api/repositories/:id/initialize
 
-Initialize repository with vibe-dev branch and required labels.
+Re-initialize repository branch and labels (if needed after manual changes).
 
 **Request:**
 ```json
@@ -108,6 +187,8 @@ Initialize repository with vibe-dev branch and required labels.
   "has_required_labels": true
 }
 ```
+
+**Note:** This endpoint is typically not needed since `POST /api/repositories` automatically initializes the repository. Use this only if you need to re-create branches or labels after manual changes.
 
 ### POST /api/repositories/batch-initialize
 
@@ -144,6 +225,8 @@ Batch initialize multiple repositories.
   ]
 }
 ```
+
+**Note:** This endpoint operates on repository IDs, not provider IDs. Provider-level batch operations have been removed.
 
 ---
 
@@ -350,22 +433,23 @@ Manually close the issue associated with a task.
 
 The following endpoints were removed in the simplified MVP:
 
-### Settings Module
-- ~~GET /api/settings/providers~~ (configured via environment variables)
-- ~~POST /api/settings/providers~~ (configured via environment variables)
-- ~~GET /api/settings/providers/:id~~ (configured via environment variables)
-- ~~PUT /api/settings/providers/:id~~ (configured via environment variables)
-- ~~DELETE /api/settings/providers/:id~~ (configured via environment variables)
-- ~~POST /api/settings/providers/:id/validate~~ (configured via environment variables)
-- ~~POST /api/settings/providers/:id/sync~~ (configured via environment variables)
-- ~~GET /api/settings/workspace/image~~ (use default Docker images)
-- ~~DELETE /api/settings/workspace/image~~ (use default Docker images)
-- ~~POST /api/settings/workspace/image/rebuild~~ (use default Docker images)
+### Settings Module (Removed - Use Environment Variables)
+- ~~GET /api/settings/providers~~ - Provider configuration now per-repository
+- ~~POST /api/settings/providers~~ - Use `POST /api/repositories` with provider config
+- ~~GET /api/settings/providers/:id~~ - Provider info included in repository response
+- ~~PUT /api/settings/providers/:id~~ - Update repository record directly
+- ~~DELETE /api/settings/providers/:id~~ - No separate provider entity
+- ~~POST /api/settings/providers/:id/validate~~ - Validation happens during repository creation
+- ~~POST /api/settings/providers/:id/sync~~ - No auto-discovery, use `POST /api/repositories`
+- ~~GET /api/settings/workspace/image~~ - Use default Docker images
+- ~~DELETE /api/settings/workspace/image~~ - Use default Docker images
+- ~~POST /api/settings/workspace/image/rebuild~~ - Use default Docker images
 
 ### Repository Module
-- ~~POST /api/repositories/:id/refresh~~ (validation happens automatically)
-- ~~PATCH /api/repositories/:id/polling~~ (no issue polling service)
-- ~~POST /api/repositories/:id/poll-issues~~ (no issue polling service)
+- ~~POST /api/repositories/:id/refresh~~ - Validation happens automatically
+- ~~PATCH /api/repositories/:id/polling~~ - No issue polling service
+- ~~POST /api/repositories/:id/poll-issues~~ - No issue polling service
+- ~~GET /api/repositories?provider_id=X~~ - Filter by provider_id removed (no provider entity)
 
 ### Workspace Module
 - ~~POST /api/workspaces~~ (workspaces created automatically)

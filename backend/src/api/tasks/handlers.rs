@@ -232,8 +232,6 @@ pub async fn delete_task(
     Ok(StatusCode::NO_CONTENT)
 }
 
-
-
 /// Start task execution
 #[utoipa::path(
     post,
@@ -314,8 +312,6 @@ pub async fn fail_task(
 
     Ok(Json(task.into()))
 }
-
-
 
 /// Cancel a task
 #[utoipa::path(
@@ -1042,34 +1038,21 @@ mod tests {
     }
 
     async fn create_test_repository(state: &Arc<AppState>) -> crate::entities::repository::Model {
-        use crate::entities::{prelude::*, repo_provider, repository};
-        use sea_orm::{EntityTrait, Set};
+        use crate::test_utils::create_test_repository as create_repo;
 
-        let provider = repo_provider::ActiveModel {
-            name: Set(format!("Test Provider {}", uuid::Uuid::new_v4())),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://git.example.com".to_string()),
-            access_token: Set("test-token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = RepoProvider::insert(provider)
-            .exec(&state.db)
-            .await
-            .unwrap();
+        let repo_name = format!("test-repo-{}", uuid::Uuid::new_v4());
+        let full_name = format!("owner/{}", repo_name);
 
-        let repo = repository::ActiveModel {
-            name: Set(format!("test-repo-{}", uuid::Uuid::new_v4())),
-            full_name: Set(format!("owner/test-repo-{}", uuid::Uuid::new_v4())),
-            clone_url: Set("https://git.example.com/owner/test-repo.git".to_string()),
-            default_branch: Set("main".to_string()),
-            provider_id: Set(provider.last_insert_id),
-            ..Default::default()
-        };
-        Repository::insert(repo)
-            .exec_with_returning(&state.db)
-            .await
-            .unwrap()
+        create_repo(
+            &state.db,
+            &repo_name,
+            &full_name,
+            "gitea",
+            "https://git.example.com",
+            "test-token",
+        )
+        .await
+        .unwrap()
     }
 
     async fn create_test_task(

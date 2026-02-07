@@ -15,24 +15,15 @@ async fn test_migration_adds_status_field_with_default() {
         .await
         .expect("Failed to create test state");
 
-    // Create a test provider first
-    use vibe_repo::entities::repo_provider;
-    let provider = repo_provider::ActiveModel {
-        name: Set("Test Provider".to_string()),
-        provider_type: Set(repo_provider::ProviderType::Gitea),
-        base_url: Set("https://gitea.example.com".to_string()),
-        access_token: Set("test_token_12345678".to_string()),
-        locked: Set(false),
-        ..Default::default()
-    };
-    let provider = provider.insert(&state.db).await.unwrap();
-
     // Create a repository without explicitly setting status
     let repo = repository::ActiveModel {
-        provider_id: Set(provider.id),
         name: Set("test-repo".to_string()),
         full_name: Set("owner/test-repo".to_string()),
-        clone_url: Set("https://gitea.example.com/owner/test-repo.git".to_string()),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set("test_token_12345678".to_string()),
+        webhook_secret: Set(Some("test_secret".to_string())),
+        clone_url: Set("https://api.github.com/owner/test-repo.git".to_string()),
         default_branch: Set("main".to_string()),
         branches: Set(serde_json::json!(["main"])),
         validation_status: Set(repository::ValidationStatus::Pending),
@@ -58,24 +49,15 @@ async fn test_migration_adds_has_workspace_field_with_default() {
         .await
         .expect("Failed to create test state");
 
-    // Create a test provider first
-    use vibe_repo::entities::repo_provider;
-    let provider = repo_provider::ActiveModel {
-        name: Set("Test Provider".to_string()),
-        provider_type: Set(repo_provider::ProviderType::Gitea),
-        base_url: Set("https://gitea.example.com".to_string()),
-        access_token: Set("test_token_12345678".to_string()),
-        locked: Set(false),
-        ..Default::default()
-    };
-    let provider = provider.insert(&state.db).await.unwrap();
-
     // Create a repository without explicitly setting has_workspace
     let repo = repository::ActiveModel {
-        provider_id: Set(provider.id),
         name: Set("test-repo".to_string()),
         full_name: Set("owner/test-repo".to_string()),
-        clone_url: Set("https://gitea.example.com/owner/test-repo.git".to_string()),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set("test_token_12345678".to_string()),
+        webhook_secret: Set(Some("test_secret".to_string())),
+        clone_url: Set("https://api.github.com/owner/test-repo.git".to_string()),
         default_branch: Set("main".to_string()),
         branches: Set(serde_json::json!(["main"])),
         validation_status: Set(repository::ValidationStatus::Pending),
@@ -101,24 +83,15 @@ async fn test_migration_adds_deleted_at_field_nullable() {
         .await
         .expect("Failed to create test state");
 
-    // Create a test provider first
-    use vibe_repo::entities::repo_provider;
-    let provider = repo_provider::ActiveModel {
-        name: Set("Test Provider".to_string()),
-        provider_type: Set(repo_provider::ProviderType::Gitea),
-        base_url: Set("https://gitea.example.com".to_string()),
-        access_token: Set("test_token_12345678".to_string()),
-        locked: Set(false),
-        ..Default::default()
-    };
-    let provider = provider.insert(&state.db).await.unwrap();
-
     // Create a repository without explicitly setting deleted_at
     let repo = repository::ActiveModel {
-        provider_id: Set(provider.id),
         name: Set("test-repo".to_string()),
         full_name: Set("owner/test-repo".to_string()),
-        clone_url: Set("https://gitea.example.com/owner/test-repo.git".to_string()),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set("test_token_12345678".to_string()),
+        webhook_secret: Set(Some("test_secret".to_string())),
+        clone_url: Set("https://api.github.com/owner/test-repo.git".to_string()),
         default_branch: Set("main".to_string()),
         branches: Set(serde_json::json!(["main"])),
         validation_status: Set(repository::ValidationStatus::Pending),
@@ -144,24 +117,15 @@ async fn test_can_query_by_status() {
         .await
         .expect("Failed to create test state");
 
-    // Create a test provider first
-    use vibe_repo::entities::repo_provider;
-    let provider = repo_provider::ActiveModel {
-        name: Set("Test Provider".to_string()),
-        provider_type: Set(repo_provider::ProviderType::Gitea),
-        base_url: Set("https://gitea.example.com".to_string()),
-        access_token: Set("test_token_12345678".to_string()),
-        locked: Set(false),
-        ..Default::default()
-    };
-    let provider = provider.insert(&state.db).await.unwrap();
-
     // Create repositories with different statuses
     let repo1 = repository::ActiveModel {
-        provider_id: Set(provider.id),
         name: Set("repo1".to_string()),
         full_name: Set("owner/repo1".to_string()),
-        clone_url: Set("https://gitea.example.com/owner/repo1.git".to_string()),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set("test_token_1".to_string()),
+        webhook_secret: Set(Some("test_secret_1".to_string())),
+        clone_url: Set("https://api.github.com/owner/repo1.git".to_string()),
         default_branch: Set("main".to_string()),
         branches: Set(serde_json::json!(["main"])),
         validation_status: Set(repository::ValidationStatus::Pending),
@@ -176,10 +140,13 @@ async fn test_can_query_by_status() {
     repo1.insert(&state.db).await.unwrap();
 
     let repo2 = repository::ActiveModel {
-        provider_id: Set(provider.id),
         name: Set("repo2".to_string()),
         full_name: Set("owner/repo2".to_string()),
-        clone_url: Set("https://gitea.example.com/owner/repo2.git".to_string()),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set("test_token_2".to_string()),
+        webhook_secret: Set(Some("test_secret_2".to_string())),
+        clone_url: Set("https://api.github.com/owner/repo2.git".to_string()),
         default_branch: Set("main".to_string()),
         branches: Set(serde_json::json!(["main"])),
         validation_status: Set(repository::ValidationStatus::Valid),
@@ -221,24 +188,15 @@ async fn test_can_query_by_has_workspace() {
         .await
         .expect("Failed to create test state");
 
-    // Create a test provider first
-    use vibe_repo::entities::repo_provider;
-    let provider = repo_provider::ActiveModel {
-        name: Set("Test Provider".to_string()),
-        provider_type: Set(repo_provider::ProviderType::Gitea),
-        base_url: Set("https://gitea.example.com".to_string()),
-        access_token: Set("test_token_12345678".to_string()),
-        locked: Set(false),
-        ..Default::default()
-    };
-    let provider = provider.insert(&state.db).await.unwrap();
-
     // Create repositories with different has_workspace values
     let repo1 = repository::ActiveModel {
-        provider_id: Set(provider.id),
         name: Set("repo1".to_string()),
         full_name: Set("owner/repo1".to_string()),
-        clone_url: Set("https://gitea.example.com/owner/repo1.git".to_string()),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set("test_token_1".to_string()),
+        webhook_secret: Set(Some("test_secret_1".to_string())),
+        clone_url: Set("https://api.github.com/owner/repo1.git".to_string()),
         default_branch: Set("main".to_string()),
         branches: Set(serde_json::json!(["main"])),
         validation_status: Set(repository::ValidationStatus::Valid),
@@ -254,10 +212,13 @@ async fn test_can_query_by_has_workspace() {
     repo1.insert(&state.db).await.unwrap();
 
     let repo2 = repository::ActiveModel {
-        provider_id: Set(provider.id),
         name: Set("repo2".to_string()),
         full_name: Set("owner/repo2".to_string()),
-        clone_url: Set("https://gitea.example.com/owner/repo2.git".to_string()),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set("test_token_2".to_string()),
+        webhook_secret: Set(Some("test_secret_2".to_string())),
+        clone_url: Set("https://api.github.com/owner/repo2.git".to_string()),
         default_branch: Set("main".to_string()),
         branches: Set(serde_json::json!(["main"])),
         validation_status: Set(repository::ValidationStatus::Valid),
@@ -300,24 +261,15 @@ async fn test_can_filter_soft_deleted_repositories() {
         .await
         .expect("Failed to create test state");
 
-    // Create a test provider first
-    use vibe_repo::entities::repo_provider;
-    let provider = repo_provider::ActiveModel {
-        name: Set("Test Provider".to_string()),
-        provider_type: Set(repo_provider::ProviderType::Gitea),
-        base_url: Set("https://gitea.example.com".to_string()),
-        access_token: Set("test_token_12345678".to_string()),
-        locked: Set(false),
-        ..Default::default()
-    };
-    let provider = provider.insert(&state.db).await.unwrap();
-
     // Create a normal repository
     let repo1 = repository::ActiveModel {
-        provider_id: Set(provider.id),
         name: Set("repo1".to_string()),
         full_name: Set("owner/repo1".to_string()),
-        clone_url: Set("https://gitea.example.com/owner/repo1.git".to_string()),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set("test_token_1".to_string()),
+        webhook_secret: Set(Some("test_secret_1".to_string())),
+        clone_url: Set("https://api.github.com/owner/repo1.git".to_string()),
         default_branch: Set("main".to_string()),
         branches: Set(serde_json::json!(["main"])),
         validation_status: Set(repository::ValidationStatus::Valid),
@@ -336,10 +288,13 @@ async fn test_can_filter_soft_deleted_repositories() {
     // Create a soft-deleted repository
     use chrono::Utc;
     let repo2 = repository::ActiveModel {
-        provider_id: Set(provider.id),
         name: Set("repo2".to_string()),
         full_name: Set("owner/repo2".to_string()),
-        clone_url: Set("https://gitea.example.com/owner/repo2.git".to_string()),
+        provider_type: Set("github".to_string()),
+        provider_base_url: Set("https://api.github.com".to_string()),
+        access_token: Set("test_token_2".to_string()),
+        webhook_secret: Set(Some("test_secret_2".to_string())),
+        clone_url: Set("https://api.github.com/owner/repo2.git".to_string()),
         default_branch: Set("main".to_string()),
         branches: Set(serde_json::json!(["main"])),
         validation_status: Set(repository::ValidationStatus::Valid),

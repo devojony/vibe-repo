@@ -5,10 +5,7 @@
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
-use crate::config::{
-    AgentConfig, AppConfig, DatabaseConfig, GitProviderConfig, IssuePollingConfig, ServerConfig,
-    WebhookConfig, WorkspaceConfig,
-};
+use crate::config::AppConfig;
 use crate::services::{DockerService, RepositoryService};
 
 /// Shared application state
@@ -64,7 +61,8 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::config::{
-        DatabaseConfig, IssuePollingConfig, ServerConfig, WebhookConfig, WorkspaceConfig,
+        AgentConfig, DatabaseConfig, GitProviderConfig, IssuePollingConfig, ServerConfig,
+        WebhookConfig, WorkspaceConfig,
     };
     use crate::test_utils::db::create_test_database;
 

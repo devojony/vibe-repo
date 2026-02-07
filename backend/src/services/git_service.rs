@@ -2,9 +2,9 @@
 //!
 //! Handles Git operations for workspaces including cloning, worktree management, and branch operations.
 
-use crate::entities::{prelude::*, repo_provider, repository, workspace};
+use crate::entities::{repository, workspace};
 use crate::error::{Result, VibeRepoError};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::DatabaseConnection;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::fs;
@@ -13,6 +13,7 @@ use tracing::{error, info, warn};
 
 #[derive(Clone)]
 pub struct GitService {
+    #[allow(dead_code)]
     db: DatabaseConnection,
     workspace_base_dir: String,
 }
@@ -115,24 +116,8 @@ impl GitService {
             return Ok(());
         }
 
-        // Get repository provider for authentication
-        let repo_provider = Repository::find()
-            .filter(repository::Column::Id.eq(repository.id))
-            .find_also_related(repo_provider::Entity)
-            .one(&self.db)
-            .await
-            .map_err(VibeRepoError::Database)?
-            .and_then(|(_, provider)| provider)
-            .ok_or_else(|| {
-                VibeRepoError::NotFound(format!(
-                    "Repository provider not found for repository {}",
-                    repository.id
-                ))
-            })?;
-
-        // Build clone URL with authentication
-        let clone_url =
-            self.build_authenticated_clone_url(&repository.clone_url, &repo_provider)?;
+        // Build clone URL with authentication using repository fields
+        let clone_url = self.build_authenticated_clone_url(&repository.clone_url, repository)?;
 
         info!(
             workspace_id = workspace.id,
@@ -397,11 +382,11 @@ impl GitService {
         Ok(())
     }
 
-    /// Build authenticated clone URL
+    /// Build authenticated clone URL using repository access token
     fn build_authenticated_clone_url(
         &self,
         clone_url: &str,
-        provider: &crate::entities::repo_provider::Model,
+        repository: &crate::entities::repository::Model,
     ) -> Result<String> {
         // Parse URL
         let url = url::Url::parse(clone_url)
@@ -410,7 +395,7 @@ impl GitService {
         // Build authenticated URL with token
         let mut auth_url = url.clone();
         auth_url
-            .set_username(&provider.access_token)
+            .set_username(&repository.access_token)
             .map_err(|_| VibeRepoError::Internal("Failed to set username in URL".to_string()))?;
         auth_url
             .set_password(Some(""))

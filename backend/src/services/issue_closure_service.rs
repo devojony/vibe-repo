@@ -72,20 +72,8 @@ impl IssueClosureService {
                 ))
             })?;
 
-        // Load provider
-        let provider = RepoProvider::find_by_id(repository.provider_id)
-            .one(&self.db)
-            .await
-            .map_err(VibeRepoError::Database)?
-            .ok_or_else(|| {
-                VibeRepoError::NotFound(format!(
-                    "Provider with id {} not found",
-                    repository.provider_id
-                ))
-            })?;
-
         // Create Git Provider client
-        let git_client = GitClientFactory::from_provider(&provider)?;
+        let git_client = GitClientFactory::from_repository(&repository)?;
 
         // Parse owner and repo from full_name (format: "owner/repo")
         let parts: Vec<&str> = repository.full_name.split('/').collect();
@@ -241,7 +229,7 @@ impl IssueClosureService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::{repo_provider, repository, workspace};
+    use crate::entities::{repository, workspace};
     use crate::test_utils::db::TestDatabase;
 
     /// Test close_issue_for_task succeeds when PR was created
@@ -256,7 +244,7 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let (task, _workspace, _repo, _provider) = create_test_task_with_pr(db).await;
+        let (task, _workspace, _repo) = create_test_task_with_pr(db).await;
         let service = IssueClosureService::new(db.clone());
 
         // Act
@@ -290,7 +278,7 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let (task, _workspace, _repo, _provider) = create_test_task_without_pr(db).await;
+        let (task, _workspace, _repo) = create_test_task_without_pr(db).await;
         let service = IssueClosureService::new(db.clone());
 
         // Act
@@ -317,7 +305,7 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let (task, _workspace, _repo, _provider) = create_test_task_with_pr(db).await;
+        let (task, _workspace, _repo) = create_test_task_with_pr(db).await;
         let service = IssueClosureService::new(db.clone());
 
         // Act
@@ -339,7 +327,7 @@ mod tests {
             .expect("Failed to create test database");
         let db = &test_db.connection;
 
-        let (task, _workspace, _repo, _provider) = create_test_task_with_pr(db).await;
+        let (task, _workspace, _repo) = create_test_task_with_pr(db).await;
         let service = IssueClosureService::new(db.clone());
 
         // Act
@@ -379,13 +367,8 @@ mod tests {
 
     async fn create_test_task_with_pr(
         db: &DatabaseConnection,
-    ) -> (
-        task::Model,
-        workspace::Model,
-        repository::Model,
-        repo_provider::Model,
-    ) {
-        let (workspace, repo, provider) = create_test_workspace(db).await;
+    ) -> (task::Model, workspace::Model, repository::Model) {
+        let (workspace, repo) = create_test_workspace(db).await;
 
         let task = task::ActiveModel {
             workspace_id: Set(workspace.id),
@@ -408,18 +391,13 @@ mod tests {
             .await
             .expect("Failed to create task");
 
-        (task, workspace, repo, provider)
+        (task, workspace, repo)
     }
 
     async fn create_test_task_without_pr(
         db: &DatabaseConnection,
-    ) -> (
-        task::Model,
-        workspace::Model,
-        repository::Model,
-        repo_provider::Model,
-    ) {
-        let (workspace, repo, provider) = create_test_workspace(db).await;
+    ) -> (task::Model, workspace::Model, repository::Model) {
+        let (workspace, repo) = create_test_workspace(db).await;
 
         let task = task::ActiveModel {
             workspace_id: Set(workspace.id),
@@ -440,32 +418,21 @@ mod tests {
             .await
             .expect("Failed to create task");
 
-        (task, workspace, repo, provider)
+        (task, workspace, repo)
     }
 
     async fn create_test_workspace(
         db: &DatabaseConnection,
-    ) -> (workspace::Model, repository::Model, repo_provider::Model) {
-        // Create a test provider first
-        let provider = repo_provider::ActiveModel {
-            name: Set(format!("Test Provider {}", uuid::Uuid::new_v4())),
-            provider_type: Set(repo_provider::ProviderType::Gitea),
-            base_url: Set("https://git.example.com".to_string()),
-            access_token: Set("test-token".to_string()),
-            locked: Set(false),
-            ..Default::default()
-        };
-        let provider = RepoProvider::insert(provider)
-            .exec_with_returning(db)
-            .await
-            .expect("Failed to create provider");
-
+    ) -> (workspace::Model, repository::Model) {
+        // Create repository with provider configuration
         let repo = repository::ActiveModel {
             name: Set(format!("test-repo-{}", uuid::Uuid::new_v4())),
             full_name: Set("owner/test-repo".to_string()),
             clone_url: Set("https://git.example.com/owner/test-repo.git".to_string()),
             default_branch: Set("main".to_string()),
-            provider_id: Set(provider.id),
+            provider_type: Set("gitea".to_string()),
+            provider_base_url: Set("https://git.example.com".to_string()),
+            access_token: Set("test-token".to_string()),
             ..Default::default()
         };
         let repo = Repository::insert(repo)
@@ -482,6 +449,6 @@ mod tests {
             .await
             .expect("Failed to create workspace");
 
-        (workspace, repo, provider)
+        (workspace, repo)
     }
 }

@@ -13,15 +13,15 @@ VibeRepo uses SeaORM 1.1 as the ORM layer, supporting both SQLite (development) 
 ## Entity Relationships
 
 ```
-Repository (entity)
+Repository (entity) [self-contained with provider config]
 └── Workspace (entity) [one-to-one]
     ├── Agent (entity) [one-to-one, unique constraint]
     └── Task (entity) [one-to-many]
 ```
 
 **Key Simplifications:**
-- No separate Provider entity (configured via environment variables)
-- No WebhookConfig entity (configured via environment variables)
+- No separate Provider entity (configuration stored in repository)
+- No WebhookConfig entity (webhook_secret stored in repository)
 - No InitScript entity (workspaces use default setup)
 - No TaskExecution entity (logs stored in tasks.last_log field)
 - Single agent per workspace (enforced by unique constraint)
@@ -30,10 +30,14 @@ Repository (entity)
 
 ### repositories
 
-Repository records with validation status.
+Repository records with self-contained provider configuration.
 
 **Fields:**
 - `id` (INTEGER, PRIMARY KEY) - Unique identifier
+- `provider_type` (TEXT, NOT NULL) - Git provider type ('github', 'gitea', 'gitlab')
+- `provider_base_url` (TEXT, NOT NULL) - Provider API base URL
+- `access_token` (TEXT, NOT NULL) - Personal access token for this repository
+- `webhook_secret` (TEXT, NOT NULL) - Unique webhook secret for this repository
 - `name` (TEXT, NOT NULL) - Repository name
 - `full_name` (TEXT, NOT NULL) - Full repository name (owner/repo)
 - `clone_url` (TEXT, NOT NULL) - Git clone URL
@@ -45,6 +49,7 @@ Repository records with validation status.
 - `has_required_labels` (BOOLEAN) - vibe/* labels exist
 - `can_manage_prs` (BOOLEAN) - Token has PR permissions
 - `can_manage_issues` (BOOLEAN) - Token has Issue permissions
+- `webhook_status` (TEXT) - Webhook status ('active', 'inactive', 'failed')
 - `deleted_at` (TIMESTAMP, NULLABLE) - Soft delete timestamp
 - `created_at` (TIMESTAMP) - Creation timestamp
 - `updated_at` (TIMESTAMP) - Last update timestamp
@@ -52,12 +57,23 @@ Repository records with validation status.
 **Relationships:**
 - One-to-one with `workspaces` (CASCADE DELETE)
 
+**New Fields (v0.4.0-mvp):**
+- `provider_type` - Git provider type (replaces provider_id foreign key)
+- `provider_base_url` - Provider API base URL (replaces provider_id foreign key)
+- `access_token` - Per-repository access token (replaces provider-level token)
+- `webhook_secret` - Per-repository webhook secret (replaces webhook_configs table)
+- `webhook_status` - Webhook status tracking (replaces webhook_configs table)
+
 **Removed Fields (from v0.3.0):**
-- ~~`provider_id`~~ (provider configured via environment variables)
-- ~~`webhook_status`~~ (webhooks configured via environment variables)
+- ~~`provider_id`~~ (provider configuration now stored in repository)
 - ~~`polling_enabled`~~ (no issue polling service)
 - ~~`polling_interval_seconds`~~ (no issue polling service)
 - ~~`last_issue_poll_at`~~ (no issue polling service)
+
+**Security Notes:**
+- `access_token` is stored in plaintext (encryption planned for future)
+- `webhook_secret` is stored in plaintext (used for webhook verification)
+- Neither field is ever returned in API responses
 
 ---
 
@@ -203,17 +219,28 @@ The following tables were removed in the simplified MVP:
 
 ### ~~repo_providers~~
 
-**Reason:** Git provider configuration moved to environment variables (GITHUB_TOKEN, GITHUB_BASE_URL, etc.)
+**Reason:** Git provider configuration moved to per-repository storage. Each repository now contains its own `provider_type`, `provider_base_url`, and `access_token` fields.
 
-**Migration:** Configure providers in `.env` file instead of database.
+**Migration:** When adding a repository via `POST /api/repositories`, provide provider configuration in the request body instead of referencing a provider_id.
+
+**Benefits:**
+- Eliminates foreign key dependency and JOIN queries
+- Enables per-repository token management (principle of least privilege)
+- Supports mixed providers (GitHub + Gitea + GitLab in same workspace)
+- Simplifies code: no need to fetch provider before creating GitClient
 
 ---
 
 ### ~~webhook_configs~~
 
-**Reason:** Webhook configuration moved to environment variables (WEBHOOK_SECRET)
+**Reason:** Webhook configuration moved to per-repository storage. Each repository now contains its own `webhook_secret` and `webhook_status` fields.
 
-**Migration:** Configure webhook secret in `.env` file. Webhook URLs are still per-repository (`/api/webhooks/:repository_id`).
+**Migration:** Webhook secrets are automatically generated when adding a repository via `POST /api/repositories`. Each repository has a unique webhook secret.
+
+**Benefits:**
+- Eliminates separate table and foreign key
+- Simplifies webhook verification: single table lookup
+- Reduces query count in webhook handler (hot path)
 
 ---
 
@@ -368,13 +395,16 @@ DATABASE_MAX_CONNECTIONS=20
 | Feature | v0.3.0 | v0.4.0-mvp |
 |---------|--------|------------|
 | **Tables** | 8 tables | 4 tables |
-| **Provider Config** | Database (repo_providers) | Environment variables |
-| **Webhook Config** | Database (webhook_configs) | Environment variables |
+| **Provider Config** | Database (repo_providers) | Per-repository fields |
+| **Webhook Config** | Database (webhook_configs) | Per-repository fields |
 | **Init Scripts** | Database (init_scripts) | Default setup only |
 | **Task Logs** | Separate tables (task_executions, task_logs) | Inline (tasks.last_log) |
 | **Agents per Workspace** | Many | One (unique constraint) |
 | **Task States** | 6 states (including Assigned) | 5 states (no Assigned) |
 | **Task Retry** | Automatic retry with retry_count | No retry mechanism |
+| **Repository Addition** | Auto-sync from provider | Manual addition with config |
+| **Token Management** | One token per provider | One token per repository |
+| **Database Queries** | 2 per operation (repo + provider) | 1 per operation (repo only) |
 
 ---
 

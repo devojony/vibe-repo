@@ -9,11 +9,12 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 ## ✨ Key Features (Simplified MVP)
 
 - **Automated Issue-to-PR Workflow** - Convert issues to pull requests automatically via webhooks
-- **Single Agent per Repository** - Simplified agent management with environment-based configuration
+- **Repository-Centric Architecture** - Each repository is self-contained with its own provider configuration
+- **Single Agent per Repository** - Simplified agent management with automatic assignment
 - **Docker-based Workspaces** - Isolated development environments for each repository
 - **Task Management** - Simple task lifecycle (Pending → Running → Completed/Failed/Cancelled)
-- **Webhook Integration** - GitHub webhook support for automatic task creation
-- **Environment-based Configuration** - All settings via environment variables (no database configuration)
+- **Webhook Integration** - GitHub/Gitea/GitLab webhook support for automatic task creation
+- **Manual Repository Addition** - Explicitly add only the repositories you want to automate
 
 ## 🚀 Quick Start
 
@@ -57,6 +58,10 @@ DATABASE_URL=sqlite:./data/vibe-repo/db/vibe-repo.db?mode=rwc
 DATABASE_MAX_CONNECTIONS=10
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
+DEFAULT_AGENT_COMMAND=opencode
+DEFAULT_AGENT_TIMEOUT=600
+DEFAULT_DOCKER_IMAGE=ubuntu:22.04
+WORKSPACE_BASE_DIR=./data/vibe-repo/workspaces
 RUST_LOG=debug
 EOF
 
@@ -101,7 +106,13 @@ open http://localhost:3000/swagger-ui
 ## 🏗️ Architecture
 
 ```
-Issue Detection (Webhook/Polling)
+Manual Repository Addition
+  ↓
+Repository + Workspace + Agent Creation (Atomic)
+  ↓
+Webhook Setup
+  ↓
+Issue Detection (Webhook)
   ↓
 Task Creation
   ↓
@@ -116,24 +127,34 @@ Issue Closure
 
 **Technology Stack:**
 - **Language**: Rust (Edition 2021)
-- **Framework**: Axum 0.7 with WebSocket
+- **Framework**: Axum 0.7
 - **Database**: SeaORM 1.1 (SQLite/PostgreSQL)
 - **Async Runtime**: Tokio
-- **Testing**: 327 tests (100% passing)
+- **Testing**: 280+ tests (100% passing)
+
+**Architecture Highlights:**
+- Repository-Centric: Each repository is self-contained with provider configuration
+- 2 database tables (down from 4): `repositories`, `workspaces`
+- 1 database query per operation (down from 2)
+- Per-repository token management (principle of least privilege)
+- Support for mixed providers (GitHub + Gitea + GitLab)
 
 ## 🗺️ Roadmap
 
-**Current Status (v0.3.0):**
-- ✅ Complete Issue-to-PR automation (90% done)
-- ✅ Task Scheduler with priority-based execution
-- ✅ Real-time log streaming via WebSocket
-- ✅ Intelligent failure analysis with recommendations
+**Current Status (v0.4.0-mvp):**
+- ✅ Repository-Centric Architecture (2 tables instead of 4)
+- ✅ Manual Repository Addition with Provider Configuration
+- ✅ Per-Repository Token Management
+- ✅ Complete Issue-to-PR Automation
+- ✅ Task Scheduler with Priority-based Execution
+- ✅ Webhook Integration (GitHub/Gitea/GitLab)
 
 **Next Steps:**
-- 🟡 Complete Issue-to-PR Workflow (PR creation)
-- 📋 GitHub/GitLab provider implementations
-- 📋 Task execution metrics dashboard
-- 📋 Multi-Agent coordination
+- 📋 Token Encryption (envelope encryption for access tokens)
+- 📋 Import from URL (auto-detect provider config from clone URL)
+- 📋 Bulk Token Update API
+- 📋 Task Execution Metrics Dashboard
+- 📋 Multi-Agent Coordination
 
 See [full roadmap](./docs/roadmap/README.md) for details.
 
@@ -192,11 +213,12 @@ docs: update user guide
 
 | Metric | Value |
 |--------|-------|
-| Version | 0.3.0 |
-| Tests | 589+ (100% passing) |
-| API Endpoints | 50+ |
-| Database Tables | 10 |
-| Documentation | 55 files |
+| Version | 0.4.0-mvp |
+| Tests | 280+ (100% passing) |
+| API Endpoints | 10 core endpoints |
+| Database Tables | 2 (repositories, workspaces) |
+| Documentation | 60+ files |
+| Architecture | Repository-Centric |
 
 ## 📝 License
 

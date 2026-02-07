@@ -157,20 +157,20 @@ async fn test_openapi_spec_contains_api_info() {
     // Assert: Verify specific values
     assert_eq!(
         info.get("title").unwrap().as_str().unwrap(),
-        "VibeRepo API",
-        "API title should be 'VibeRepo API'"
+        "VibeRepo API - Simplified MVP",
+        "API title should be 'VibeRepo API - Simplified MVP'"
     );
     assert_eq!(
         info.get("version").unwrap().as_str().unwrap(),
-        "0.3.0",
-        "API version should be '0.3.0'"
+        "0.4.0-mvp",
+        "API version should be '0.4.0-mvp'"
     );
 }
 
-/// Test OpenAPI spec documents health endpoint
+/// Test OpenAPI spec documents webhook endpoint basic structure
 /// Requirements: 8.4
 #[tokio::test]
-async fn test_openapi_spec_documents_health_endpoint() {
+async fn test_openapi_spec_documents_webhook_endpoint_basic() {
     // Arrange: Create test state and router
     let state = create_test_state()
         .await
@@ -195,34 +195,21 @@ async fn test_openapi_spec_documents_health_endpoint() {
     let json_value: serde_json::Value =
         serde_json::from_slice(&body_bytes).expect("Response body should be valid JSON");
 
-    // Assert: Paths should contain /health endpoint
+    // Assert: Paths should contain /api/webhooks/{repository_id} endpoint
     let paths = json_value
         .get("paths")
         .expect("OpenAPI spec should contain 'paths' field");
 
     assert!(
-        paths.get("/health").is_some(),
-        "Paths should contain '/health' endpoint"
+        paths.get("/api/webhooks/{repository_id}").is_some(),
+        "Paths should contain '/api/webhooks/{{repository_id}}' endpoint"
     );
 
-    // Assert: Health endpoint should have GET method
-    let health_path = paths.get("/health").unwrap();
+    // Assert: Webhook endpoint should have POST method
+    let webhook_path = paths.get("/api/webhooks/{repository_id}").unwrap();
     assert!(
-        health_path.get("get").is_some(),
-        "Health endpoint should have GET method"
-    );
-
-    // Assert: Components should contain HealthResponse schema
-    let components = json_value
-        .get("components")
-        .expect("OpenAPI spec should contain 'components' field");
-    let schemas = components
-        .get("schemas")
-        .expect("Components should contain 'schemas' field");
-
-    assert!(
-        schemas.get("HealthResponse").is_some(),
-        "Schemas should contain 'HealthResponse'"
+        webhook_path.get("post").is_some(),
+        "Webhook endpoint should have POST method"
     );
 }
 
@@ -341,7 +328,9 @@ async fn test_openapi_spec_documents_repository_endpoints() {
 
 /// Test OpenAPI spec documents 409 Conflict responses for provider endpoints
 /// Requirements: Unique constraint error handling
+/// NOTE: Disabled in MVP - Provider API removed
 #[tokio::test]
+#[ignore = "Provider API removed in MVP"]
 async fn test_openapi_spec_documents_provider_conflict_responses() {
     // Arrange: Create test state and router
     let state = create_test_state()
