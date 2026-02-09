@@ -315,11 +315,7 @@ fn extract_tool_call_update(update: &acp::ToolCallUpdate) -> Option<ToolCallEven
     };
 
     // Extract content as result - fields.content is Option<Vec<ToolCallContent>>
-    let result = if let Some(content_vec) = &update.fields.content {
-        Some(extract_tool_call_content(content_vec))
-    } else {
-        None
-    };
+    let result = update.fields.content.as_ref().map(|content_vec| extract_tool_call_content(content_vec));
 
     // Serialize raw input as args
     let args = update
@@ -357,16 +353,6 @@ fn extract_content_block(block: &acp::ContentBlock) -> String {
         acp::ContentBlock::Resource(_) => "<resource>".to_string(),
         _ => String::new(),
     }
-}
-
-/// Extract text from a list of content blocks
-fn extract_content_text(content: &[acp::ContentBlock]) -> String {
-    content
-        .iter()
-        .map(extract_content_block)
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Extract text from tool call content

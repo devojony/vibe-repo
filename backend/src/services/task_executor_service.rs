@@ -15,7 +15,7 @@ use crate::services::{
 };
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore};
@@ -356,7 +356,7 @@ impl TaskExecutorService {
         task_id: i32,
         workspace: &workspace::Model,
         agent: &agent::Model,
-        worktree_path: &PathBuf,
+        worktree_path: &Path,
     ) -> Result<()> {
         info!(task_id = task_id, "Starting ACP-based task execution");
 
@@ -375,7 +375,7 @@ impl TaskExecutorService {
             api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
             model: None,
             timeout: agent.timeout as u64,
-            working_dir: worktree_path.clone(),
+            working_dir: worktree_path.to_path_buf(),
             container_id: Some(container_id.clone()),
         };
 
@@ -447,22 +447,20 @@ impl TaskExecutorService {
                 drop(store);
                 
                 // Update database
-                if let Ok(task) = Task::find_by_id(task_id).one(&db_clone).await {
-                    if let Some(task) = task {
-                        let mut task_active: task::ActiveModel = task.into();
-                        task_active.events = Set(Some(serde_json::to_value(&events).unwrap_or_default()));
-                        task_active.plans = Set(Some(serde_json::to_value(&plans).unwrap_or_default()));
-                        
-                        if let Err(e) = task_active.update(&db_clone).await {
-                            warn!(task_id = task_id, error = %e, "Failed to update task events in database");
-                        } else {
-                            debug!(
-                                task_id = task_id,
-                                event_count = events.len(),
-                                plan_count = plans.len(),
-                                "Updated task events in database"
-                            );
-                        }
+                if let Ok(Some(task)) = Task::find_by_id(task_id).one(&db_clone).await {
+                    let mut task_active: task::ActiveModel = task.into();
+                    task_active.events = Set(Some(serde_json::to_value(&events).unwrap_or_default()));
+                    task_active.plans = Set(Some(serde_json::to_value(&plans).unwrap_or_default()));
+                    
+                    if let Err(e) = task_active.update(&db_clone).await {
+                        warn!(task_id = task_id, error = %e, "Failed to update task events in database");
+                    } else {
+                        debug!(
+                            task_id = task_id,
+                            event_count = events.len(),
+                            plan_count = plans.len(),
+                            "Updated task events in database"
+                        );
                     }
                 }
             }
@@ -606,7 +604,7 @@ impl TaskExecutorService {
         let task = self.task_service.get_task_by_id(task_id).await?;
         let mut task_active: task::ActiveModel = task.into();
         task_active.task_status = Set(TaskStatus::Cancelled);
-        task_active.completed_at = Set(Some(chrono::Utc::now().into()));
+        task_active.completed_at = Set(Some(chrono::Utc::now()));
         task_active
             .update(&self.db)
             .await
@@ -614,25 +612,6 @@ impl TaskExecutorService {
 
         info!(task_id = task_id, "Task cancelled");
         Ok(())
-    }
-
-    /// Truncate log to specified size limit
-    fn truncate_log(log: &str, max_bytes: usize) -> String {
-        if log.len() <= max_bytes {
-            log.to_string()
-        } else {
-            let truncation_msg = format!(
-                "\n\n... [Log truncated. Original size: {} bytes, showing last {} bytes] ...\n\n",
-                log.len(),
-                max_bytes
-            );
-            let truncation_msg_len = truncation_msg.len();
-            let available_bytes = max_bytes.saturating_sub(truncation_msg_len);
-
-            // Take the last available_bytes from the log
-            let start_pos = log.len().saturating_sub(available_bytes);
-            format!("{}{}", truncation_msg, &log[start_pos..])
-        }
     }
 
     /// Get next pending task for a workspace

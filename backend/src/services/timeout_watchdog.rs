@@ -172,7 +172,7 @@ impl TimeoutWatchdog {
         let task = Task::find_by_id(task_id)
             .one(&self.db)
             .await
-            .map_err(|e| VibeRepoError::Database(e))?
+            .map_err(VibeRepoError::Database)?
             .ok_or_else(|| VibeRepoError::NotFound(format!("Task {} not found", task_id)))?;
 
         let mut task_active: task::ActiveModel = task.into();
@@ -186,7 +186,7 @@ impl TimeoutWatchdog {
         task_active
             .update(&self.db)
             .await
-            .map_err(|e| VibeRepoError::Database(e))?;
+            .map_err(VibeRepoError::Database)?;
 
         info!("Watchdog: Task {} marked as failed", task_id);
         Ok(())

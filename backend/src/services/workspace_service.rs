@@ -338,7 +338,7 @@ impl WorkspaceService {
                     .await
                     .map_err(VibeRepoError::Database)?;
 
-                return Ok((updated_workspace, Some(container)));
+                Ok((updated_workspace, Some(container)))
             }
             Err(e) => {
                 tracing::error!(
@@ -350,7 +350,7 @@ impl WorkspaceService {
                 // Update workspace status to Failed
                 self.mark_workspace_failed(workspace, &e.to_string()).await;
 
-                return Err(e);
+                Err(e)
             }
         }
     }

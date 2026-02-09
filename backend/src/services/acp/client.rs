@@ -469,7 +469,7 @@ impl AcpClient {
                         _ => axum::body::Bytes::new(),
                     }
                 })
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                .map_err(std::io::Error::other)
         });
         
         // into_async_read() returns a futures::io::AsyncRead, which is what ACP expects
