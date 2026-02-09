@@ -149,7 +149,7 @@ mod tests {
             .expect("Failed to create test database");
         let config = AppConfig::default();
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
         AppState::new(db, config, repository_service)
     }
 

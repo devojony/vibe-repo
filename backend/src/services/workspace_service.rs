@@ -233,6 +233,128 @@ impl WorkspaceService {
         Ok((workspace, None))
     }
 
+    /// Create Docker container for an existing workspace
+    ///
+    /// This method is used when a workspace already exists but doesn't have a container yet.
+    /// It's typically called during repository initialization when the workspace was created
+    /// without Docker being available, or when re-initializing a repository.
+    ///
+    /// # Arguments
+    /// * `workspace_id` - The ID of the existing workspace
+    ///
+    /// # Returns
+    /// A tuple of (updated workspace, Option<container>) where container is Some if
+    /// Docker is available and container creation succeeds.
+    pub async fn create_container_for_workspace(
+        &self,
+        workspace_id: i32,
+    ) -> Result<(workspace::Model, Option<container::Model>)> {
+        // Get the existing workspace
+        let workspace = self.get_workspace_by_id(workspace_id).await?;
+
+        // Check if container already exists
+        if workspace.container_id.is_some() {
+            tracing::info!(
+                workspace_id = workspace.id,
+                container_id = ?workspace.container_id,
+                "Container already exists for workspace"
+            );
+            return Ok((workspace, None));
+        }
+
+        // Get repository to access Docker image configuration
+        let repo = Repository::find_by_id(workspace.repository_id)
+            .one(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?
+            .ok_or_else(|| {
+                VibeRepoError::NotFound(format!("Repository {} not found", workspace.repository_id))
+            })?;
+
+        // If Docker is not available, return workspace without container
+        if self.docker.is_none() {
+            tracing::warn!(
+                workspace_id = workspace.id,
+                "Docker not available, cannot create container"
+            );
+            return Ok((workspace, None));
+        }
+
+        // Use docker_image from repository
+        let image_name = &repo.docker_image;
+        
+        // Ensure image exists
+        match self.ensure_image_exists(image_name).await {
+            Ok(_) => {
+                tracing::info!(
+                    workspace_id = workspace.id,
+                    image_name = %image_name,
+                    "Image ready for workspace"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    workspace_id = workspace.id,
+                    image_name = %image_name,
+                    error = %e,
+                    "Failed to ensure image exists"
+                );
+
+                // Update workspace status to Failed
+                self.mark_workspace_failed(workspace, &e.to_string()).await;
+
+                return Err(e);
+            }
+        }
+
+        // Create ContainerService and create container
+        let container_service = ContainerService::new(self.db.clone(), self.docker.clone());
+
+        // Use hardcoded resource limits in simplified MVP
+        match container_service
+            .create_and_start_container(
+                workspace.id,
+                image_name,
+                2.0,   // cpu_limit
+                "4GB", // memory_limit
+                None,  // No host directory binding in this flow
+            )
+            .await
+        {
+            Ok(container) => {
+                tracing::info!(
+                    workspace_id = workspace.id,
+                    container_id = %container.container_id,
+                    "Container created and started successfully"
+                );
+
+                // Update workspace status to Active
+                let mut workspace_active: workspace::ActiveModel = workspace.into();
+                workspace_active.workspace_status = Set(workspace_status::ACTIVE.to_string());
+                workspace_active.updated_at = Set(Utc::now());
+
+                let updated_workspace = workspace_active
+                    .update(&self.db)
+                    .await
+                    .map_err(VibeRepoError::Database)?;
+
+                return Ok((updated_workspace, Some(container)));
+            }
+            Err(e) => {
+                tracing::error!(
+                    workspace_id = workspace.id,
+                    error = %e,
+                    "Failed to create container"
+                );
+
+                // Update workspace status to Failed
+                self.mark_workspace_failed(workspace, &e.to_string()).await;
+
+                return Err(e);
+            }
+        }
+    }
+
     /// Ensure Docker image exists, building it if necessary
     ///
     /// Checks if the specified image exists in Docker. If not, builds it using

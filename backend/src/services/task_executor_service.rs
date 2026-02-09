@@ -1,6 +1,6 @@
 //! Task Executor Service
 //!
-//! Executes tasks in Docker containers using AI agents with concurrency control.
+//! Executes tasks using ACP-compatible agents with concurrency control.
 
 use crate::entities::{
     agent,
@@ -9,15 +9,17 @@ use crate::entities::{
     workspace,
 };
 use crate::error::{Result, VibeRepoError};
-use crate::services::{AgentService, GitService, PRCreationService, TaskService};
+use crate::services::{
+    agent_manager::{AgentConfig, AgentManager, AgentType},
+    AgentService, GitService, PRCreationService, TaskService, TimeoutWatchdog,
+};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::collections::HashMap;
-use std::process::Stdio;
+use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Concurrency manager for workspace task execution
 #[derive(Clone)]
@@ -58,6 +60,8 @@ pub struct TaskExecutorService {
     pr_creation_service: PRCreationService,
     concurrency_manager: ConcurrencyManager,
     workspace_base_dir: String,
+    agent_manager: Arc<AgentManager>,
+    timeout_watchdog: Option<Arc<TimeoutWatchdog>>,
 }
 
 impl TaskExecutorService {
@@ -65,6 +69,18 @@ impl TaskExecutorService {
         let task_service = TaskService::new(db.clone());
         let agent_service = AgentService::new(db.clone());
         let pr_creation_service = PRCreationService::new(db.clone());
+        
+        // Create agent manager with default configuration
+        let default_agent_config = AgentConfig {
+            agent_type: AgentType::OpenCode,
+            api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
+            model: None,
+            timeout: 600, // 10 minutes
+            working_dir: PathBuf::from(&workspace_base_dir),
+            container_id: None,
+        };
+        let agent_manager = Arc::new(AgentManager::new(3, default_agent_config));
+        
         Self {
             db,
             task_service,
@@ -72,7 +88,14 @@ impl TaskExecutorService {
             pr_creation_service,
             concurrency_manager: ConcurrencyManager::new(),
             workspace_base_dir,
+            agent_manager,
+            timeout_watchdog: None,
         }
+    }
+
+    /// Set the timeout watchdog (called after service initialization)
+    pub fn set_timeout_watchdog(&mut self, watchdog: Arc<TimeoutWatchdog>) {
+        self.timeout_watchdog = Some(watchdog);
     }
 
     /// Get available execution slots for a workspace
@@ -149,11 +172,11 @@ impl TaskExecutorService {
     ) -> Result<()> {
         let task = self.task_service.get_task_by_id(task_id).await?;
 
-        // Get agent if assigned
+        // Get agent configuration
         let agent = if let Some(agent_id) = task.assigned_agent_id {
             Some(self.agent_service.get_agent_by_id(agent_id).await?)
         } else {
-            // If no agent assigned, try to find a default agent (all agents are enabled in simplified MVP)
+            // If no agent assigned, try to find a default agent
             let agents = self
                 .agent_service
                 .list_agents_by_workspace(workspace.id)
@@ -195,30 +218,18 @@ impl TaskExecutorService {
             ))
         })?;
 
-        match git_service
+        // Create worktree
+        let worktree_path = match git_service
             .create_task_worktree(workspace.id, task_id, &branch_name, container_id)
             .await
         {
-            Ok(worktree_path) => {
+            Ok(path) => {
                 info!(
                     task_id = task_id,
-                    worktree_path = ?worktree_path,
+                    worktree_path = ?path,
                     "Git worktree created successfully"
                 );
-
-                // Update task with branch name
-                let mut task_active: task::ActiveModel = task.clone().into();
-                task_active.branch_name = Set(Some(branch_name.clone()));
-                let _task = task_active
-                    .update(&self.db)
-                    .await
-                    .map_err(VibeRepoError::Database)?;
-
-                info!(
-                    task_id = task_id,
-                    branch_name = %branch_name,
-                    "Updated task with branch name"
-                );
+                path
             }
             Err(e) => {
                 error!(
@@ -231,91 +242,95 @@ impl TaskExecutorService {
                     e
                 )));
             }
-        }
+        };
 
-        // Build command
-        let command = self.build_execution_command(&agent, &task)?;
+        // Update task with branch name
+        let mut task_active: task::ActiveModel = task.clone().into();
+        task_active.branch_name = Set(Some(branch_name.clone()));
+        let _task = task_active
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
 
         info!(
             task_id = task_id,
-            command = %command,
-            "Built execution command"
+            branch_name = %branch_name,
+            "Updated task with branch name"
         );
 
         // Update task status to running
         self.task_service.start_task(task_id).await?;
 
-        // Execute task in container
+        // Execute task using ACP
         match self
-            .execute_in_container(workspace, &agent, &task, &command, task_id)
+            .execute_with_acp(task_id, workspace, &agent, &worktree_path)
             .await
         {
-            Ok(result) => {
+            Ok(()) => {
                 info!(task_id = task_id, "Task execution completed successfully");
 
-                // Store logs in task.last_log (with 10MB limit)
-                let combined_log =
-                    format!("STDOUT:\n{}\n\nSTDERR:\n{}", result.stdout, result.stderr);
-                let truncated_log = Self::truncate_log(&combined_log, 10 * 1024 * 1024); // 10MB limit
+                // Check if we have a branch to create PR from
+                let task = self.task_service.get_task_by_id(task_id).await?;
 
-                // Update task with logs
-                let mut task_active: task::ActiveModel = task.clone().into();
-                task_active.last_log = Set(Some(truncated_log));
-                let _task = task_active
-                    .update(&self.db)
-                    .await
-                    .map_err(VibeRepoError::Database)?;
+                if let Some(branch_name) = &task.branch_name {
+                    // Push branch to remote repository
+                    info!(
+                        task_id,
+                        branch = ?branch_name,
+                        "Pushing branch to remote repository"
+                    );
 
-                // Check if we have PR info from agent output
-                if let Some(pr_info) = result.pr_info {
-                    // Agent created PR, use that info
+                    match git_service
+                        .push_branch(workspace.id, task_id, branch_name, container_id)
+                        .await
+                    {
+                        Ok(()) => {
+                            info!(task_id, branch = ?branch_name, "Branch pushed successfully");
+                        }
+                        Err(e) => {
+                            error!(task_id, branch = ?branch_name, error = %e, "Failed to push branch");
+                            // Mark task as failed if push fails
+                            self.task_service
+                                .fail_task(
+                                    task_id,
+                                    format!("Task completed but failed to push branch: {}", e),
+                                )
+                                .await?;
+                            return Ok(());
+                        }
+                    }
+
+                    // Try to create PR via PRCreationService
+                    info!(
+                        task_id,
+                        branch = ?branch_name,
+                        "Attempting to create PR automatically"
+                    );
+
+                    match self.pr_creation_service.create_pr_for_task(task_id).await {
+                        Ok(()) => {
+                            info!(task_id, "PR created successfully via PRCreationService");
+                        }
+                        Err(e) => {
+                            error!(task_id, error = %e, "Failed to create PR automatically");
+                            // Mark task as failed if PR creation fails
+                            self.task_service
+                                .fail_task(
+                                    task_id,
+                                    format!("Task completed but PR creation failed: {}", e),
+                                )
+                                .await?;
+                        }
+                    }
+                } else {
+                    // No branch - task failed
                     self.task_service
-                        .complete_task(
+                        .fail_task(
                             task_id,
-                            pr_info.pr_number,
-                            pr_info.pr_url.clone(),
-                            pr_info.branch_name.clone(),
+                            "Task completed but no branch was created".to_string(),
                         )
                         .await?;
-                    info!(task_id, "Task completed successfully with PR from agent");
-                } else {
-                    // No PR info from agent, check if we have a branch to create PR from
-                    let task = self.task_service.get_task_by_id(task_id).await?;
-
-                    if let Some(branch_name) = &task.branch_name {
-                        // Try to create PR via PRCreationService
-                        info!(
-                            task_id,
-                            branch = ?branch_name,
-                            "No PR from agent, attempting to create PR automatically"
-                        );
-
-                        match self.pr_creation_service.create_pr_for_task(task_id).await {
-                            Ok(()) => {
-                                info!(task_id, "PR created successfully via PRCreationService");
-                                // Task is now completed (PRCreationService updates it)
-                            }
-                            Err(e) => {
-                                error!(task_id, error = %e, "Failed to create PR automatically");
-                                // Both agent and fallback failed, mark task as failed
-                                self.task_service
-                                    .fail_task(
-                                        task_id,
-                                        format!("Task completed but PR creation failed: {}", e),
-                                    )
-                                    .await?;
-                            }
-                        }
-                    } else {
-                        // No branch and no PR - task failed
-                        self.task_service
-                            .fail_task(
-                                task_id,
-                                "Task completed but no branch or PR was created".to_string(),
-                            )
-                            .await?;
-                        warn!(task_id, "Task completed but no branch or PR info found");
-                    }
+                    warn!(task_id, "Task completed but no branch info found");
                 }
 
                 Ok(())
@@ -327,12 +342,278 @@ impl TaskExecutorService {
                     "Task execution failed"
                 );
 
-                // Mark task as failed (no retry in simplified MVP)
+                // Mark task as failed
                 self.task_service.fail_task(task_id, e.to_string()).await?;
 
                 Err(e)
             }
         }
+    }
+
+    /// Execute task using ACP protocol
+    async fn execute_with_acp(
+        &self,
+        task_id: i32,
+        workspace: &workspace::Model,
+        agent: &agent::Model,
+        worktree_path: &PathBuf,
+    ) -> Result<()> {
+        info!(task_id = task_id, "Starting ACP-based task execution");
+
+        // Get container_id from workspace
+        let container_id = workspace.container_id.as_ref().ok_or_else(|| {
+            VibeRepoError::NotFound(format!(
+                "Container ID not found for workspace {}",
+                workspace.id
+            ))
+        })?;
+
+        // Spawn agent using AgentManager - agent will run in container
+        let task_id_str = format!("task-{}", task_id);
+        let agent_config = AgentConfig {
+            agent_type: AgentType::OpenCode, // TODO: Get from agent.agent_type field
+            api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
+            model: None,
+            timeout: agent.timeout as u64,
+            working_dir: worktree_path.clone(),
+            container_id: Some(container_id.clone()),
+        };
+
+        let agent_handle = self
+            .agent_manager
+            .spawn_agent(task_id_str.clone(), agent_config)
+            .await
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to spawn agent: {}", e)))?;
+
+        info!(task_id = task_id, container_id = %container_id, "Agent spawned successfully in container");
+
+        // Register task with timeout watchdog
+        if let Some(watchdog) = &self.timeout_watchdog {
+            let execution = crate::services::TaskExecution {
+                task_id,
+                started_at: Instant::now(),
+                timeout_seconds: agent.timeout as u64,
+                container_id: container_id.clone(),
+                agent_pid: None, // We don't have the PID yet, will kill all opencode processes
+            };
+            watchdog.register_task(execution).await;
+            info!(task_id = task_id, timeout_seconds = agent.timeout, "Task registered with timeout watchdog");
+        }
+
+        // Initialize agent and create session
+        let session_id = agent_handle
+            .initialize()
+            .await
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to initialize agent: {}", e)))?;
+
+        info!(task_id = task_id, session_id = ?session_id, "Agent initialized with session");
+
+        // Get event store from agent handle
+        let event_store = agent_handle.event_store().await;
+
+        // Build prompt from task
+        let task = self.task_service.get_task_by_id(task_id).await?;
+        let prompt = format!(
+            "Please implement the following GitHub issue:\n\n\
+            Issue #{}: {}\n\n\
+            Description:\n{}\n\n\
+            Instructions:\n\
+            1. Read and understand the issue requirements\n\
+            2. Make the necessary code changes to implement the feature or fix the bug\n\
+            3. Create or modify files as needed\n\
+            4. Test your changes if possible\n\
+            5. When you're done with all code changes, respond with 'Implementation complete'\n\n\
+            Important: Do NOT commit changes or push to git - that will be handled automatically.\n\
+            Focus only on implementing the code changes.",
+            task.issue_number,
+            task.issue_title,
+            task.issue_body.as_ref().unwrap_or(&String::from("No description provided"))
+        );
+
+        info!(task_id = task_id, "Sending prompt to agent");
+
+        // Spawn a background task to periodically update the database with events
+        let db_clone = self.db.clone();
+        let event_store_clone = event_store.clone();
+        let update_task = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(2));
+            loop {
+                interval.tick().await;
+                
+                // Get current events and plans
+                let store = event_store_clone.lock().await;
+                let events = store.get_events();
+                let plans = store.get_plans();
+                drop(store);
+                
+                // Update database
+                if let Ok(task) = Task::find_by_id(task_id).one(&db_clone).await {
+                    if let Some(task) = task {
+                        let mut task_active: task::ActiveModel = task.into();
+                        task_active.events = Set(Some(serde_json::to_value(&events).unwrap_or_default()));
+                        task_active.plans = Set(Some(serde_json::to_value(&plans).unwrap_or_default()));
+                        
+                        if let Err(e) = task_active.update(&db_clone).await {
+                            warn!(task_id = task_id, error = %e, "Failed to update task events in database");
+                        } else {
+                            debug!(
+                                task_id = task_id,
+                                event_count = events.len(),
+                                plan_count = plans.len(),
+                                "Updated task events in database"
+                            );
+                        }
+                    }
+                }
+            }
+        });
+
+        // Send prompt and wait for completion with process-level timeout
+        let timeout_duration = Duration::from_secs(agent.timeout as u64);
+        info!(
+            task_id = task_id,
+            timeout_seconds = agent.timeout,
+            "Sending prompt to agent with process-level timeout"
+        );
+
+        // Use tokio::select! to race between prompt and timeout
+        let result = tokio::select! {
+            prompt_result = agent_handle.prompt(prompt) => {
+                // Prompt completed (either success or error)
+                match prompt_result {
+                    Ok(()) => {
+                        info!(task_id = task_id, "Agent completed successfully");
+                        Ok(())
+                    }
+                    Err(e) => {
+                        error!(task_id = task_id, error = %e, "Agent execution failed");
+                        Err(VibeRepoError::Internal(format!("Agent execution failed: {}", e)))
+                    }
+                }
+            }
+            _ = tokio::time::sleep(timeout_duration) => {
+                // Timeout occurred
+                error!(
+                    task_id = task_id,
+                    timeout_seconds = agent.timeout,
+                    "Agent execution timed out - killing process"
+                );
+                
+                // Kill the agent process
+                if let Err(e) = self.agent_manager.shutdown_agent(&task_id_str, Duration::from_secs(2)).await {
+                    warn!(task_id = task_id, error = %e, "Failed to kill agent process after timeout");
+                }
+                
+                Err(VibeRepoError::Timeout(format!(
+                    "Agent execution timed out after {} seconds",
+                    agent.timeout
+                )))
+            }
+        };
+
+        // Stop the background update task
+        update_task.abort();
+
+        // Final update: Store events and plans to database
+        let events = event_store.lock().await.get_events();
+        let plans = event_store.lock().await.get_plans();
+
+        let mut task_active: task::ActiveModel = task.clone().into();
+        task_active.events = Set(Some(serde_json::to_value(&events).unwrap_or_default()));
+        task_active.plans = Set(Some(serde_json::to_value(&plans).unwrap_or_default()));
+        
+        // Store last message as log
+        if let Some(last_msg) = event_store.lock().await.get_latest_message() {
+            task_active.last_log = Set(Some(last_msg.content));
+        }
+        
+        task_active
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        info!(
+            task_id = task_id,
+            event_count = events.len(),
+            plan_count = plans.len(),
+            "Final update: Stored events and plans to database"
+        );
+
+        // Shutdown agent
+        let shutdown_result = self
+            .agent_manager
+            .shutdown_agent(&task_id_str, Duration::from_secs(5))
+            .await;
+        
+        if let Err(e) = shutdown_result {
+            warn!(task_id = task_id, error = %e, "Failed to shutdown agent gracefully");
+        }
+
+        // Unregister task from timeout watchdog
+        if let Some(watchdog) = &self.timeout_watchdog {
+            watchdog.unregister_task(task_id).await;
+            info!(task_id = task_id, "Task unregistered from timeout watchdog");
+        }
+
+        // Handle the prompt result and update task status accordingly
+        match result {
+            Ok(()) => {
+                info!(task_id = task_id, "Agent prompt completed successfully");
+                Ok(())
+            }
+            Err(e) => {
+                error!(task_id = task_id, error = %e, "Agent prompt failed");
+                
+                // Update task status to failed
+                let error_msg = format!("Agent prompt failed: {}", e);
+                self.task_service.fail_task(task_id, error_msg.clone()).await?;
+                
+                Err(VibeRepoError::Internal(error_msg))
+            }
+        }
+    }
+
+    /// Cancel a running task
+    pub async fn cancel_task(&self, task_id: i32) -> Result<()> {
+        info!(task_id = task_id, "Cancelling task");
+
+        let task_id_str = format!("task-{}", task_id);
+        
+        // Try to cancel via agent manager
+        if let Some(agent_handle) = self.agent_manager.get_agent(&task_id_str).await {
+            info!(task_id = task_id, "Sending cancel request to agent");
+            
+            let result = agent_handle.cancel().await;
+
+            match result {
+                Ok(()) => {
+                    info!(task_id = task_id, "Agent cancelled successfully");
+                }
+                Err(e) => {
+                    warn!(task_id = task_id, error = %e, "Failed to cancel agent gracefully, force killing");
+                    let _ = self.agent_manager.force_kill_agent(&task_id_str).await;
+                }
+            }
+        }
+
+        // Unregister task from timeout watchdog
+        if let Some(watchdog) = &self.timeout_watchdog {
+            watchdog.unregister_task(task_id).await;
+            info!(task_id = task_id, "Task unregistered from timeout watchdog (cancelled)");
+        }
+
+        // Update task status to cancelled
+        let task = self.task_service.get_task_by_id(task_id).await?;
+        let mut task_active: task::ActiveModel = task.into();
+        task_active.task_status = Set(TaskStatus::Cancelled);
+        task_active.completed_at = Set(Some(chrono::Utc::now().into()));
+        task_active
+            .update(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        info!(task_id = task_id, "Task cancelled");
+        Ok(())
     }
 
     /// Truncate log to specified size limit
@@ -352,194 +633,6 @@ impl TaskExecutorService {
             let start_pos = log.len().saturating_sub(available_bytes);
             format!("{}{}", truncation_msg, &log[start_pos..])
         }
-    }
-
-    /// Execute task in Docker container
-    async fn execute_in_container(
-        &self,
-        workspace: &workspace::Model,
-        agent: &agent::Model,
-        task: &task::Model,
-        command: &str,
-        task_id: i32,
-    ) -> Result<ExecutionResult> {
-        info!(
-            workspace_id = workspace.id,
-            agent_id = agent.id,
-            task_id = task.id,
-            "Executing task in container"
-        );
-
-        // Check if container exists
-        let container_id = workspace
-            .container_id
-            .as_ref()
-            .ok_or_else(|| VibeRepoError::Validation("Workspace has no container".to_string()))?;
-
-        // Set working directory to task worktree
-        let work_dir = format!("/workspace/tasks/task-{}", task_id);
-
-        info!(
-            container_id = container_id,
-            work_dir = %work_dir,
-            command = command,
-            "Executing command in container with working directory"
-        );
-
-        // Execute command in container using docker exec with working directory
-        let mut child = Command::new("docker")
-            .args([
-                "exec",
-                "-i",
-                "-w",
-                &work_dir, // Set working directory
-                container_id,
-                "sh",
-                "-c",
-                command,
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| VibeRepoError::Internal(format!("Failed to spawn docker exec: {}", e)))?;
-
-        // Stream output
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| VibeRepoError::Internal("Failed to capture stdout".to_string()))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| VibeRepoError::Internal("Failed to capture stderr".to_string()))?;
-
-        let mut stdout_reader = BufReader::new(stdout).lines();
-        let mut stderr_reader = BufReader::new(stderr).lines();
-
-        // Read output lines
-        let mut stdout_lines = Vec::new();
-        let mut stderr_lines = Vec::new();
-
-        // Read stdout and collect logs
-        while let Ok(Some(line)) = stdout_reader.next_line().await {
-            info!(task_id = task.id, "STDOUT: {}", line);
-
-            // Log message for potential future use
-            let _log_message = serde_json::json!({
-                "type": "log",
-                "task_id": task_id,
-                "stream": "stdout",
-                "message": line.clone(),
-                "timestamp": chrono::Utc::now().to_rfc3339()
-            })
-            .to_string();
-
-            stdout_lines.push(line);
-        }
-
-        // Read stderr and collect logs
-        while let Ok(Some(line)) = stderr_reader.next_line().await {
-            warn!(task_id = task.id, "STDERR: {}", line);
-
-            // Log message for potential future use
-            let _log_message = serde_json::json!({
-                "type": "log",
-                "task_id": task_id,
-                "stream": "stderr",
-                "message": line.clone(),
-                "timestamp": chrono::Utc::now().to_rfc3339()
-            })
-            .to_string();
-
-            stderr_lines.push(line);
-        }
-
-        // Wait for process to complete
-        let status = child
-            .wait()
-            .await
-            .map_err(|e| VibeRepoError::Internal(format!("Failed to wait for process: {}", e)))?;
-
-        let exit_code = status.code();
-
-        // Parse output to extract PR information
-        let pr_info = self.parse_pr_info(&stdout_lines)?;
-
-        Ok(ExecutionResult {
-            exit_code,
-            stdout: stdout_lines.join("\n"),
-            stderr: stderr_lines.join("\n"),
-            pr_info,
-        })
-    }
-
-    /// Build execution command for agent
-    fn build_execution_command(&self, agent: &agent::Model, task: &task::Model) -> Result<String> {
-        // Build environment variables
-        let env_vars = if let Some(env_obj) = agent.env_vars.as_object() {
-            env_obj
-                .iter()
-                .map(|(k, v)| format!("export {}='{}'", k, v.as_str().unwrap_or_default()))
-                .collect::<Vec<_>>()
-                .join(" && ")
-        } else {
-            String::new()
-        };
-
-        // Build task context
-        let task_context = format!(
-            "TASK_ID={} ISSUE_NUMBER={} ISSUE_TITLE='{}' ISSUE_BODY='{}'",
-            task.id,
-            task.issue_number,
-            task.issue_title.replace('\'', "\\'"),
-            task.issue_body
-                .as_ref()
-                .unwrap_or(&String::new())
-                .replace('\'', "\\'")
-        );
-
-        // Combine everything
-        let command = if !env_vars.is_empty() {
-            format!("{} && {} && {}", env_vars, task_context, agent.command)
-        } else {
-            format!("{} && {}", task_context, agent.command)
-        };
-
-        Ok(command)
-    }
-
-    /// Parse PR information from command output
-    fn parse_pr_info(&self, output_lines: &[String]) -> Result<Option<PrInfo>> {
-        // Look for PR information in output
-        // Expected format: "PR_NUMBER=123 PR_URL=https://... BRANCH_NAME=feature/..."
-        for line in output_lines {
-            if line.contains("PR_NUMBER=") && line.contains("PR_URL=") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                let mut pr_number = None;
-                let mut pr_url = None;
-                let mut branch_name = None;
-
-                for part in parts {
-                    if let Some(num) = part.strip_prefix("PR_NUMBER=") {
-                        pr_number = num.parse::<i32>().ok();
-                    } else if let Some(url) = part.strip_prefix("PR_URL=") {
-                        pr_url = Some(url.to_string());
-                    } else if let Some(branch) = part.strip_prefix("BRANCH_NAME=") {
-                        branch_name = Some(branch.to_string());
-                    }
-                }
-
-                if let (Some(num), Some(url), Some(branch)) = (pr_number, pr_url, branch_name) {
-                    return Ok(Some(PrInfo {
-                        pr_number: num,
-                        pr_url: url,
-                        branch_name: branch,
-                    }));
-                }
-            }
-        }
-
-        Ok(None)
     }
 
     /// Get next pending task for a workspace
@@ -565,20 +658,6 @@ impl TaskExecutorService {
 
         Ok(tasks.into_iter().next())
     }
-}
-
-struct ExecutionResult {
-    #[allow(dead_code)]
-    exit_code: Option<i32>,
-    stdout: String,
-    stderr: String,
-    pr_info: Option<PrInfo>,
-}
-
-struct PrInfo {
-    pr_number: i32,
-    pr_url: String,
-    branch_name: String,
 }
 
 #[cfg(test)]
@@ -649,7 +728,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_build_execution_command() {
+    async fn test_cancel_task_updates_status() {
         // Arrange
         let test_db = TestDatabase::new()
             .await
@@ -657,21 +736,8 @@ mod tests {
         let db = &test_db.connection;
 
         let workspace = create_test_workspace(db).await;
-        let agent_service = AgentService::new(db.clone());
         let task_service = TaskService::new(db.clone());
         let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
-
-        let agent = agent_service
-            .create_agent(
-                workspace.id,
-                "Test Agent",
-                "opencode",
-                "opencode solve-issue",
-                json!({"API_KEY": "test-key"}),
-                1800,
-            )
-            .await
-            .unwrap();
 
         let task = task_service
             .create_task(
@@ -685,67 +751,17 @@ mod tests {
             .await
             .unwrap();
 
-        // Act
-        let command = executor.build_execution_command(&agent, &task);
-
-        // Assert
-        assert!(command.is_ok());
-        let cmd = command.unwrap();
-        assert!(cmd.contains("API_KEY='test-key'"));
-        assert!(cmd.contains("TASK_ID="));
-        assert!(cmd.contains("ISSUE_NUMBER=201"));
-        assert!(cmd.contains("opencode solve-issue"));
-    }
-
-    #[tokio::test]
-    async fn test_parse_pr_info_success() {
-        // Arrange
-        let test_db = TestDatabase::new()
-            .await
-            .expect("Failed to create test database");
-        let db = &test_db.connection;
-        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
-
-        let output = vec![
-            "Starting task execution...".to_string(),
-            "PR_NUMBER=123 PR_URL=https://git.example.com/owner/repo/pulls/123 BRANCH_NAME=feature/test".to_string(),
-            "Task completed".to_string(),
-        ];
+        // Start the task first
+        task_service.start_task(task.id).await.unwrap();
 
         // Act
-        let result = executor.parse_pr_info(&output);
+        let result = executor.cancel_task(task.id).await;
 
         // Assert
         assert!(result.is_ok());
-        let pr_info = result.unwrap();
-        assert!(pr_info.is_some());
-        let info = pr_info.unwrap();
-        assert_eq!(info.pr_number, 123);
-        assert_eq!(info.pr_url, "https://git.example.com/owner/repo/pulls/123");
-        assert_eq!(info.branch_name, "feature/test");
-    }
-
-    #[tokio::test]
-    async fn test_parse_pr_info_not_found() {
-        // Arrange
-        let test_db = TestDatabase::new()
-            .await
-            .expect("Failed to create test database");
-        let db = &test_db.connection;
-        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
-
-        let output = vec![
-            "Starting task execution...".to_string(),
-            "Task completed".to_string(),
-        ];
-
-        // Act
-        let result = executor.parse_pr_info(&output);
-
-        // Assert
-        assert!(result.is_ok());
-        let pr_info = result.unwrap();
-        assert!(pr_info.is_none());
+        let updated_task = task_service.get_task_by_id(task.id).await.unwrap();
+        assert_eq!(updated_task.task_status, TaskStatus::Cancelled);
+        assert!(updated_task.completed_at.is_some());
     }
 
     #[tokio::test]

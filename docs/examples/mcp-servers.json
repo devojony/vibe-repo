@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "servers": [
+    {
+      "name": "github",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": [
+        {
+          "name": "GITHUB_TOKEN",
+          "value": "${GITHUB_TOKEN}"
+        }
+      ],
+      "disabled": false
+    },
+    {
+      "name": "custom-tool",
+      "command": "/usr/local/bin/my-mcp-server",
+      "args": ["--config", "/path/to/config.json"],
+      "env": [
+        {
+          "name": "API_KEY",
+          "value": "${MY_API_KEY}"
+        },
+        {
+          "name": "LOG_LEVEL",
+          "value": "info"
+        }
+      ],
+      "disabled": false
+    }
+  ],
+  "metadata": {
+    "description": "Repository-specific MCP servers configuration",
+    "updated_at": "2026-02-09T10:00:00Z"
+  }
+}

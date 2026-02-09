@@ -1,0 +1,1046 @@
+//! Task Executor Service
+//!
+//! Executes tasks in Docker containers using AI agents with concurrency control.
+
+use crate::entities::{
+    agent,
+    prelude::*,
+    task::{self, TaskStatus},
+    workspace,
+};
+use crate::error::{Result, VibeRepoError};
+use crate::services::{AgentService, GitService, PRCreationService, TaskService};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use std::collections::HashMap;
+use std::process::Stdio;
+use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::{Mutex, Semaphore};
+use tracing::{error, info, warn};
+
+/// Concurrency manager for workspace task execution
+#[derive(Clone)]
+struct ConcurrencyManager {
+    semaphores: Arc<Mutex<HashMap<i32, Arc<Semaphore>>>>,
+}
+
+impl ConcurrencyManager {
+    fn new() -> Self {
+        Self {
+            semaphores: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Get or create a semaphore for a workspace
+    async fn get_semaphore(&self, workspace_id: i32, max_concurrent: i32) -> Arc<Semaphore> {
+        let mut semaphores = self.semaphores.lock().await;
+        semaphores
+            .entry(workspace_id)
+            .or_insert_with(|| Arc::new(Semaphore::new(max_concurrent as usize)))
+            .clone()
+    }
+
+    /// Get current available permits for a workspace
+    async fn available_permits(&self, workspace_id: i32) -> Option<usize> {
+        let semaphores = self.semaphores.lock().await;
+        semaphores
+            .get(&workspace_id)
+            .map(|sem| sem.available_permits())
+    }
+}
+
+#[derive(Clone)]
+pub struct TaskExecutorService {
+    db: DatabaseConnection,
+    task_service: TaskService,
+    agent_service: AgentService,
+    pr_creation_service: PRCreationService,
+    concurrency_manager: ConcurrencyManager,
+    workspace_base_dir: String,
+}
+
+impl TaskExecutorService {
+    pub fn new(db: DatabaseConnection, workspace_base_dir: String) -> Self {
+        let task_service = TaskService::new(db.clone());
+        let agent_service = AgentService::new(db.clone());
+        let pr_creation_service = PRCreationService::new(db.clone());
+        Self {
+            db,
+            task_service,
+            agent_service,
+            pr_creation_service,
+            concurrency_manager: ConcurrencyManager::new(),
+            workspace_base_dir,
+        }
+    }
+
+    /// Get available execution slots for a workspace
+    pub async fn get_available_slots(&self, workspace_id: i32) -> Result<usize> {
+        self.concurrency_manager
+            .available_permits(workspace_id)
+            .await
+            .ok_or_else(|| {
+                VibeRepoError::NotFound(format!(
+                    "No concurrency control initialized for workspace {}",
+                    workspace_id
+                ))
+            })
+    }
+
+    /// Execute a task in its workspace container with concurrency control
+    pub async fn execute_task(&self, task_id: i32) -> Result<()> {
+        info!(task_id = task_id, "Starting task execution");
+
+        // Get task details
+        let task = self.task_service.get_task_by_id(task_id).await?;
+
+        // Validate task status
+        if task.task_status != TaskStatus::Pending {
+            return Err(VibeRepoError::Validation(format!(
+                "Task {} is not in a valid state for execution (current: {})",
+                task_id, task.task_status
+            )));
+        }
+
+        // Get workspace
+        let workspace = Workspace::find_by_id(task.workspace_id)
+            .one(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?
+            .ok_or_else(|| {
+                VibeRepoError::NotFound(format!("Workspace {} not found", task.workspace_id))
+            })?;
+
+        // Acquire semaphore permit for concurrency control
+        // Use hardcoded value of 3 for max concurrent tasks in simplified MVP
+        let semaphore = self
+            .concurrency_manager
+            .get_semaphore(workspace.id, 3)
+            .await;
+
+        info!(
+            task_id = task_id,
+            workspace_id = workspace.id,
+            available_permits = semaphore.available_permits(),
+            "Acquiring execution permit"
+        );
+
+        let _permit = semaphore.acquire().await.map_err(|e| {
+            VibeRepoError::Internal(format!("Failed to acquire semaphore permit: {}", e))
+        })?;
+
+        info!(
+            task_id = task_id,
+            workspace_id = workspace.id,
+            remaining_permits = semaphore.available_permits(),
+            "Execution permit acquired"
+        );
+
+        // Execute task (permit will be released when _permit is dropped)
+        self.execute_task_internal(task_id, &workspace).await
+    }
+
+    /// Internal task execution logic (without concurrency control)
+    async fn execute_task_internal(
+        &self,
+        task_id: i32,
+        workspace: &workspace::Model,
+    ) -> Result<()> {
+        let task = self.task_service.get_task_by_id(task_id).await?;
+
+        // Get agent if assigned
+        let agent = if let Some(agent_id) = task.assigned_agent_id {
+            Some(self.agent_service.get_agent_by_id(agent_id).await?)
+        } else {
+            // If no agent assigned, try to find a default agent (all agents are enabled in simplified MVP)
+            let agents = self
+                .agent_service
+                .list_agents_by_workspace(workspace.id)
+                .await?;
+            agents.into_iter().next()
+        };
+
+        let agent = agent.ok_or_else(|| {
+            VibeRepoError::NotFound(format!(
+                "No enabled agent found for workspace {}",
+                workspace.id
+            ))
+        })?;
+
+        // Generate branch name for this task
+        let branch_name = format!("feature/issue-{}", task.issue_number);
+
+        info!(
+            task_id = task_id,
+            branch_name = %branch_name,
+            "Generated branch name for task"
+        );
+
+        // Create git worktree for this task
+        let git_service = GitService::new(self.db.clone(), self.workspace_base_dir.clone());
+
+        info!(
+            task_id = task_id,
+            workspace_id = workspace.id,
+            branch_name = %branch_name,
+            "Creating git worktree for task"
+        );
+
+        // Get container_id from workspace
+        let container_id = workspace.container_id.as_ref().ok_or_else(|| {
+            VibeRepoError::NotFound(format!(
+                "Container ID not found for workspace {}",
+                workspace.id
+            ))
+        })?;
+
+        match git_service
+            .create_task_worktree(workspace.id, task_id, &branch_name, container_id)
+            .await
+        {
+            Ok(worktree_path) => {
+                info!(
+                    task_id = task_id,
+                    worktree_path = ?worktree_path,
+                    "Git worktree created successfully"
+                );
+
+                // Update task with branch name
+                let mut task_active: task::ActiveModel = task.clone().into();
+                task_active.branch_name = Set(Some(branch_name.clone()));
+                let _task = task_active
+                    .update(&self.db)
+                    .await
+                    .map_err(VibeRepoError::Database)?;
+
+                info!(
+                    task_id = task_id,
+                    branch_name = %branch_name,
+                    "Updated task with branch name"
+                );
+            }
+            Err(e) => {
+                error!(
+                    task_id = task_id,
+                    error = %e,
+                    "Failed to create git worktree"
+                );
+                return Err(VibeRepoError::Internal(format!(
+                    "Failed to create git worktree: {}",
+                    e
+                )));
+            }
+        }
+
+        // Build command
+        let command = self.build_execution_command(&agent, &task)?;
+
+        info!(
+            task_id = task_id,
+            command = %command,
+            "Built execution command"
+        );
+
+        // Update task status to running
+        self.task_service.start_task(task_id).await?;
+
+        // Execute task in container
+        match self
+            .execute_in_container(workspace, &agent, &task, &command, task_id)
+            .await
+        {
+            Ok(result) => {
+                info!(task_id = task_id, "Task execution completed successfully");
+
+                // Store logs in task.last_log (with 10MB limit)
+                let combined_log =
+                    format!("STDOUT:\n{}\n\nSTDERR:\n{}", result.stdout, result.stderr);
+                let truncated_log = Self::truncate_log(&combined_log, 10 * 1024 * 1024); // 10MB limit
+
+                // Update task with logs
+                let mut task_active: task::ActiveModel = task.clone().into();
+                task_active.last_log = Set(Some(truncated_log));
+                let _task = task_active
+                    .update(&self.db)
+                    .await
+                    .map_err(VibeRepoError::Database)?;
+
+                // Check if we have PR info from agent output
+                if let Some(pr_info) = result.pr_info {
+                    // Agent created PR, use that info
+                    self.task_service
+                        .complete_task(
+                            task_id,
+                            pr_info.pr_number,
+                            pr_info.pr_url.clone(),
+                            pr_info.branch_name.clone(),
+                        )
+                        .await?;
+                    info!(task_id, "Task completed successfully with PR from agent");
+                } else {
+                    // No PR info from agent, check if we have a branch to create PR from
+                    let task = self.task_service.get_task_by_id(task_id).await?;
+
+                    if let Some(branch_name) = &task.branch_name {
+                        // Try to create PR via PRCreationService
+                        info!(
+                            task_id,
+                            branch = ?branch_name,
+                            "No PR from agent, attempting to create PR automatically"
+                        );
+
+                        match self.pr_creation_service.create_pr_for_task(task_id).await {
+                            Ok(()) => {
+                                info!(task_id, "PR created successfully via PRCreationService");
+                                // Task is now completed (PRCreationService updates it)
+                            }
+                            Err(e) => {
+                                error!(task_id, error = %e, "Failed to create PR automatically");
+                                // Both agent and fallback failed, mark task as failed
+                                self.task_service
+                                    .fail_task(
+                                        task_id,
+                                        format!("Task completed but PR creation failed: {}", e),
+                                    )
+                                    .await?;
+                            }
+                        }
+                    } else {
+                        // No branch and no PR - task failed
+                        self.task_service
+                            .fail_task(
+                                task_id,
+                                "Task completed but no branch or PR was created".to_string(),
+                            )
+                            .await?;
+                        warn!(task_id, "Task completed but no branch or PR info found");
+                    }
+                }
+
+                Ok(())
+            }
+            Err(e) => {
+                error!(
+                    task_id = task_id,
+                    error = %e,
+                    "Task execution failed"
+                );
+
+                // Mark task as failed (no retry in simplified MVP)
+                self.task_service.fail_task(task_id, e.to_string()).await?;
+
+                Err(e)
+            }
+        }
+    }
+
+    /// Truncate log to specified size limit
+    fn truncate_log(log: &str, max_bytes: usize) -> String {
+        if log.len() <= max_bytes {
+            log.to_string()
+        } else {
+            let truncation_msg = format!(
+                "\n\n... [Log truncated. Original size: {} bytes, showing last {} bytes] ...\n\n",
+                log.len(),
+                max_bytes
+            );
+            let truncation_msg_len = truncation_msg.len();
+            let available_bytes = max_bytes.saturating_sub(truncation_msg_len);
+
+            // Take the last available_bytes from the log
+            let start_pos = log.len().saturating_sub(available_bytes);
+            format!("{}{}", truncation_msg, &log[start_pos..])
+        }
+    }
+
+    /// Execute task in Docker container
+    async fn execute_in_container(
+        &self,
+        workspace: &workspace::Model,
+        agent: &agent::Model,
+        task: &task::Model,
+        command: &str,
+        task_id: i32,
+    ) -> Result<ExecutionResult> {
+        info!(
+            workspace_id = workspace.id,
+            agent_id = agent.id,
+            task_id = task.id,
+            "Executing task in container"
+        );
+
+        // Check if container exists
+        let container_id = workspace
+            .container_id
+            .as_ref()
+            .ok_or_else(|| VibeRepoError::Validation("Workspace has no container".to_string()))?;
+
+        // Set working directory to task worktree
+        let work_dir = format!("/workspace/tasks/task-{}", task_id);
+
+        info!(
+            container_id = container_id,
+            work_dir = %work_dir,
+            command = command,
+            "Executing command in container with working directory"
+        );
+
+        // Execute command in container using docker exec with working directory
+        let mut child = Command::new("docker")
+            .args([
+                "exec",
+                "-i",
+                "-w",
+                &work_dir, // Set working directory
+                container_id,
+                "sh",
+                "-c",
+                command,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to spawn docker exec: {}", e)))?;
+
+        // Stream output
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| VibeRepoError::Internal("Failed to capture stdout".to_string()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| VibeRepoError::Internal("Failed to capture stderr".to_string()))?;
+
+        let mut stdout_reader = BufReader::new(stdout).lines();
+        let mut stderr_reader = BufReader::new(stderr).lines();
+
+        // Read output lines
+        let mut stdout_lines = Vec::new();
+        let mut stderr_lines = Vec::new();
+
+        // Read stdout and collect logs
+        while let Ok(Some(line)) = stdout_reader.next_line().await {
+            info!(task_id = task.id, "STDOUT: {}", line);
+
+            // Log message for potential future use
+            let _log_message = serde_json::json!({
+                "type": "log",
+                "task_id": task_id,
+                "stream": "stdout",
+                "message": line.clone(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            })
+            .to_string();
+
+            stdout_lines.push(line);
+        }
+
+        // Read stderr and collect logs
+        while let Ok(Some(line)) = stderr_reader.next_line().await {
+            warn!(task_id = task.id, "STDERR: {}", line);
+
+            // Log message for potential future use
+            let _log_message = serde_json::json!({
+                "type": "log",
+                "task_id": task_id,
+                "stream": "stderr",
+                "message": line.clone(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            })
+            .to_string();
+
+            stderr_lines.push(line);
+        }
+
+        // Wait for process to complete
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to wait for process: {}", e)))?;
+
+        let exit_code = status.code();
+
+        // Parse output to extract PR information
+        let pr_info = self.parse_pr_info(&stdout_lines)?;
+
+        Ok(ExecutionResult {
+            exit_code,
+            stdout: stdout_lines.join("\n"),
+            stderr: stderr_lines.join("\n"),
+            pr_info,
+        })
+    }
+
+    /// Build execution command for agent
+    fn build_execution_command(&self, agent: &agent::Model, task: &task::Model) -> Result<String> {
+        // Build environment variables
+        let env_vars = if let Some(env_obj) = agent.env_vars.as_object() {
+            env_obj
+                .iter()
+                .map(|(k, v)| format!("export {}='{}'", k, v.as_str().unwrap_or_default()))
+                .collect::<Vec<_>>()
+                .join(" && ")
+        } else {
+            String::new()
+        };
+
+        // Build task context
+        let task_context = format!(
+            "TASK_ID={} ISSUE_NUMBER={} ISSUE_TITLE='{}' ISSUE_BODY='{}'",
+            task.id,
+            task.issue_number,
+            task.issue_title.replace('\'', "\\'"),
+            task.issue_body
+                .as_ref()
+                .unwrap_or(&String::new())
+                .replace('\'', "\\'")
+        );
+
+        // Combine everything
+        let command = if !env_vars.is_empty() {
+            format!("{} && {} && {}", env_vars, task_context, agent.command)
+        } else {
+            format!("{} && {}", task_context, agent.command)
+        };
+
+        Ok(command)
+    }
+
+    /// Parse PR information from command output
+    fn parse_pr_info(&self, output_lines: &[String]) -> Result<Option<PrInfo>> {
+        // Look for PR information in output
+        // Expected format: "PR_NUMBER=123 PR_URL=https://... BRANCH_NAME=feature/..."
+        for line in output_lines {
+            if line.contains("PR_NUMBER=") && line.contains("PR_URL=") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                let mut pr_number = None;
+                let mut pr_url = None;
+                let mut branch_name = None;
+
+                for part in parts {
+                    if let Some(num) = part.strip_prefix("PR_NUMBER=") {
+                        pr_number = num.parse::<i32>().ok();
+                    } else if let Some(url) = part.strip_prefix("PR_URL=") {
+                        pr_url = Some(url.to_string());
+                    } else if let Some(branch) = part.strip_prefix("BRANCH_NAME=") {
+                        branch_name = Some(branch.to_string());
+                    }
+                }
+
+                if let (Some(num), Some(url), Some(branch)) = (pr_number, pr_url, branch_name) {
+                    return Ok(Some(PrInfo {
+                        pr_number: num,
+                        pr_url: url,
+                        branch_name: branch,
+                    }));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Get next pending task for a workspace
+    pub async fn get_next_pending_task(&self, workspace_id: i32) -> Result<Option<task::Model>> {
+        let tasks = Task::find()
+            .filter(task::Column::WorkspaceId.eq(workspace_id))
+            .filter(task::Column::TaskStatus.eq(TaskStatus::Pending))
+            .all(&self.db)
+            .await
+            .map_err(VibeRepoError::Database)?;
+
+        // Return highest priority task
+        let mut tasks = tasks;
+        tasks.sort_by(|a, b| {
+            let priority_order = |p: &str| match p {
+                "high" => 0,
+                "medium" => 1,
+                "low" => 2,
+                _ => 3,
+            };
+            priority_order(&a.priority).cmp(&priority_order(&b.priority))
+        });
+
+        Ok(tasks.into_iter().next())
+    }
+}
+
+struct ExecutionResult {
+    #[allow(dead_code)]
+    exit_code: Option<i32>,
+    stdout: String,
+    stderr: String,
+    pr_info: Option<PrInfo>,
+}
+
+struct PrInfo {
+    pr_number: i32,
+    pr_url: String,
+    branch_name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entities::{repository, workspace};
+    use crate::test_utils::db::TestDatabase;
+    use sea_orm::Set;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn test_get_next_pending_task_returns_highest_priority() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let task_service = TaskService::new(db.clone());
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
+
+        // Create tasks with different priorities
+        let _low_task = task_service
+            .create_task(
+                workspace.id,
+                101,
+                "Low priority task".to_string(),
+                None,
+                None,
+                "low".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let high_task = task_service
+            .create_task(
+                workspace.id,
+                102,
+                "High priority task".to_string(),
+                None,
+                None,
+                "high".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let _medium_task = task_service
+            .create_task(
+                workspace.id,
+                103,
+                "Medium priority task".to_string(),
+                None,
+                None,
+                "medium".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act
+        let result = executor.get_next_pending_task(workspace.id).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let next_task = result.unwrap();
+        assert!(next_task.is_some());
+        assert_eq!(next_task.unwrap().id, high_task.id);
+    }
+
+    #[tokio::test]
+    async fn test_build_execution_command() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let agent_service = AgentService::new(db.clone());
+        let task_service = TaskService::new(db.clone());
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
+
+        let agent = agent_service
+            .create_agent(
+                workspace.id,
+                "Test Agent",
+                "opencode",
+                "opencode solve-issue",
+                json!({"API_KEY": "test-key"}),
+                1800,
+            )
+            .await
+            .unwrap();
+
+        let task = task_service
+            .create_task(
+                workspace.id,
+                201,
+                "Test task".to_string(),
+                Some("Task description".to_string()),
+                None,
+                "medium".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Act
+        let command = executor.build_execution_command(&agent, &task);
+
+        // Assert
+        assert!(command.is_ok());
+        let cmd = command.unwrap();
+        assert!(cmd.contains("API_KEY='test-key'"));
+        assert!(cmd.contains("TASK_ID="));
+        assert!(cmd.contains("ISSUE_NUMBER=201"));
+        assert!(cmd.contains("opencode solve-issue"));
+    }
+
+    #[tokio::test]
+    async fn test_parse_pr_info_success() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
+
+        let output = vec![
+            "Starting task execution...".to_string(),
+            "PR_NUMBER=123 PR_URL=https://git.example.com/owner/repo/pulls/123 BRANCH_NAME=feature/test".to_string(),
+            "Task completed".to_string(),
+        ];
+
+        // Act
+        let result = executor.parse_pr_info(&output);
+
+        // Assert
+        assert!(result.is_ok());
+        let pr_info = result.unwrap();
+        assert!(pr_info.is_some());
+        let info = pr_info.unwrap();
+        assert_eq!(info.pr_number, 123);
+        assert_eq!(info.pr_url, "https://git.example.com/owner/repo/pulls/123");
+        assert_eq!(info.branch_name, "feature/test");
+    }
+
+    #[tokio::test]
+    async fn test_parse_pr_info_not_found() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
+
+        let output = vec![
+            "Starting task execution...".to_string(),
+            "Task completed".to_string(),
+        ];
+
+        // Act
+        let result = executor.parse_pr_info(&output);
+
+        // Assert
+        assert!(result.is_ok());
+        let pr_info = result.unwrap();
+        assert!(pr_info.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_manager_creates_semaphore() {
+        // Arrange
+        let manager = ConcurrencyManager::new();
+
+        // Act
+        let semaphore = manager.get_semaphore(1, 3).await;
+
+        // Assert
+        assert_eq!(semaphore.available_permits(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_manager_reuses_semaphore() {
+        // Arrange
+        let manager = ConcurrencyManager::new();
+
+        // Act
+        let sem1 = manager.get_semaphore(1, 3).await;
+        let _permit = sem1.acquire().await.unwrap();
+
+        let sem2 = manager.get_semaphore(1, 3).await;
+
+        // Assert - should be the same semaphore with 2 permits left
+        assert_eq!(sem2.available_permits(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_manager_different_workspaces() {
+        // Arrange
+        let manager = ConcurrencyManager::new();
+
+        // Act
+        let sem1 = manager.get_semaphore(1, 3).await;
+        let _permit1 = sem1.acquire().await.unwrap();
+
+        let sem2 = manager.get_semaphore(2, 5).await;
+
+        // Assert - different workspaces have independent semaphores
+        assert_eq!(sem1.available_permits(), 2);
+        assert_eq!(sem2.available_permits(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_manager_available_permits() {
+        // Arrange
+        let manager = ConcurrencyManager::new();
+
+        // Act - before creating semaphore
+        let before = manager.available_permits(1).await;
+
+        // Create semaphore
+        let _sem = manager.get_semaphore(1, 3).await;
+
+        // Act - after creating semaphore
+        let after = manager.available_permits(1).await;
+
+        // Assert
+        assert!(before.is_none());
+        assert_eq!(after, Some(3));
+    }
+
+    #[tokio::test]
+    async fn test_get_available_slots_returns_error_when_not_initialized() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
+
+        // Act
+        let result = executor.get_available_slots(999).await;
+
+        // Assert
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), VibeRepoError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_get_available_slots_returns_permits_when_initialized() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
+
+        // Initialize semaphore
+        let _sem = executor.concurrency_manager.get_semaphore(1, 3).await;
+
+        // Act
+        let result = executor.get_available_slots(1).await;
+
+        // Assert
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 3);
+    }
+
+    async fn create_test_workspace(db: &DatabaseConnection) -> workspace::Model {
+        let repo = create_test_repository(db).await;
+        let ws = workspace::ActiveModel {
+            repository_id: Set(repo.id),
+            ..Default::default()
+        };
+        Workspace::insert(ws).exec_with_returning(db).await.unwrap()
+    }
+
+    async fn create_test_repository(db: &DatabaseConnection) -> repository::Model {
+        use crate::test_utils::create_test_repository as create_repo;
+
+        let repo_name = format!("test-repo-{}", uuid::Uuid::new_v4());
+        let full_name = format!("owner/{}", repo_name);
+
+        create_repo(
+            db,
+            &repo_name,
+            &full_name,
+            "gitea",
+            "https://git.example.com",
+            "test-token",
+        )
+        .await
+        .unwrap()
+    }
+
+    /// Test execute_task_creates_pr_on_success
+    /// Requirements: Task execution should create PR via PRCreationService when task completes with branch but no PR
+    #[tokio::test]
+    #[ignore] // Requires mock Git provider - this test verifies integration with PRCreationService
+    async fn test_execute_task_creates_pr_on_success() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let agent_service = AgentService::new(db.clone());
+        let task_service = TaskService::new(db.clone());
+
+        // Create agent
+        let _agent = agent_service
+            .create_agent(
+                workspace.id,
+                "Test Agent",
+                "opencode",
+                "echo 'BRANCH_NAME=feature/test-123'", // Simulates agent creating branch but not PR
+                json!({}),
+                1800,
+            )
+            .await
+            .unwrap();
+
+        // Create task
+        let task = task_service
+            .create_task(
+                workspace.id,
+                301,
+                "Test task for PR creation".to_string(),
+                Some("Task body".to_string()),
+                None,
+                "high".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Task is already in pending status, ready for execution
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
+
+        // Act
+        // Note: This test is ignored because it requires a real Docker container
+        // and Git provider to fully test the integration
+        let result = executor.execute_task(task.id).await;
+
+        // Assert
+        assert!(result.is_ok(), "Task execution should succeed");
+        // TODO: When mock is available, verify:
+        // - Task status is "completed"
+        // - Task has pr_number set
+        // - Task has pr_url set
+    }
+
+    /// Test execute_task_skips_pr_if_no_branch
+    /// Requirements: PR creation should be skipped if task has no branch_name
+    #[tokio::test]
+    #[ignore] // Requires mock Git provider
+    async fn test_execute_task_skips_pr_if_no_branch() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let agent_service = AgentService::new(db.clone());
+        let task_service = TaskService::new(db.clone());
+
+        // Create agent
+        let _agent = agent_service
+            .create_agent(
+                workspace.id,
+                "Test Agent",
+                "opencode",
+                "echo 'Task completed'", // No branch or PR info
+                json!({}),
+                1800,
+            )
+            .await
+            .unwrap();
+
+        // Create task
+        let task = task_service
+            .create_task(
+                workspace.id,
+                302,
+                "Test task without branch".to_string(),
+                None,
+                None,
+                "medium".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Task is already in pending status, ready for execution
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
+
+        // Act
+        let result = executor.execute_task(task.id).await;
+
+        // Assert
+        assert!(
+            result.is_ok() || result.is_err(),
+            "Task execution completes"
+        );
+        // TODO: When mock is available, verify:
+        // - PRCreationService.create_pr_for_task was NOT called
+    }
+
+    /// Test execute_task_continues_if_pr_creation_fails
+    /// Requirements: Task should not fail if PR creation fails
+    #[tokio::test]
+    #[ignore] // Requires mock Git provider
+    async fn test_execute_task_continues_if_pr_creation_fails() {
+        // Arrange
+        let test_db = TestDatabase::new()
+            .await
+            .expect("Failed to create test database");
+        let db = &test_db.connection;
+
+        let workspace = create_test_workspace(db).await;
+        let agent_service = AgentService::new(db.clone());
+        let task_service = TaskService::new(db.clone());
+
+        // Create agent
+        let _agent = agent_service
+            .create_agent(
+                workspace.id,
+                "Test Agent",
+                "opencode",
+                "echo 'BRANCH_NAME=feature/nonexistent-branch'", // Branch that doesn't exist
+                json!({}),
+                1800,
+            )
+            .await
+            .unwrap();
+
+        // Create task
+        let task = task_service
+            .create_task(
+                workspace.id,
+                303,
+                "Test task with PR creation failure".to_string(),
+                None,
+                None,
+                "low".to_string(),
+            )
+            .await
+            .unwrap();
+
+        // Task is already in pending status, ready for execution
+        let executor = TaskExecutorService::new(db.clone(), "/tmp/test-workspace".to_string());
+
+        // Act
+        let result = executor.execute_task(task.id).await;
+
+        // Assert
+        assert!(
+            result.is_ok() || result.is_err(),
+            "Task execution completes"
+        );
+        // TODO: When mock is available, verify:
+        // - Task status is "failed" (because PR creation failed)
+        // - Error message mentions PR creation failure
+    }
+}

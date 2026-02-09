@@ -38,6 +38,9 @@ pub enum VibeRepoError {
     #[error("Service unavailable: {0}")]
     ServiceUnavailable(String),
 
+    #[error("Timeout: {0}")]
+    Timeout(String),
+
     #[error("Git provider error: {0}")]
     GitProvider(#[from] crate::git_provider::error::GitProviderError),
 
@@ -97,6 +100,11 @@ impl IntoResponse for VibeRepoError {
             VibeRepoError::ServiceUnavailable(msg) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "SERVICE_UNAVAILABLE",
+                msg.clone(),
+            ),
+            VibeRepoError::Timeout(msg) => (
+                StatusCode::REQUEST_TIMEOUT,
+                "TIMEOUT",
                 msg.clone(),
             ),
             VibeRepoError::InvalidStateTransition { .. } => (

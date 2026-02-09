@@ -11,6 +11,9 @@ API specifications, usage guides, and feature documentation.
 
 - **[User Guide](./api/user-guide.md)** - Complete usage guide with examples for all features
 - **[API Reference](./api/api-reference.md)** - Complete API endpoint reference
+- **[ACP Integration Guide](./api/acp-integration.md)** - Agent Client Protocol integration documentation
+- **[Agent Quick Reference](./api/agent-quick-reference.md)** - Quick reference for agent configuration
+- **[Troubleshooting Guide](./api/troubleshooting.md)** - Common issues and solutions
 - **[Task API Design](./api/task-api-design.md)** - Complete Task API specifications
 - **[Task Management Guide](./api/task-management-guide.md)** - Task lifecycle and execution guide
 - **[Container Lifecycle Management](./api/container-lifecycle-management.md)** - Docker container management
@@ -122,7 +125,7 @@ Development guidelines, coding standards, and best practices.
 
 ## 🔄 Version History
 
-- **v0.4.0-mvp** (2026-02-06) - Simplified MVP: Removed issue polling, init scripts, WebSocket logs, task retry, multi-agent support; Streamlined to core Issue-to-PR automation
+- **v0.4.0-mvp** (2026-02-08) - ACP Integration: Added Agent Client Protocol support, real-time progress tracking, permission system, event streaming; Simplified MVP with core Issue-to-PR automation
 - **v0.3.0** (2026-01-20) - Added Container Lifecycle Management, Issue Polling, Task Automation, Task Scheduler, Concurrency Control, Real-time Logs, Execution History, Failure Analysis
 - **v0.2.0** (2026-01-19) - Added Workspace API, Init Scripts, Agent Management
 - **v0.1.0** (2026-01-17) - Initial release with RepoProvider, Repository, Webhook APIs
@@ -145,5 +148,5 @@ When adding new documentation:
 
 ---
 
-**Last Updated:** 2026-01-21  
+**Last Updated:** 2026-02-08  
 **Maintained By:** VibeRepo Team

@@ -20,7 +20,7 @@ pub async fn create_test_state() -> Result<Arc<AppState>> {
     let db = create_test_database().await?;
     let config = AppConfig::default();
     let config_arc = Arc::new(config.clone());
-    let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
+    let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
     Ok(Arc::new(AppState::new(db, config, repository_service)))
 }
 

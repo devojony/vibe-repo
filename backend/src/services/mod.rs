@@ -2,6 +2,8 @@
 //!
 //! Contains background services and service lifecycle management.
 
+pub mod acp;
+pub mod agent_manager;
 pub mod agent_service;
 pub mod container_config;
 pub mod container_service;
@@ -14,11 +16,13 @@ pub mod service_manager;
 pub mod task_executor_service;
 pub mod task_scheduler_service;
 pub mod task_service;
+pub mod timeout_watchdog;
 pub mod workspace_service;
 
 #[cfg(test)]
 mod tests;
 
+pub use agent_manager::{AgentConfig, AgentHandle, AgentManager, AgentStatus, AgentType, ResourceUsage};
 pub use agent_service::AgentService;
 pub use container_config::ContainerConfig;
 pub use container_service::ContainerService;
@@ -31,4 +35,5 @@ pub use service_manager::{BackgroundService, ServiceManager};
 pub use task_executor_service::TaskExecutorService;
 pub use task_scheduler_service::{SchedulerConfig, TaskSchedulerService};
 pub use task_service::TaskService;
+pub use timeout_watchdog::{TaskExecution, TimeoutWatchdog};
 pub use workspace_service::WorkspaceService;

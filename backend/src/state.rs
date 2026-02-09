@@ -61,8 +61,8 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::config::{
-        AgentConfig, DatabaseConfig, GitProviderConfig, IssuePollingConfig, ServerConfig,
-        WebhookConfig, WorkspaceConfig,
+        AgentConfig, AgentSettings, DatabaseConfig, GitProviderConfig, IssuePollingConfig,
+        ServerConfig, WebhookConfig, WorkspaceConfig,
     };
     use crate::test_utils::db::create_test_database;
 
@@ -91,9 +91,10 @@ mod tests {
             workspace: WorkspaceConfig::default(),
             git_provider: GitProviderConfig::default(),
             agent: AgentConfig::default(),
+            agent_settings: AgentSettings::default(),
         };
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
 
         // Act: Create AppState
         let state = AppState::new(db, config.clone(), repository_service);
@@ -113,7 +114,7 @@ mod tests {
             .expect("Failed to create test database");
         let config = AppConfig::default();
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
 
         // Act: Create AppState and wrap in Arc
         let state = AppState::new(db, config, repository_service);
@@ -160,7 +161,7 @@ mod tests {
             .expect("Failed to create test database");
         let config = AppConfig::default();
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
 
         // Act: Create AppState and clone it
         let state1 = AppState::new(db, config, repository_service);
@@ -182,7 +183,7 @@ mod tests {
             .expect("Failed to create test database");
         let config = AppConfig::default();
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
         let state = Arc::new(AppState::new(db, config, repository_service));
 
         // This test verifies that AppState can be used with Axum's State extractor
@@ -206,7 +207,7 @@ mod tests {
             .expect("Failed to create test database");
         let config = AppConfig::default();
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
 
         // Act: Create AppState (Docker will be initialized if available)
         let state = AppState::new(db, config, repository_service);
@@ -232,7 +233,7 @@ mod tests {
             .expect("Failed to create test database");
         let config = AppConfig::default();
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
 
         // Act: Create AppState
         let state = AppState::new(db, config.clone(), repository_service);

@@ -81,6 +81,41 @@ pub struct TaskListResponse {
     pub total_pages: i32,
 }
 
+/// Response model for task plans
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TaskPlansResponse {
+    pub plans: serde_json::Value,
+}
+
+/// Response model for task events
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TaskEventsResponse {
+    pub events: serde_json::Value,
+}
+
+/// Response model for task progress
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TaskProgressResponse {
+    /// Progress percentage (0.0 to 1.0)
+    pub progress: f32,
+    /// Number of completed steps
+    pub completed_steps: usize,
+    /// Total number of steps
+    pub total_steps: usize,
+}
+
+/// Response model for task status with progress
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TaskStatusResponse {
+    pub task_id: i32,
+    pub status: String,
+    pub progress: Option<f32>,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 impl From<crate::entities::task::Model> for TaskResponse {
     fn from(model: crate::entities::task::Model) -> Self {
         Self {

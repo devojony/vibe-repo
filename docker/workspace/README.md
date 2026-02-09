@@ -9,7 +9,7 @@ The workspace container provides a clean, isolated environment for automated dev
 ## Base Image
 
 - **OS**: Ubuntu 22.04 LTS
-- **Size**: ~200MB (compressed)
+- **Size**: ~1.36GB (with Node.js, Bun, and OpenCode)
 - **Architecture**: amd64
 
 ## Pre-installed Tools
@@ -33,6 +33,16 @@ The workspace container provides a clean, isolated environment for automated dev
 - `unzip` / `zip` - Archive utilities
 - `jq` - JSON processor
 
+### Runtime Environments
+- `Node.js v20.20.0` - JavaScript runtime (LTS)
+- `Bun v1.3.8` - Fast JavaScript runtime and package manager
+
+### AI Coding Agents
+- `OpenCode v1.1.53` - AI coding agent with ACP support
+  - Supports Agent Client Protocol (ACP) for IDE integration
+  - Command: `opencode` for TUI mode
+  - Command: `opencode acp` for ACP mode (JSON-RPC over stdio)
+
 ## Usage
 
 ### Building the Image
@@ -55,19 +65,49 @@ docker run -d --name my-workspace vibe-repo-workspace:latest
 docker exec my-workspace git --version
 ```
 
-## Customization
+## Agent Support
 
-The base image is intentionally minimal. Users can install additional tools using init scripts:
+This image includes OpenCode with full ACP (Agent Client Protocol) support, enabling:
+
+- **Automated Issue-to-PR workflow**: VibeRepo uses OpenCode to convert GitHub Issues into Pull Requests
+- **ACP Communication**: JSON-RPC over stdin/stdout for programmatic control
+- **Fast Startup**: Bun runtime for quick package installation (~1 second)
+- **Node.js Compatibility**: OpenCode runs on Node.js v20 LTS
+
+### Using OpenCode
 
 ```bash
-# Example: Install Node.js
-apt-get update && apt-get install -y nodejs npm
+# Interactive TUI mode
+docker exec <container-id> opencode
 
+# ACP mode (for programmatic control)
+docker exec <container-id> opencode acp
+
+# Check version
+docker exec <container-id> opencode --version
+docker exec <container-id> opencode acp --version
+```
+
+### Performance Metrics
+
+- **Container startup**: ~1.0 second
+- **Bun startup**: ~1.0 second
+- **OpenCode startup**: ~2.7 seconds
+- **Image size**: 1.36GB (includes Node.js, Bun, OpenCode, and dependencies)
+
+## Customization
+
+The image includes Node.js, Bun, and OpenCode pre-installed. Users can install additional tools:
+
+```bash
 # Example: Install Python
 apt-get update && apt-get install -y python3 python3-pip
 
 # Example: Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Example: Install additional npm packages
+bun install -g <package-name>
 ```
 
 ## Design Philosophy
@@ -193,6 +233,13 @@ The container uses `sleep infinity` to stay running. If it exits:
 
 ## Version History
 
+- **v0.4.0-mvp** (2026-02-07): ACP Integration
+  - Added Node.js v20.20.0 LTS
+  - Added Bun v1.3.8 runtime
+  - Added OpenCode v1.1.53 with ACP support
+  - Image size: ~1.36GB (includes AI agent tooling)
+  - Startup time: ~2.7 seconds for OpenCode
+  
 - **v0.3.0** (2026-01-20): Initial workspace image
   - Ubuntu 22.04 base
   - Essential development tools

@@ -98,6 +98,10 @@ pub struct Model {
     pub error_message: Option<String>,
     #[sea_orm(column_type = "Text", nullable)]
     pub last_log: Option<String>,
+    #[sea_orm(column_type = "Json", nullable)]
+    pub plans: Option<Json>,
+    #[sea_orm(column_type = "Json", nullable)]
+    pub events: Option<Json>,
     pub started_at: Option<DateTimeUtc>,
     pub completed_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,

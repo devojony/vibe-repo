@@ -364,11 +364,15 @@ pub async fn execute_task(
     // Get task before execution
     let task = task_service.get_task_by_id(id).await?;
 
-    // Start execution in background
-    tokio::spawn(async move {
-        if let Err(e) = executor.execute_task(id).await {
-            tracing::error!(task_id = id, error = %e, "Task execution failed");
-        }
+    // Start execution in background with LocalSet for ACP support
+    tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Handle::current();
+        let local = tokio::task::LocalSet::new();
+        rt.block_on(local.run_until(async move {
+            if let Err(e) = executor.execute_task(id).await {
+                tracing::error!(task_id = id, error = %e, "Task execution failed");
+            }
+        }));
     });
 
     Ok((StatusCode::ACCEPTED, Json(task.into())))
@@ -410,7 +414,7 @@ pub async fn get_task_logs(
         ("id" = i32, Path, description = "Task ID")
     ),
     responses(
-        (status = 200, description = "Task status retrieved successfully"),
+        (status = 200, description = "Task status retrieved successfully", body = TaskStatusResponse),
         (status = 404, description = "Task not found"),
         (status = 500, description = "Internal server error"),
     ),
@@ -419,19 +423,185 @@ pub async fn get_task_logs(
 pub async fn get_task_status(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i32>,
-) -> Result<Json<serde_json::Value>> {
-    let service = TaskService::new(state.db.clone());
+) -> Result<Json<TaskStatusResponse>> {
+    use crate::services::acp::{calculate_progress, PlanEvent};
 
+    let service = TaskService::new(state.db.clone());
     let task = service.get_task_by_id(id).await?;
 
-    Ok(Json(serde_json::json!({
-        "task_id": task.id,
-        "status": task.task_status.to_string(),
-        "started_at": task.started_at.map(|dt| dt.to_string()),
-        "completed_at": task.completed_at.map(|dt| dt.to_string()),
-        "created_at": task.created_at.to_string(),
-        "updated_at": task.updated_at.to_string()
-    })))
+    // Calculate progress from plans if available
+    let progress = if let Some(plans_json) = &task.plans {
+        // Parse plans from JSON
+        if let Ok(plans) = serde_json::from_value::<Vec<PlanEvent>>(plans_json.clone()) {
+            Some(calculate_progress(&plans))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Ok(Json(TaskStatusResponse {
+        task_id: task.id,
+        status: task.task_status.to_string(),
+        progress,
+        started_at: task.started_at.map(|dt| dt.to_string()),
+        completed_at: task.completed_at.map(|dt| dt.to_string()),
+        created_at: task.created_at.to_string(),
+        updated_at: task.updated_at.to_string(),
+    }))
+}
+
+/// Get task plans
+#[utoipa::path(
+    get,
+    path = "/api/tasks/{id}/plans",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    responses(
+        (status = 200, description = "Task plans retrieved successfully", body = TaskPlansResponse),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn get_task_plans(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<TaskPlansResponse>> {
+    let service = TaskService::new(state.db.clone());
+    let task = service.get_task_by_id(id).await?;
+
+    let plans = task.plans.unwrap_or(serde_json::json!([]));
+
+    Ok(Json(TaskPlansResponse { plans }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EventsQuery {
+    /// Filter by event type (plan, tool_call, message, completed)
+    #[serde(rename = "type")]
+    pub event_type: Option<String>,
+    /// Filter events since this timestamp (ISO 8601 format)
+    pub since: Option<String>,
+    /// Limit number of events returned
+    pub limit: Option<usize>,
+}
+
+/// Get task events
+#[utoipa::path(
+    get,
+    path = "/api/tasks/{id}/events",
+    params(
+        ("id" = i32, Path, description = "Task ID"),
+        ("type" = Option<String>, Query, description = "Filter by event type (plan, tool_call, message, completed)"),
+        ("since" = Option<String>, Query, description = "Filter events since timestamp (ISO 8601)"),
+        ("limit" = Option<usize>, Query, description = "Limit number of events returned"),
+    ),
+    responses(
+        (status = 200, description = "Task events retrieved successfully", body = TaskEventsResponse),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn get_task_events(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+    Query(query): Query<EventsQuery>,
+) -> Result<Json<TaskEventsResponse>> {
+    use crate::services::acp::{filter_events_by_type, AgentEvent};
+    use chrono::{DateTime, Utc};
+
+    let service = TaskService::new(state.db.clone());
+    let task = service.get_task_by_id(id).await?;
+
+    let mut events_value = task.events.unwrap_or(serde_json::json!([]));
+
+    // Parse events for filtering
+    if let Ok(mut events) = serde_json::from_value::<Vec<AgentEvent>>(events_value.clone()) {
+        // Filter by event type
+        if let Some(event_type) = &query.event_type {
+            events = filter_events_by_type(&events, event_type);
+        }
+
+        // Filter by timestamp
+        if let Some(since_str) = &query.since {
+            if let Ok(since) = since_str.parse::<DateTime<Utc>>() {
+                events.retain(|e: &AgentEvent| e.timestamp() >= since);
+            }
+        }
+
+        // Apply limit
+        if let Some(limit) = query.limit {
+            events.truncate(limit);
+        }
+
+        // Convert back to JSON
+        events_value = serde_json::to_value(events).unwrap_or(serde_json::json!([]));
+    }
+
+    Ok(Json(TaskEventsResponse {
+        events: events_value,
+    }))
+}
+
+/// Get task progress
+#[utoipa::path(
+    get,
+    path = "/api/tasks/{id}/progress",
+    params(
+        ("id" = i32, Path, description = "Task ID")
+    ),
+    responses(
+        (status = 200, description = "Task progress retrieved successfully", body = TaskProgressResponse),
+        (status = 404, description = "Task not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "tasks"
+)]
+pub async fn get_task_progress(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> Result<Json<TaskProgressResponse>> {
+    use crate::services::acp::{calculate_progress, PlanEvent, StepStatus};
+
+    let service = TaskService::new(state.db.clone());
+    let task = service.get_task_by_id(id).await?;
+
+    // Calculate progress from plans
+    let (progress, completed_steps, total_steps) = if let Some(plans_json) = &task.plans {
+        // Parse plans from JSON
+        if let Ok(plans) = serde_json::from_value::<Vec<PlanEvent>>(plans_json.clone()) {
+            let progress = calculate_progress(&plans);
+
+            // Get step counts from the latest plan
+            let (completed, total) = if let Some(latest_plan) = plans.last() {
+                let completed = latest_plan
+                    .steps
+                    .iter()
+                    .filter(|s| s.status == StepStatus::Completed)
+                    .count();
+                let total = latest_plan.steps.len();
+                (completed, total)
+            } else {
+                (0, 0)
+            };
+
+            (progress, completed, total)
+        } else {
+            (0.0, 0, 0)
+        }
+    } else {
+        (0.0, 0, 0)
+    };
+
+    Ok(Json(TaskProgressResponse {
+        progress,
+        completed_steps,
+        total_steps,
+    }))
 }
 
 /// Manually create PR for a task
@@ -1016,6 +1186,393 @@ mod tests {
 
         // Act
         let result = close_issue_for_task(State(state), Path(99999)).await;
+
+        // Assert
+        assert!(result.is_err());
+    }
+
+    /// Test get_task_plans endpoint returns plans
+    /// Requirements: ACP Integration - plan retrieval endpoint
+    #[tokio::test]
+    async fn test_get_task_plans_success() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Add some plans to the task
+        use crate::entities::task;
+        use sea_orm::{ActiveModelTrait, Set};
+        let mut task_active: task::ActiveModel = task.into();
+        task_active.plans = Set(Some(serde_json::json!([
+            {
+                "steps": [
+                    {"description": "Step 1", "status": "completed", "index": 0},
+                    {"description": "Step 2", "status": "in_progress", "index": 1}
+                ],
+                "current_step": 1,
+                "status": "active",
+                "timestamp": "2024-01-01T00:00:00Z"
+            }
+        ])));
+        let task = task_active.update(&state.db).await.unwrap();
+
+        // Act
+        let result = get_task_plans(State(state), Path(task.id)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert!(response.plans.is_array());
+        let plans = response.plans.as_array().unwrap();
+        assert_eq!(plans.len(), 1);
+    }
+
+    /// Test get_task_plans endpoint returns empty array when no plans
+    /// Requirements: ACP Integration - plan retrieval endpoint
+    #[tokio::test]
+    async fn test_get_task_plans_empty() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Act
+        let result = get_task_plans(State(state), Path(task.id)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert!(response.plans.is_array());
+        let plans = response.plans.as_array().unwrap();
+        assert_eq!(plans.len(), 0);
+    }
+
+    /// Test get_task_events endpoint returns events
+    /// Requirements: ACP Integration - event retrieval endpoint
+    #[tokio::test]
+    async fn test_get_task_events_success() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Add some events to the task
+        use crate::entities::task;
+        use sea_orm::{ActiveModelTrait, Set};
+        let mut task_active: task::ActiveModel = task.into();
+        task_active.events = Set(Some(serde_json::json!([
+            {
+                "type": "message",
+                "content": "Test message",
+                "role": "agent",
+                "timestamp": "2024-01-01T00:00:00Z"
+            },
+            {
+                "type": "tool_call",
+                "tool_name": "read_file",
+                "title": "Reading file",
+                "args": {},
+                "result": null,
+                "status": "completed",
+                "timestamp": "2024-01-01T00:01:00Z"
+            }
+        ])));
+        let task = task_active.update(&state.db).await.unwrap();
+
+        // Act
+        let result = get_task_events(
+            State(state),
+            Path(task.id),
+            Query(EventsQuery {
+                event_type: None,
+                since: None,
+                limit: None,
+            }),
+        )
+        .await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert!(response.events.is_array());
+        let events = response.events.as_array().unwrap();
+        assert_eq!(events.len(), 2);
+    }
+
+    /// Test get_task_events endpoint with type filter
+    /// Requirements: ACP Integration - event filtering
+    #[tokio::test]
+    async fn test_get_task_events_filter_by_type() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Add some events to the task
+        use crate::entities::task;
+        use sea_orm::{ActiveModelTrait, Set};
+        let mut task_active: task::ActiveModel = task.into();
+        task_active.events = Set(Some(serde_json::json!([
+            {
+                "type": "message",
+                "content": "Test message",
+                "role": "agent",
+                "timestamp": "2024-01-01T00:00:00Z"
+            },
+            {
+                "type": "tool_call",
+                "tool_name": "read_file",
+                "title": "Reading file",
+                "args": {},
+                "result": null,
+                "status": "completed",
+                "timestamp": "2024-01-01T00:01:00Z"
+            }
+        ])));
+        let task = task_active.update(&state.db).await.unwrap();
+
+        // Act
+        let result = get_task_events(
+            State(state),
+            Path(task.id),
+            Query(EventsQuery {
+                event_type: Some("message".to_string()),
+                since: None,
+                limit: None,
+            }),
+        )
+        .await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert!(response.events.is_array());
+        let events = response.events.as_array().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["type"], "message");
+    }
+
+    /// Test get_task_events endpoint with limit
+    /// Requirements: ACP Integration - event filtering
+    #[tokio::test]
+    async fn test_get_task_events_with_limit() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Add some events to the task
+        use crate::entities::task;
+        use sea_orm::{ActiveModelTrait, Set};
+        let mut task_active: task::ActiveModel = task.into();
+        task_active.events = Set(Some(serde_json::json!([
+            {
+                "type": "message",
+                "content": "Message 1",
+                "role": "agent",
+                "timestamp": "2024-01-01T00:00:00Z"
+            },
+            {
+                "type": "message",
+                "content": "Message 2",
+                "role": "agent",
+                "timestamp": "2024-01-01T00:01:00Z"
+            },
+            {
+                "type": "message",
+                "content": "Message 3",
+                "role": "agent",
+                "timestamp": "2024-01-01T00:02:00Z"
+            }
+        ])));
+        let task = task_active.update(&state.db).await.unwrap();
+
+        // Act
+        let result = get_task_events(
+            State(state),
+            Path(task.id),
+            Query(EventsQuery {
+                event_type: None,
+                since: None,
+                limit: Some(2),
+            }),
+        )
+        .await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert!(response.events.is_array());
+        let events = response.events.as_array().unwrap();
+        assert_eq!(events.len(), 2);
+    }
+
+    /// Test get_task_progress endpoint returns progress
+    /// Requirements: ACP Integration - progress tracking endpoint
+    #[tokio::test]
+    async fn test_get_task_progress_success() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Add a plan with progress to the task
+        use crate::entities::task;
+        use sea_orm::{ActiveModelTrait, Set};
+        let mut task_active: task::ActiveModel = task.into();
+        task_active.plans = Set(Some(serde_json::json!([
+            {
+                "steps": [
+                    {"description": "Step 1", "status": "completed", "index": 0},
+                    {"description": "Step 2", "status": "completed", "index": 1},
+                    {"description": "Step 3", "status": "in_progress", "index": 2},
+                    {"description": "Step 4", "status": "pending", "index": 3}
+                ],
+                "current_step": 2,
+                "status": "active",
+                "timestamp": "2024-01-01T00:00:00Z"
+            }
+        ])));
+        let task = task_active.update(&state.db).await.unwrap();
+
+        // Act
+        let result = get_task_progress(State(state), Path(task.id)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.progress, 0.5); // 2 out of 4 completed
+        assert_eq!(response.completed_steps, 2);
+        assert_eq!(response.total_steps, 4);
+    }
+
+    /// Test get_task_progress endpoint returns zero when no plans
+    /// Requirements: ACP Integration - progress tracking endpoint
+    #[tokio::test]
+    async fn test_get_task_progress_no_plans() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Act
+        let result = get_task_progress(State(state), Path(task.id)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.progress, 0.0);
+        assert_eq!(response.completed_steps, 0);
+        assert_eq!(response.total_steps, 0);
+    }
+
+    /// Test get_task_status endpoint includes progress
+    /// Requirements: ACP Integration - status with progress
+    #[tokio::test]
+    async fn test_get_task_status_with_progress() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+        let workspace = create_test_workspace(&state).await;
+        let task = create_test_task(&state, workspace.id).await;
+
+        // Add a plan with progress to the task
+        use crate::entities::task;
+        use sea_orm::{ActiveModelTrait, Set};
+        let mut task_active: task::ActiveModel = task.into();
+        task_active.plans = Set(Some(serde_json::json!([
+            {
+                "steps": [
+                    {"description": "Step 1", "status": "completed", "index": 0},
+                    {"description": "Step 2", "status": "pending", "index": 1}
+                ],
+                "current_step": 1,
+                "status": "active",
+                "timestamp": "2024-01-01T00:00:00Z"
+            }
+        ])));
+        let task = task_active.update(&state.db).await.unwrap();
+
+        // Act
+        let result = get_task_status(State(state), Path(task.id)).await;
+
+        // Assert
+        assert!(result.is_ok());
+        let Json(response) = result.unwrap();
+        assert_eq!(response.task_id, task.id);
+        assert_eq!(response.status, "pending");
+        assert!(response.progress.is_some());
+        assert_eq!(response.progress.unwrap(), 0.5); // 1 out of 2 completed
+    }
+
+    /// Test get_task_plans endpoint returns 404 when task not found
+    /// Requirements: ACP Integration - error handling
+    #[tokio::test]
+    async fn test_get_task_plans_not_found() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+
+        // Act
+        let result = get_task_plans(State(state), Path(99999)).await;
+
+        // Assert
+        assert!(result.is_err());
+    }
+
+    /// Test get_task_events endpoint returns 404 when task not found
+    /// Requirements: ACP Integration - error handling
+    #[tokio::test]
+    async fn test_get_task_events_not_found() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+
+        // Act
+        let result = get_task_events(
+            State(state),
+            Path(99999),
+            Query(EventsQuery {
+                event_type: None,
+                since: None,
+                limit: None,
+            }),
+        )
+        .await;
+
+        // Assert
+        assert!(result.is_err());
+    }
+
+    /// Test get_task_progress endpoint returns 404 when task not found
+    /// Requirements: ACP Integration - error handling
+    #[tokio::test]
+    async fn test_get_task_progress_not_found() {
+        // Arrange
+        let state = create_test_state()
+            .await
+            .expect("Failed to create test state");
+
+        // Act
+        let result = get_task_progress(State(state), Path(99999)).await;
 
         // Assert
         assert!(result.is_err());

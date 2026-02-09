@@ -306,8 +306,8 @@ impl GitService {
             "Git worktree created successfully in container"
         );
 
-        // Return the host path for compatibility
-        Ok(self.get_task_worktree_dir(workspace_id, task_id))
+        // Return the container path (not host path) since agent runs in container
+        Ok(PathBuf::from(worktree_path))
     }
 
     /// Remove a git worktree for a task
@@ -418,5 +418,70 @@ impl GitService {
         } else {
             "***".to_string()
         }
+    }
+
+    /// Push branch to remote repository (executed in container)
+    pub async fn push_branch(
+        &self,
+        workspace_id: i32,
+        task_id: i32,
+        branch_name: &str,
+        container_id: &str,
+    ) -> Result<()> {
+        info!(
+            workspace_id = workspace_id,
+            task_id = task_id,
+            branch_name = branch_name,
+            container_id = %container_id,
+            "Pushing branch to remote repository"
+        );
+
+        let docker_service = crate::services::DockerService::new()?;
+        let worktree_path = format!("/workspace/tasks/task-{}", task_id);
+
+        // Push branch to remote with --set-upstream
+        let push_cmd = vec![
+            "bash".to_string(),
+            "-c".to_string(),
+            format!(
+                "cd {} && git push -u origin {}",
+                worktree_path, branch_name
+            ),
+        ];
+
+        info!(
+            workspace_id = workspace_id,
+            task_id = task_id,
+            branch_name = branch_name,
+            "Executing git push in container"
+        );
+
+        let push_output = docker_service
+            .exec_in_container(container_id, push_cmd, 60)
+            .await?;
+
+        if push_output.exit_code != 0 {
+            error!(
+                workspace_id = workspace_id,
+                task_id = task_id,
+                branch_name = branch_name,
+                stderr = %push_output.stderr,
+                stdout = %push_output.stdout,
+                "Git push failed in container"
+            );
+            return Err(VibeRepoError::Internal(format!(
+                "Git push failed: {}",
+                push_output.stderr
+            )));
+        }
+
+        info!(
+            workspace_id = workspace_id,
+            task_id = task_id,
+            branch_name = branch_name,
+            "Branch pushed successfully to remote"
+        );
+
+        Ok(())
     }
 }

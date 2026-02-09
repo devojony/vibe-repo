@@ -67,6 +67,9 @@ dotenvy = "0.15"
 # HTTP client for Git provider APIs
 reqwest = { version = "0.11", features = ["json"] }
 
+# Regular expressions for environment variable substitution
+regex = "1.10"
+
 # Async trait support
 async-trait = "0.1"
 
@@ -95,6 +98,8 @@ utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 tar = "0.4.44"
 rand = "0.9.2"
+agent-client-protocol = "0.9"
+tokio-util = { version = "0.7", features = ["compat"] }
 
 [dev-dependencies]
 # Testing utilities

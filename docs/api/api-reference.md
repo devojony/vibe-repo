@@ -434,6 +434,230 @@ Manually close the issue associated with a task.
 }
 ```
 
+### GET /api/tasks/:id/status
+
+Get task status with progress information.
+
+**Response:** `200 OK`
+```json
+{
+  "task_id": 1,
+  "status": "running",
+  "progress": 66.67,
+  "started_at": "2026-02-08T10:00:00Z",
+  "completed_at": null,
+  "created_at": "2026-02-08T09:55:00Z"
+}
+```
+
+**Progress Calculation:**
+- Progress is calculated from plan completion: `(completed_steps / total_steps) * 100`
+- Returns `null` if no plan is available
+
+### GET /api/tasks/:id/plans
+
+Retrieve the current execution plan for a task.
+
+**Response:** `200 OK`
+```json
+{
+  "plans": [
+    {
+      "type": "plan",
+      "steps": [
+        {
+          "description": "Analyze issue requirements",
+          "status": "completed",
+          "index": 0
+        },
+        {
+          "description": "Implement authentication logic",
+          "status": "in_progress",
+          "index": 1
+        },
+        {
+          "description": "Write tests",
+          "status": "pending",
+          "index": 2
+        }
+      ],
+      "current_step": 1,
+      "status": "active",
+      "timestamp": "2026-02-08T10:00:00Z"
+    }
+  ]
+}
+```
+
+**Plan Status Values:**
+- `creating` - Plan is being created
+- `active` - Plan is being executed
+- `completed` - Plan is finished
+- `modified` - Plan was updated
+
+**Step Status Values:**
+- `pending` - Not started yet
+- `in_progress` - Currently executing
+- `completed` - Finished successfully
+- `skipped` - Skipped this step
+
+### GET /api/tasks/:id/events
+
+Retrieve events for a task with optional filtering.
+
+**Query Parameters:**
+- `event_type` (optional) - Filter by event type: "plan", "tool_call", "message", "completed"
+- `since` (optional) - Filter events since timestamp (ISO 8601 format)
+- `limit` (optional) - Limit number of events returned
+
+**Examples:**
+
+Get all events:
+```bash
+curl http://localhost:3000/api/tasks/123/events
+```
+
+Get only tool calls:
+```bash
+curl http://localhost:3000/api/tasks/123/events?event_type=tool_call
+```
+
+Get recent events (last 10):
+```bash
+curl http://localhost:3000/api/tasks/123/events?limit=10
+```
+
+Get events since timestamp:
+```bash
+curl "http://localhost:3000/api/tasks/123/events?since=2026-02-08T10:00:00Z"
+```
+
+**Response:** `200 OK`
+```json
+{
+  "events": [
+    {
+      "type": "plan",
+      "steps": [
+        {
+          "description": "Analyze issue",
+          "status": "completed",
+          "index": 0
+        }
+      ],
+      "current_step": 0,
+      "status": "active",
+      "timestamp": "2026-02-08T10:00:00Z"
+    },
+    {
+      "type": "tool_call",
+      "tool_name": "read_file",
+      "args": {
+        "path": "src/main.rs"
+      },
+      "result": "success",
+      "timestamp": "2026-02-08T10:00:30Z"
+    },
+    {
+      "type": "message",
+      "content": "Analyzing code structure",
+      "level": "info",
+      "timestamp": "2026-02-08T10:00:45Z"
+    },
+    {
+      "type": "completed",
+      "success": true,
+      "summary": "Task completed successfully",
+      "timestamp": "2026-02-08T10:05:00Z"
+    }
+  ]
+}
+```
+
+**Event Types:**
+
+1. **Plan Event** - Agent's execution plan
+   ```json
+   {
+     "type": "plan",
+     "steps": [...],
+     "current_step": 1,
+     "status": "active",
+     "timestamp": "2026-02-08T10:00:00Z"
+   }
+   ```
+
+2. **Tool Call Event** - Agent tool execution
+   ```json
+   {
+     "type": "tool_call",
+     "tool_name": "write_file",
+     "args": {"path": "src/auth.rs", "content": "..."},
+     "result": "success",
+     "timestamp": "2026-02-08T10:01:00Z"
+   }
+   ```
+
+3. **Message Event** - Agent message
+   ```json
+   {
+     "type": "message",
+     "content": "Implemented authentication",
+     "level": "info",
+     "timestamp": "2026-02-08T10:02:00Z"
+   }
+   ```
+
+4. **Completed Event** - Task completion
+   ```json
+   {
+     "type": "completed",
+     "success": true,
+     "summary": "Task completed successfully",
+     "timestamp": "2026-02-08T10:05:00Z"
+   }
+   ```
+
+### GET /api/tasks/:id/progress
+
+Get task progress percentage based on plan completion.
+
+**Response:** `200 OK`
+```json
+{
+  "task_id": 1,
+  "progress": 66.67,
+  "total_steps": 3,
+  "completed_steps": 2,
+  "current_step": {
+    "description": "Write tests",
+    "status": "in_progress",
+    "index": 2
+  }
+}
+```
+
+**Progress Calculation:**
+```
+progress = (completed_steps / total_steps) * 100
+```
+
+Returns `0.0` if no plan is available.
+
+### GET /api/tasks/:id/logs
+
+Get task execution logs.
+
+**Response:** `200 OK`
+```json
+{
+  "task_id": 1,
+  "logs": "Task started...\nExecuting step 1...\nCompleted successfully."
+}
+```
+
+**Note:** This endpoint returns the `last_log` field from the task. For real-time progress tracking, use the `/events` endpoint instead.
+
 ---
 
 ## Removed Endpoints (from v0.3.0)

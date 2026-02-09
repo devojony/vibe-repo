@@ -24,6 +24,7 @@ mod m20260121_000001_create_task_executions;
 mod m20260131_000001_validate_task_status_enum;
 mod m20260206_000001_simplify_mvp_schema;
 mod m20260207_000001_per_repo_provider;
+mod m20260207_000002_add_task_acp_fields;
 
 pub struct Migrator;
 
@@ -51,6 +52,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260131_000001_validate_task_status_enum::Migration),
             Box::new(m20260206_000001_simplify_mvp_schema::Migration),
             Box::new(m20260207_000001_per_repo_provider::Migration),
+            Box::new(m20260207_000002_add_task_acp_fields::Migration),
         ]
     }
 }

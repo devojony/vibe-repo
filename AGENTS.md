@@ -28,7 +28,9 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - ✅ Docker-based Workspaces
 - ✅ Single Agent per Repository
 - ✅ Task Management (Simplified State Machine)
-- ✅ Task Execution Engine
+- ✅ Task Execution Engine with ACP Integration
+- ✅ Real-time Agent Progress Tracking (Plans & Events)
+- ✅ Permission-based Security System
 - ✅ PR Creation & Issue Closure
 - ✅ Environment-based Configuration
 
@@ -63,6 +65,9 @@ The system uses a **mention-based workflow** for user control:
 - **Database ORM**: SeaORM 1.1 (supports SQLite and PostgreSQL)
 - **HTTP Client**: Reqwest 0.11 for Git provider APIs
 - **API Documentation**: utoipa 4.x with Swagger UI
+- **Agent Protocol**: Agent Client Protocol (ACP) for structured agent communication
+- **Agent Runtime**: Bun (JavaScript runtime, 10x faster startup than Node.js)
+- **Default Agent**: OpenCode with native ACP support
 - **Testing**: Comprehensive TDD approach with 280+ unit tests
 
 ### Simplified Architecture
@@ -269,10 +274,16 @@ DATABASE_MAX_CONNECTIONS=10
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
 
-# Agent Configuration
+# Agent Configuration (Legacy - for backward compatibility)
 DEFAULT_AGENT_COMMAND=opencode
 DEFAULT_AGENT_TIMEOUT=600
 DEFAULT_DOCKER_IMAGE=ubuntu:22.04
+
+# Agent Settings (ACP Integration)
+AGENT_TYPE=opencode                          # Agent type: "opencode" or "claude-code"
+AGENT_API_KEY=sk-xxx                         # API key for LLM provider (optional)
+AGENT_DEFAULT_MODEL=claude-sonnet-4          # Default model to use
+AGENT_TIMEOUT_SECONDS=600                    # Timeout in seconds (default: 600)
 
 # Workspace Configuration
 WORKSPACE_BASE_DIR=./data/vibe-repo/workspaces
@@ -283,6 +294,37 @@ LOG_FORMAT=human
 ```
 
 **Note:** Git provider configuration (tokens, base URLs) is now stored per-repository in the database, not in environment variables.
+
+### MCP Server Configuration
+
+VibeRepo supports MCP (Model Context Protocol) servers to extend agent capabilities. Configuration can be specified at two levels:
+
+1. **Repository Level** (Priority): `{workspace_dir}/.vibe-repo/mcp-servers.json`
+2. **Global Level** (Fallback): `./data/vibe-repo/config/mcp-servers.json`
+
+**Example Configuration:**
+
+```json
+{
+  "version": "1.0",
+  "servers": [
+    {
+      "name": "github",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": [
+        {
+          "name": "GITHUB_TOKEN",
+          "value": "${GITHUB_TOKEN}"
+        }
+      ],
+      "disabled": false
+    }
+  ]
+}
+```
+
+For complete MCP integration guide, see **[docs/api/mcp-integration.md](./docs/api/mcp-integration.md)**.
 
 ## 📋 Development Standards
 

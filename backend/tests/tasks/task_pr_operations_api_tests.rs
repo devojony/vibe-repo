@@ -25,7 +25,7 @@ async fn create_test_app_with_db(db: DatabaseConnection) -> axum::Router {
     use vibe_repo::state::AppState;
 
     let config = Arc::new(AppConfig::default());
-    let repository_service = Arc::new(RepositoryService::new(db.clone(), config.clone()));
+    let repository_service = Arc::new(RepositoryService::new(db.clone(), config.clone(), None));
     let state = Arc::new(AppState::new(db, (*config).clone(), repository_service));
     create_router(state)
 }

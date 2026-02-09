@@ -26,6 +26,10 @@ pub fn task_routes() -> Router<Arc<AppState>> {
         .route("/api/tasks/:id/cancel", post(handlers::cancel_task))
         // Task execution
         .route("/api/tasks/:id/execute", post(handlers::execute_task))
+        // ACP event and progress endpoints
+        .route("/api/tasks/:id/plans", get(handlers::get_task_plans))
+        .route("/api/tasks/:id/events", get(handlers::get_task_events))
+        .route("/api/tasks/:id/progress", get(handlers::get_task_progress))
         // Manual PR operations
         .route(
             "/api/tasks/:id/create-pr",

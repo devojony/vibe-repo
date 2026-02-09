@@ -39,6 +39,10 @@ use crate::{logging, state::AppState};
         tasks::handlers::get_task,
         tasks::handlers::list_tasks_by_workspace,
         tasks::handlers::update_task_status,
+        tasks::handlers::get_task_status,
+        tasks::handlers::get_task_plans,
+        tasks::handlers::get_task_events,
+        tasks::handlers::get_task_progress,
     ),
     components(schemas(
         repositories::models::AddRepositoryRequest,
@@ -52,6 +56,10 @@ use crate::{logging, state::AppState};
         tasks::TaskResponse,
         tasks::CreateTaskRequest,
         tasks::UpdateTaskStatusRequest,
+        tasks::TaskStatusResponse,
+        tasks::TaskPlansResponse,
+        tasks::TaskEventsResponse,
+        tasks::TaskProgressResponse,
         crate::entities::task::TaskStatus,
     ))
 )]

@@ -16,7 +16,7 @@ use crate::entities::{
     workspace,
 };
 use crate::error::{Result, VibeRepoError};
-use crate::services::{BackgroundService, TaskExecutorService};
+use crate::services::{BackgroundService, TaskExecutorService, TimeoutWatchdog};
 use crate::state::AppState;
 
 /// Task scheduler configuration
@@ -43,6 +43,7 @@ pub struct TaskSchedulerService {
     config: SchedulerConfig,
     running: Arc<RwLock<bool>>,
     workspace_base_dir: String,
+    timeout_watchdog: Option<Arc<TimeoutWatchdog>>,
 }
 
 impl TaskSchedulerService {
@@ -57,7 +58,13 @@ impl TaskSchedulerService {
             config: config.unwrap_or_default(),
             running: Arc::new(RwLock::new(false)),
             workspace_base_dir,
+            timeout_watchdog: None,
         }
+    }
+
+    /// Set the timeout watchdog (called after service initialization)
+    pub fn set_timeout_watchdog(&mut self, watchdog: Arc<TimeoutWatchdog>) {
+        self.timeout_watchdog = Some(watchdog);
     }
 
     /// Poll for pending tasks and execute them
@@ -165,7 +172,12 @@ impl TaskSchedulerService {
         );
 
         // Execute tasks
-        let executor = TaskExecutorService::new(self.db.clone(), self.workspace_base_dir.clone());
+        let mut executor = TaskExecutorService::new(self.db.clone(), self.workspace_base_dir.clone());
+        
+        // Set timeout watchdog if available
+        if let Some(watchdog) = &self.timeout_watchdog {
+            executor.set_timeout_watchdog(watchdog.clone());
+        }
 
         for task in pending_tasks {
             info!(
@@ -175,10 +187,11 @@ impl TaskSchedulerService {
                 "Starting task execution"
             );
 
-            // Execute task in background (non-blocking)
+            // Execute task in background (non-blocking) with spawn_local for ACP support
+            // Since we're running in a LocalSet, we can use spawn_local which supports !Send futures
             let executor_clone = executor.clone();
             let task_id = task.id;
-            tokio::spawn(async move {
+            tokio::task::spawn_local(async move {
                 if let Err(e) = executor_clone.execute_task(task_id).await {
                     error!(task_id = task_id, error = %e, "Task execution failed");
                 }
@@ -252,36 +265,48 @@ impl BackgroundService for TaskSchedulerService {
         // Set running flag
         *self.running.write().await = true;
 
-        // Spawn background task
+        // Spawn background task with LocalSet for ACP support
+        // The scheduler needs to run in a LocalSet so that task executions can use spawn_local
         let db = self.db.clone();
         let config = self.config.clone();
         let running = self.running.clone();
         let workspace_base_dir = self.workspace_base_dir.clone();
+        let timeout_watchdog = self.timeout_watchdog.clone();
 
-        tokio::spawn(async move {
-            let scheduler = TaskSchedulerService {
-                db,
-                config: config.clone(),
-                running: running.clone(),
-                workspace_base_dir,
-            };
+        tokio::task::spawn_blocking(move || {
+            // Create a dedicated runtime for the scheduler
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create scheduler runtime");
+            
+            let local = tokio::task::LocalSet::new();
+            local.block_on(&rt, async move {
+                let scheduler = TaskSchedulerService {
+                    db,
+                    config: config.clone(),
+                    running: running.clone(),
+                    workspace_base_dir,
+                    timeout_watchdog,
+                };
 
-            let mut ticker = interval(Duration::from_secs(config.polling_interval_seconds));
+                let mut ticker = interval(Duration::from_secs(config.polling_interval_seconds));
 
-            loop {
-                ticker.tick().await;
+                loop {
+                    ticker.tick().await;
 
-                // Check if still running
-                if !*running.read().await {
-                    info!("Task scheduler stopped");
-                    break;
+                    // Check if still running
+                    if !*running.read().await {
+                        info!("Task scheduler stopped");
+                        break;
+                    }
+
+                    // Poll and execute tasks
+                    if let Err(e) = scheduler.poll_and_execute().await {
+                        error!(error = %e, "Failed to poll and execute tasks");
+                    }
                 }
-
-                // Poll and execute tasks
-                if let Err(e) = scheduler.poll_and_execute().await {
-                    error!(error = %e, "Failed to poll and execute tasks");
-                }
-            }
+            });
         });
 
         Ok(())

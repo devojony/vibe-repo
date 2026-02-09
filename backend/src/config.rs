@@ -2,6 +2,8 @@
 //!
 //! Loads configuration from environment variables with sensible defaults.
 
+pub mod mcp;
+
 use serde::{Deserialize, Serialize};
 
 /// Database configuration
@@ -251,6 +253,34 @@ impl Default for AgentConfig {
     }
 }
 
+/// Agent settings for ACP integration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentSettings {
+    /// Agent type (e.g., "opencode", "claude-code")
+    pub agent_type: String,
+    /// API key for agent authentication (optional)
+    pub api_key: Option<String>,
+    /// Default model to use for agent
+    pub default_model: String,
+    /// Timeout in seconds for agent operations
+    pub timeout_seconds: u64,
+}
+
+impl Default for AgentSettings {
+    fn default() -> Self {
+        Self {
+            agent_type: std::env::var("AGENT_TYPE").unwrap_or_else(|_| "opencode".to_string()),
+            api_key: std::env::var("AGENT_API_KEY").ok(),
+            default_model: std::env::var("AGENT_DEFAULT_MODEL")
+                .unwrap_or_else(|_| "claude-sonnet-4".to_string()),
+            timeout_seconds: std::env::var("AGENT_TIMEOUT_SECONDS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(600), // 10 minutes
+        }
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
@@ -268,6 +298,8 @@ pub struct AppConfig {
     pub git_provider: GitProviderConfig,
     /// Agent configuration
     pub agent: AgentConfig,
+    /// Agent settings for ACP integration
+    pub agent_settings: AgentSettings,
 }
 
 impl AppConfig {
@@ -576,6 +608,7 @@ mod tests {
                     workspace: WorkspaceConfig::default(),
                     git_provider: GitProviderConfig::default(),
                     agent: AgentConfig::default(),
+                    agent_settings: AgentSettings::default(),
                 };
 
                 let result = config.validate();
@@ -609,6 +642,7 @@ mod tests {
                     workspace: WorkspaceConfig::default(),
                     git_provider: GitProviderConfig::default(),
                     agent: AgentConfig::default(),
+                    agent_settings: AgentSettings::default(),
                 };
 
                 let result = config.validate();
@@ -647,6 +681,7 @@ mod tests {
                     workspace: WorkspaceConfig::default(),
                     git_provider: GitProviderConfig::default(),
                     agent: AgentConfig::default(),
+                    agent_settings: AgentSettings::default(),
                 };
 
                 let result = config.validate();
@@ -685,6 +720,7 @@ mod tests {
                     workspace: WorkspaceConfig::default(),
                     git_provider: GitProviderConfig::default(),
                     agent: AgentConfig::default(),
+                    agent_settings: AgentSettings::default(),
                 };
 
                 let result = config.validate();
@@ -723,6 +759,7 @@ mod tests {
             workspace: WorkspaceConfig::default(),
             git_provider: GitProviderConfig::default(),
             agent: AgentConfig::default(),
+            agent_settings: AgentSettings::default(),
         };
 
         assert!(
@@ -744,6 +781,7 @@ mod tests {
             workspace: WorkspaceConfig::default(),
             git_provider: GitProviderConfig::default(),
             agent: AgentConfig::default(),
+            agent_settings: AgentSettings::default(),
         };
 
         let result = config.validate();
@@ -775,6 +813,7 @@ mod tests {
             workspace: WorkspaceConfig::default(),
             git_provider: GitProviderConfig::default(),
             agent: AgentConfig::default(),
+            agent_settings: AgentSettings::default(),
         };
 
         let result = config.validate();
@@ -806,6 +845,7 @@ mod tests {
             workspace: WorkspaceConfig::default(),
             git_provider: GitProviderConfig::default(),
             agent: AgentConfig::default(),
+            agent_settings: AgentSettings::default(),
         };
 
         let result = config.validate();
@@ -950,6 +990,7 @@ mod tests {
             workspace: WorkspaceConfig::default(),
             git_provider: GitProviderConfig::default(),
             agent: AgentConfig::default(),
+            agent_settings: AgentSettings::default(),
         };
 
         let result = config.validate();
@@ -989,6 +1030,7 @@ mod tests {
             workspace: WorkspaceConfig::default(),
             git_provider: GitProviderConfig::default(),
             agent: AgentConfig::default(),
+            agent_settings: AgentSettings::default(),
         };
 
         let result = config.validate();
@@ -1028,6 +1070,7 @@ mod tests {
             workspace: WorkspaceConfig::default(),
             git_provider: GitProviderConfig::default(),
             agent: AgentConfig::default(),
+            agent_settings: AgentSettings::default(),
         };
 
         let result = config.validate();
@@ -1055,6 +1098,7 @@ mod tests {
             workspace: WorkspaceConfig::default(),
             git_provider: GitProviderConfig::default(),
             agent: AgentConfig::default(),
+            agent_settings: AgentSettings::default(),
         };
 
         let result = config.validate();
