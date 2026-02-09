@@ -168,6 +168,8 @@ Automated development tasks created from issues.
 - `pr_url` (TEXT, NULLABLE) - Pull request URL
 - `error_message` (TEXT, NULLABLE) - Error details for failed tasks
 - `last_log` (TEXT, NULLABLE) - Last execution log (inline storage)
+- `plans` (JSONB, NULLABLE) - Agent execution plans (latest plan) **[NEW in v0.4.0-mvp]**
+- `events` (JSONB, NULLABLE) - Agent events (last 100 events) **[NEW in v0.4.0-mvp]**
 - `started_at` (TIMESTAMP, NULLABLE) - Execution start timestamp
 - `completed_at` (TIMESTAMP, NULLABLE) - Completion timestamp
 - `created_at` (TIMESTAMP) - Creation timestamp
@@ -205,11 +207,83 @@ The `task_status` field uses a type-safe enum with state machine validation. Val
 
 **New Fields (v0.4.0-mvp):**
 - `last_log` (TEXT, NULLABLE) - Inline log storage (replaces task_executions table)
+- `plans` (JSONB, NULLABLE) - Agent execution plans stored as JSON
+- `events` (JSONB, NULLABLE) - Agent events stored as JSON array
 
 **Priority Levels:**
 - `High` - Critical tasks executed first
 - `Medium` - Normal priority (default)
 - `Low` - Tasks that can be deferred
+
+### Event Storage Details
+
+**Plans Storage:**
+- Stores the latest execution plan from the agent
+- Format: JSONB array containing plan objects
+- Each plan includes steps, current_step, status, and timestamp
+- Only the most recent plan is kept (replaces previous plans)
+
+**Events Storage:**
+- Stores agent events (tool calls, messages, completions)
+- Format: JSONB array of event objects
+- Automatic compaction: Only last 100 events are kept
+- Event types: plan, tool_call, message, completed
+
+**JSONB Format Example:**
+
+Plans:
+```json
+[
+  {
+    "type": "plan",
+    "steps": [
+      {
+        "description": "Analyze issue requirements",
+        "status": "completed",
+        "index": 0
+      },
+      {
+        "description": "Implement feature",
+        "status": "in_progress",
+        "index": 1
+      }
+    ],
+    "current_step": 1,
+    "status": "active",
+    "timestamp": "2026-02-09T10:00:00Z"
+  }
+]
+```
+
+Events:
+```json
+[
+  {
+    "type": "tool_call",
+    "tool_name": "write_file",
+    "args": {"path": "src/main.rs", "content": "..."},
+    "result": "success",
+    "timestamp": "2026-02-09T10:01:00Z"
+  },
+  {
+    "type": "message",
+    "content": "Implemented authentication",
+    "level": "info",
+    "timestamp": "2026-02-09T10:02:00Z"
+  }
+]
+```
+
+**JSONB Benefits:**
+- Efficient querying with PostgreSQL JSON operators
+- Flexible schema for different event types
+- Automatic indexing for fast lookups
+- Compact storage with compression
+
+**Related API Endpoints:**
+- `GET /api/tasks/:id/plans` - Retrieve execution plans
+- `GET /api/tasks/:id/events` - Retrieve agent events with filtering
+- `GET /api/tasks/:id/progress` - Calculate progress from plan completion
 
 ---
 
@@ -417,5 +491,5 @@ DATABASE_MAX_CONNECTIONS=20
 
 ---
 
-**Last Updated:** 2026-02-06  
+**Last Updated:** 2026-02-09  
 **Schema Version:** 0.4.0-mvp (Simplified MVP)

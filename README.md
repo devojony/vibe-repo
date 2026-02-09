@@ -15,6 +15,10 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - **Task Management** - Simple task lifecycle (Pending → Running → Completed/Failed/Cancelled)
 - **Webhook Integration** - GitHub/Gitea/GitLab webhook support for automatic task creation
 - **Manual Repository Addition** - Explicitly add only the repositories you want to automate
+- **ACP Integration** ⭐ - Agent Client Protocol for structured agent communication
+- **Real-time Progress Tracking** ⭐ - Monitor agent execution with plans and events
+- **Permission-based Security** ⭐ - Fine-grained control over agent actions
+- **10x Faster Startup** ⭐ - Bun runtime for lightning-fast agent initialization
 
 ## 🚀 Quick Start
 
@@ -88,6 +92,10 @@ open http://localhost:3000/swagger-ui
 - **[User Guide](./docs/api/user-guide.md)** - Complete usage guide with examples
 - **[API Reference](./docs/api/api-reference.md)** - All API endpoints
 - **[Configuration Guide](./docs/development/README.md#configuration)** - Environment setup
+- **[ACP Integration Guide](./docs/api/acp-integration.md)** ⭐ - Agent Client Protocol documentation
+- **[Agent Quick Reference](./docs/api/agent-quick-reference.md)** ⭐ - Quick agent configuration
+- **[MCP Integration](./docs/api/mcp-integration.md)** ⭐ - Model Context Protocol servers
+- **[Troubleshooting](./docs/api/troubleshooting.md)** ⭐ - Common issues and solutions
 
 ### For Developers
 - **[Development Guide](./docs/development/README.md)** - Setup, coding standards, best practices
@@ -130,6 +138,9 @@ Issue Closure
 - **Framework**: Axum 0.7
 - **Database**: SeaORM 1.1 (SQLite/PostgreSQL)
 - **Async Runtime**: Tokio
+- **Agent Protocol**: ACP (Agent Client Protocol) ⭐
+- **Agent Runtime**: Bun (10x faster than Node.js) ⭐
+- **Default Agent**: OpenCode with native ACP support ⭐
 - **Testing**: 280+ tests (100% passing)
 
 **Architecture Highlights:**

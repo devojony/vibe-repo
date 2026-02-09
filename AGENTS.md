@@ -65,9 +65,10 @@ The system uses a **mention-based workflow** for user control:
 - **Database ORM**: SeaORM 1.1 (supports SQLite and PostgreSQL)
 - **HTTP Client**: Reqwest 0.11 for Git provider APIs
 - **API Documentation**: utoipa 4.x with Swagger UI
-- **Agent Protocol**: Agent Client Protocol (ACP) for structured agent communication
-- **Agent Runtime**: Bun (JavaScript runtime, 10x faster startup than Node.js)
-- **Default Agent**: OpenCode with native ACP support
+- **Agent Protocol**: Agent Client Protocol (ACP) for structured agent communication ⭐
+- **Agent Runtime**: Bun (JavaScript runtime, 10x faster startup than Node.js) ⭐
+- **Default Agent**: OpenCode with native ACP support ⭐
+- **Real-time Tracking**: Plans and events stored in JSONB for progress monitoring ⭐
 - **Testing**: Comprehensive TDD approach with 280+ unit tests
 
 ### Simplified Architecture
@@ -279,7 +280,7 @@ DEFAULT_AGENT_COMMAND=opencode
 DEFAULT_AGENT_TIMEOUT=600
 DEFAULT_DOCKER_IMAGE=ubuntu:22.04
 
-# Agent Settings (ACP Integration)
+# Agent Settings (ACP Integration) ⭐
 AGENT_TYPE=opencode                          # Agent type: "opencode" or "claude-code"
 AGENT_API_KEY=sk-xxx                         # API key for LLM provider (optional)
 AGENT_DEFAULT_MODEL=claude-sonnet-4          # Default model to use
@@ -294,6 +295,41 @@ LOG_FORMAT=human
 ```
 
 **Note:** Git provider configuration (tokens, base URLs) is now stored per-repository in the database, not in environment variables.
+
+### Agent Configuration (ACP Integration)
+
+VibeRepo uses the Agent Client Protocol (ACP) for structured communication with AI agents. Configure agents using environment variables:
+
+**Supported Agent Types:**
+- **OpenCode** (Default): Multi-provider support, native ACP, fast startup with Bun
+- **Claude Code**: Official Anthropic agent with ACP adapter
+
+**Quick Start Example:**
+
+```bash
+# Minimal configuration
+AGENT_TYPE=opencode
+AGENT_API_KEY=sk-ant-api03-xxx
+
+# Full configuration
+AGENT_TYPE=opencode
+AGENT_API_KEY=sk-ant-api03-xxx
+AGENT_DEFAULT_MODEL=claude-sonnet-4
+AGENT_TIMEOUT_SECONDS=600
+```
+
+**Key Features:**
+- ✅ Real-time progress tracking with plans and events
+- ✅ Permission-based security system
+- ✅ 10x faster startup with Bun runtime
+- ✅ Structured JSON-RPC communication
+- ✅ Event streaming and storage in JSONB
+
+**For detailed configuration, see:**
+- **[ACP Integration Guide](./docs/api/acp-integration.md)** - Complete ACP documentation
+- **[Agent Quick Reference](./docs/api/agent-quick-reference.md)** - Quick configuration guide
+- **[MCP Integration](./docs/api/mcp-integration.md)** - Model Context Protocol servers
+- **[Troubleshooting](./docs/api/troubleshooting.md)** - Common issues and solutions
 
 ### MCP Server Configuration
 
@@ -399,5 +435,5 @@ cargo test
 
 **Note:** This document serves as a quick reference for AI agents. For comprehensive guidelines, always refer to the detailed documentation in the `docs/` directory.
 
-**Last Updated:** 2026-02-06  
+**Last Updated:** 2026-02-09  
 **Version:** 0.4.0-mvp (Simplified MVP)

@@ -1,7 +1,7 @@
 # API Reference
 
 **Version:** 0.4.0-mvp (Simplified MVP)  
-**Last Updated:** 2026-02-06
+**Last Updated:** 2026-02-09
 
 > **🎯 Simplified MVP**: This version includes only 10 core API endpoints. Many management APIs have been removed in favor of environment-based configuration.
 
@@ -501,6 +501,27 @@ Retrieve the current execution plan for a task.
 - `completed` - Finished successfully
 - `skipped` - Skipped this step
 
+**Usage Examples:**
+
+Get current plan:
+```bash
+curl http://localhost:3000/api/tasks/123/plans
+```
+
+Extract steps only:
+```bash
+curl http://localhost:3000/api/tasks/123/plans | jq '.plans[0].steps'
+```
+
+Check current step:
+```bash
+curl http://localhost:3000/api/tasks/123/plans | jq '.plans[0].current_step'
+```
+
+**Error Responses:**
+- `404 Not Found` - Task not found
+- `500 Internal Server Error` - Failed to retrieve plans
+
 ### GET /api/tasks/:id/events
 
 Retrieve events for a task with optional filtering.
@@ -618,6 +639,37 @@ curl "http://localhost:3000/api/tasks/123/events?since=2026-02-08T10:00:00Z"
    }
    ```
 
+**Usage Examples:**
+
+Monitor recent activity:
+```bash
+# Poll every 2 seconds
+while true; do
+  curl -s http://localhost:3000/api/tasks/123/events?limit=5 | jq '.events[-1]'
+  sleep 2
+done
+```
+
+Filter by event type:
+```bash
+# Only tool calls
+curl http://localhost:3000/api/tasks/123/events?event_type=tool_call | jq '.events'
+
+# Only messages
+curl http://localhost:3000/api/tasks/123/events?event_type=message | jq '.events'
+```
+
+Check for errors:
+```bash
+curl http://localhost:3000/api/tasks/123/events | \
+  jq '.events[] | select(.type == "message" and .level == "error")'
+```
+
+**Error Responses:**
+- `404 Not Found` - Task not found
+- `400 Bad Request` - Invalid query parameters
+- `500 Internal Server Error` - Failed to retrieve events
+
 ### GET /api/tasks/:id/progress
 
 Get task progress percentage based on plan completion.
@@ -643,6 +695,35 @@ progress = (completed_steps / total_steps) * 100
 ```
 
 Returns `0.0` if no plan is available.
+
+**Usage Examples:**
+
+Get progress percentage:
+```bash
+curl http://localhost:3000/api/tasks/123/progress | jq '.progress'
+```
+
+Watch progress (updates every 2 seconds):
+```bash
+watch -n 2 'curl -s http://localhost:3000/api/tasks/123/progress | jq'
+```
+
+Get current step:
+```bash
+curl http://localhost:3000/api/tasks/123/progress | jq '.current_step'
+```
+
+Check if task is complete:
+```bash
+progress=$(curl -s http://localhost:3000/api/tasks/123/progress | jq '.progress')
+if [ "$progress" == "100" ]; then
+  echo "Task complete!"
+fi
+```
+
+**Error Responses:**
+- `404 Not Found` - Task not found
+- `500 Internal Server Error` - Failed to calculate progress
 
 ### GET /api/tasks/:id/logs
 
@@ -796,5 +877,5 @@ List endpoints support pagination:
 
 ---
 
-**Last Updated:** 2026-02-06  
+**Last Updated:** 2026-02-09  
 **API Version:** 0.4.0-mvp (Simplified MVP)

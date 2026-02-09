@@ -125,7 +125,7 @@ Development guidelines, coding standards, and best practices.
 
 ## 🔄 Version History
 
-- **v0.4.0-mvp** (2026-02-08) - ACP Integration: Added Agent Client Protocol support, real-time progress tracking, permission system, event streaming; Simplified MVP with core Issue-to-PR automation
+- **v0.4.0-mvp** (2026-02-09) - ACP Integration: Added Agent Client Protocol support, real-time progress tracking, permission system, event streaming; Simplified MVP with core Issue-to-PR automation
 - **v0.3.0** (2026-01-20) - Added Container Lifecycle Management, Issue Polling, Task Automation, Task Scheduler, Concurrency Control, Real-time Logs, Execution History, Failure Analysis
 - **v0.2.0** (2026-01-19) - Added Workspace API, Init Scripts, Agent Management
 - **v0.1.0** (2026-01-17) - Initial release with RepoProvider, Repository, Webhook APIs
@@ -148,5 +148,5 @@ When adding new documentation:
 
 ---
 
-**Last Updated:** 2026-02-08  
+**Last Updated:** 2026-02-09  
 **Maintained By:** VibeRepo Team
