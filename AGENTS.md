@@ -65,11 +65,12 @@ The system uses a **mention-based workflow** for user control:
 - **Database ORM**: SeaORM 1.1 (supports SQLite and PostgreSQL)
 - **HTTP Client**: Reqwest 0.11 for Git provider APIs
 - **API Documentation**: utoipa 4.x with Swagger UI
+- **Workspace Management**: @devcontainers/cli for standardized container environments 🆕
 - **Agent Protocol**: Agent Client Protocol (ACP) for structured agent communication ⭐
 - **Agent Runtime**: Bun (JavaScript runtime, 10x faster startup than Node.js) ⭐
 - **Default Agent**: OpenCode with native ACP support ⭐
 - **Real-time Tracking**: Plans and events stored in JSONB for progress monitoring ⭐
-- **Testing**: Comprehensive TDD approach with 280+ unit tests
+- **Testing**: Comprehensive TDD approach with 474+ tests
 
 ### Simplified Architecture
 
@@ -274,6 +275,9 @@ DATABASE_MAX_CONNECTIONS=10
 # Server Configuration
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
+
+# DevContainer CLI Configuration 🆕
+DEVCONTAINER_CLI_PATH=devcontainer              # Path to devcontainer CLI (default: "devcontainer")
 
 # Agent Configuration (Legacy - for backward compatibility)
 DEFAULT_AGENT_COMMAND=opencode

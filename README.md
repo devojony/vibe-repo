@@ -27,7 +27,20 @@ VibeRepo is an automated programming assistant that converts Git repository Issu
 - Rust 1.70+ ([rustup.rs](https://rustup.rs)) or Docker
 - SQLite 3 or PostgreSQL
 - Docker (for workspace features)
+- **@devcontainers/cli** - DevContainer CLI for workspace management
 - Git provider account (Gitea/GitHub/GitLab)
+
+#### Install DevContainer CLI
+
+```bash
+# Install globally via npm
+npm install -g @devcontainers/cli
+
+# Verify installation
+devcontainer --version
+```
+
+> **Note**: The DevContainer CLI is required for creating and managing isolated development environments. It replaces the legacy Docker API integration.
 
 ### Option 1: Docker (推荐)
 
@@ -62,10 +75,20 @@ DATABASE_URL=sqlite:./data/vibe-repo/db/vibe-repo.db?mode=rwc
 DATABASE_MAX_CONNECTIONS=10
 SERVER_HOST=0.0.0.0
 SERVER_PORT=3000
-DEFAULT_AGENT_COMMAND=opencode
-DEFAULT_AGENT_TIMEOUT=600
-DEFAULT_DOCKER_IMAGE=ubuntu:22.04
+
+# DevContainer CLI Configuration
+DEVCONTAINER_CLI_PATH=devcontainer
+
+# Agent Configuration (ACP Integration)
+AGENT_TYPE=opencode
+AGENT_API_KEY=sk-ant-api03-xxx
+AGENT_DEFAULT_MODEL=claude-sonnet-4
+AGENT_TIMEOUT_SECONDS=600
+
+# Workspace Configuration
 WORKSPACE_BASE_DIR=./data/vibe-repo/workspaces
+
+# Logging
 RUST_LOG=debug
 EOF
 
@@ -92,6 +115,7 @@ open http://localhost:3000/swagger-ui
 - **[User Guide](./docs/api/user-guide.md)** - Complete usage guide with examples
 - **[API Reference](./docs/api/api-reference.md)** - All API endpoints
 - **[Configuration Guide](./docs/development/README.md#configuration)** - Environment setup
+- **[DevContainer Guide](./docs/api/devcontainer-guide.md)** 🆕 - Using devcontainer.json for custom environments
 - **[ACP Integration Guide](./docs/api/acp-integration.md)** ⭐ - Agent Client Protocol documentation
 - **[Agent Quick Reference](./docs/api/agent-quick-reference.md)** ⭐ - Quick agent configuration
 - **[MCP Integration](./docs/api/mcp-integration.md)** ⭐ - Model Context Protocol servers

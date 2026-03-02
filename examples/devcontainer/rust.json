@@ -1,0 +1,12 @@
+{
+  "name": "Rust Project",
+  "image": "mcr.microsoft.com/devcontainers/rust:latest",
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {},
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "postCreateCommand": "cargo build",
+  "containerEnv": {
+    "RUST_BACKTRACE": "1"
+  }
+}
