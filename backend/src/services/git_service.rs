@@ -41,6 +41,21 @@ impl GitService {
         }
     }
 
+    /// Execute command in container using docker exec
+    async fn exec_in_container(
+        &self,
+        container_id: &str,
+        cmd: Vec<&str>,
+    ) -> Result<std::process::Output> {
+        Command::new("docker")
+            .arg("exec")
+            .arg(container_id)
+            .args(&cmd)
+            .output()
+            .await
+            .map_err(|e| VibeRepoError::Internal(format!("Failed to execute docker command: {}", e)))
+    }
+
     /// Get workspace directory path
     pub fn get_workspace_dir(&self, workspace_id: i32) -> PathBuf {
         Path::new(&self.workspace_base_dir).join(format!("workspace-{}", workspace_id))
@@ -96,18 +111,16 @@ impl GitService {
         })?;
 
         // Check if source directory already exists in container
-        let check_cmd = vec![
-            "bash".to_string(),
-            "-c".to_string(),
-            "test -d /workspace/source && echo 'exists' || echo 'not_exists'".to_string(),
-        ];
-
-        let docker_service = crate::services::DockerService::new()?;
-        let check_output = docker_service
-            .exec_in_container(container_id, check_cmd, 10)
+        let check_output = self
+            .exec_in_container(
+                container_id,
+                vec!["bash", "-c", "test -d /workspace/source && echo 'exists' || echo 'not_exists'"],
+            )
             .await?;
 
-        if check_output.stdout.trim() == "exists" {
+        let stdout = String::from_utf8_lossy(&check_output.stdout);
+
+        if stdout.trim() == "exists" {
             warn!(
                 workspace_id = workspace.id,
                 container_id = %container_id,
@@ -127,47 +140,40 @@ impl GitService {
         );
 
         // Clone repository in container
-        let clone_cmd = vec![
-            "git".to_string(),
-            "clone".to_string(),
-            "--depth".to_string(),
-            "1".to_string(),
-            clone_url.clone(),
-            "/workspace/source".to_string(),
-        ];
-
-        let clone_output = docker_service
-            .exec_in_container(container_id, clone_cmd, 300) // 5 minutes timeout
+        let clone_output = self
+            .exec_in_container(
+                container_id,
+                vec!["git", "clone", "--depth", "1", &clone_url, "/workspace/source"],
+            )
             .await?;
 
-        if clone_output.exit_code != 0 {
+        if !clone_output.status.success() {
+            let stderr = String::from_utf8_lossy(&clone_output.stderr);
             error!(
                 workspace_id = workspace.id,
                 container_id = %container_id,
-                stderr = %clone_output.stderr,
+                stderr = %stderr,
                 "Git clone failed in container"
             );
             return Err(VibeRepoError::Internal(format!(
                 "Git clone failed: {}",
-                clone_output.stderr
+                stderr
             )));
         }
 
         // Configure git user in the repository
-        let config_user_cmd = vec![
-            "bash".to_string(),
-            "-c".to_string(),
-            "cd /workspace/source && git config user.name 'VibeRepo Bot' && git config user.email 'bot@vibe-repo.local'".to_string(),
-        ];
-
-        let config_output = docker_service
-            .exec_in_container(container_id, config_user_cmd, 10)
+        let config_output = self
+            .exec_in_container(
+                container_id,
+                vec!["bash", "-c", "cd /workspace/source && git config user.name 'VibeRepo Bot' && git config user.email 'bot@vibe-repo.local'"],
+            )
             .await?;
 
-        if config_output.exit_code != 0 {
+        if !config_output.status.success() {
+            let stderr = String::from_utf8_lossy(&config_output.stderr);
             warn!(
                 workspace_id = workspace.id,
-                stderr = %config_output.stderr,
+                stderr = %stderr,
                 "Failed to configure git user"
             );
         }
@@ -177,20 +183,18 @@ impl GitService {
             workspace_id = workspace.id,
             "Unshallowing repository in container"
         );
-        let unshallow_cmd = vec![
-            "bash".to_string(),
-            "-c".to_string(),
-            "cd /workspace/source && git fetch --unshallow".to_string(),
-        ];
-
-        let unshallow_output = docker_service
-            .exec_in_container(container_id, unshallow_cmd, 300)
+        let unshallow_output = self
+            .exec_in_container(
+                container_id,
+                vec!["bash", "-c", "cd /workspace/source && git fetch --unshallow"],
+            )
             .await?;
 
-        if unshallow_output.exit_code != 0 {
+        if !unshallow_output.status.success() {
+            let stderr = String::from_utf8_lossy(&unshallow_output.stderr);
             warn!(
                 workspace_id = workspace.id,
-                stderr = %unshallow_output.stderr,
+                stderr = %stderr,
                 "Git unshallow failed (may already be complete)"
             );
         }
@@ -220,21 +224,18 @@ impl GitService {
             "Creating git worktree for task in container"
         );
 
-        let docker_service = crate::services::DockerService::new()?;
         let worktree_path = format!("/workspace/tasks/task-{}", task_id);
 
         // Check if source directory exists in container
-        let check_cmd = vec![
-            "bash".to_string(),
-            "-c".to_string(),
-            "test -d /workspace/source && echo 'exists' || echo 'not_exists'".to_string(),
-        ];
-
-        let check_output = docker_service
-            .exec_in_container(container_id, check_cmd, 10)
+        let check_output = self
+            .exec_in_container(
+                container_id,
+                vec!["bash", "-c", "test -d /workspace/source && echo 'exists' || echo 'not_exists'"],
+            )
             .await?;
 
-        if check_output.stdout.trim() != "exists" {
+        let stdout = String::from_utf8_lossy(&check_output.stdout);
+        if stdout.trim() != "exists" {
             return Err(VibeRepoError::NotFound(format!(
                 "Source directory not found in container for workspace {}",
                 workspace_id
@@ -242,24 +243,20 @@ impl GitService {
         }
 
         // Remove worktree if it already exists
-        let remove_cmd = vec![
-            "bash".to_string(),
-            "-c".to_string(),
-            format!(
-                "cd /workspace/source && git worktree remove {} --force 2>/dev/null || true && rm -rf {}",
-                worktree_path, worktree_path
-            ),
-        ];
-
-        let remove_output = docker_service
-            .exec_in_container(container_id, remove_cmd, 30)
+        let remove_cmd = format!(
+            "cd /workspace/source && git worktree remove {} --force 2>/dev/null || true && rm -rf {}",
+            worktree_path, worktree_path
+        );
+        let remove_output = self
+            .exec_in_container(container_id, vec!["bash", "-c", &remove_cmd])
             .await?;
 
-        if remove_output.exit_code != 0 {
+        if !remove_output.status.success() {
+            let stderr = String::from_utf8_lossy(&remove_output.stderr);
             warn!(
                 workspace_id = workspace_id,
                 task_id = task_id,
-                stderr = %remove_output.stderr,
+                stderr = %stderr,
                 "Failed to remove existing worktree (may not exist)"
             );
         }
@@ -273,29 +270,25 @@ impl GitService {
             "Creating git worktree in container"
         );
 
-        let create_cmd = vec![
-            "bash".to_string(),
-            "-c".to_string(),
-            format!(
-                "cd /workspace/source && git worktree add -b {} {}",
-                branch_name, worktree_path
-            ),
-        ];
-
-        let create_output = docker_service
-            .exec_in_container(container_id, create_cmd, 30)
+        let create_cmd = format!(
+            "cd /workspace/source && git worktree add -b {} {}",
+            branch_name, worktree_path
+        );
+        let create_output = self
+            .exec_in_container(container_id, vec!["bash", "-c", &create_cmd])
             .await?;
 
-        if create_output.exit_code != 0 {
+        if !create_output.status.success() {
+            let stderr = String::from_utf8_lossy(&create_output.stderr);
             error!(
                 workspace_id = workspace_id,
                 task_id = task_id,
-                stderr = %create_output.stderr,
+                stderr = %stderr,
                 "Git worktree add failed in container"
             );
             return Err(VibeRepoError::Internal(format!(
                 "Git worktree add failed: {}",
-                create_output.stderr
+                stderr
             )));
         }
 
@@ -436,18 +429,13 @@ impl GitService {
             "Pushing branch to remote repository"
         );
 
-        let docker_service = crate::services::DockerService::new()?;
         let worktree_path = format!("/workspace/tasks/task-{}", task_id);
 
         // Push branch to remote with --set-upstream
-        let push_cmd = vec![
-            "bash".to_string(),
-            "-c".to_string(),
-            format!(
-                "cd {} && git push -u origin {}",
-                worktree_path, branch_name
-            ),
-        ];
+        let push_cmd = format!(
+            "cd {} && git push -u origin {}",
+            worktree_path, branch_name
+        );
 
         info!(
             workspace_id = workspace_id,
@@ -456,22 +444,24 @@ impl GitService {
             "Executing git push in container"
         );
 
-        let push_output = docker_service
-            .exec_in_container(container_id, push_cmd, 60)
+        let push_output = self
+            .exec_in_container(container_id, vec!["bash", "-c", &push_cmd])
             .await?;
 
-        if push_output.exit_code != 0 {
+        if !push_output.status.success() {
+            let stderr = String::from_utf8_lossy(&push_output.stderr);
+            let stdout = String::from_utf8_lossy(&push_output.stdout);
             error!(
                 workspace_id = workspace_id,
                 task_id = task_id,
                 branch_name = branch_name,
-                stderr = %push_output.stderr,
-                stdout = %push_output.stdout,
+                stderr = %stderr,
+                stdout = %stdout,
                 "Git push failed in container"
             );
             return Err(VibeRepoError::Internal(format!(
                 "Git push failed: {}",
-                push_output.stderr
+                stderr
             )));
         }
 

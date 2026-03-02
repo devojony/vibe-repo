@@ -3,10 +3,11 @@
 //! Provides shared application state accessible in all handlers.
 
 use sea_orm::DatabaseConnection;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::AppConfig;
-use crate::services::{DockerService, RepositoryService};
+use crate::services::{DevContainerService, RepositoryService};
 
 /// Shared application state
 #[derive(Clone)]
@@ -17,8 +18,8 @@ pub struct AppState {
     pub config: AppConfig,
     /// Repository service for direct method calls
     pub repository_service: Arc<RepositoryService>,
-    /// Docker service for container management (optional)
-    pub docker: Option<DockerService>,
+    /// DevContainer service for workspace management
+    pub devcontainer: DevContainerService,
 }
 
 impl AppState {
@@ -28,26 +29,23 @@ impl AppState {
         config: AppConfig,
         repository_service: Arc<RepositoryService>,
     ) -> Self {
-        // Try to initialize Docker service, log warning if unavailable
-        let docker = match DockerService::new() {
-            Ok(service) => {
-                tracing::info!("Docker service initialized successfully");
-                Some(service)
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Docker service unavailable: {}. Container features will be disabled.",
-                    e
-                );
-                None
-            }
-        };
+        // Initialize DevContainer service
+        let cli_path = config.workspace.devcontainer_cli_path.clone();
+        let workspace_base_dir = PathBuf::from(&config.workspace.base_dir);
+        
+        tracing::info!(
+            "Initializing DevContainer service: cli_path={}, workspace_base_dir={}",
+            cli_path,
+            workspace_base_dir.display()
+        );
+        
+        let devcontainer = DevContainerService::new(cli_path, workspace_base_dir);
 
         Self {
             db,
             config,
             repository_service,
-            docker,
+            devcontainer,
         }
     }
 
@@ -94,7 +92,7 @@ mod tests {
             agent_settings: AgentSettings::default(),
         };
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
 
         // Act: Create AppState
         let state = AppState::new(db, config.clone(), repository_service);
@@ -114,7 +112,7 @@ mod tests {
             .expect("Failed to create test database");
         let config = AppConfig::default();
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
 
         // Act: Create AppState and wrap in Arc
         let state = AppState::new(db, config, repository_service);
@@ -161,7 +159,7 @@ mod tests {
             .expect("Failed to create test database");
         let config = AppConfig::default();
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
 
         // Act: Create AppState and clone it
         let state1 = AppState::new(db, config, repository_service);
@@ -183,7 +181,7 @@ mod tests {
             .expect("Failed to create test database");
         let config = AppConfig::default();
         let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
+        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc));
         let state = Arc::new(AppState::new(db, config, repository_service));
 
         // This test verifies that AppState can be used with Axum's State extractor
@@ -196,50 +194,6 @@ mod tests {
     }
 
     // ============================================
-    // Task 4: Tests for AppState with Docker
+    // Task 4: Tests for AppState (Docker tests removed)
     // ============================================
-
-    #[tokio::test]
-    async fn test_appstate_with_docker_when_available() {
-        // Arrange: Create a test database and config
-        let db = create_test_database()
-            .await
-            .expect("Failed to create test database");
-        let config = AppConfig::default();
-        let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
-
-        // Act: Create AppState (Docker will be initialized if available)
-        let state = AppState::new(db, config, repository_service);
-
-        // Assert: Docker field should be Some if Docker is available, None otherwise
-        // This test passes regardless of Docker availability
-        match &state.docker {
-            Some(docker) => {
-                // If Docker is available, verify we can clone it
-                let _docker_clone = docker.clone();
-            }
-            None => {
-                // Docker not available, which is acceptable
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_appstate_docker_is_optional() {
-        // Arrange: Create a test database and config
-        let db = create_test_database()
-            .await
-            .expect("Failed to create test database");
-        let config = AppConfig::default();
-        let config_arc = Arc::new(config.clone());
-        let repository_service = Arc::new(RepositoryService::new(db.clone(), config_arc, None));
-
-        // Act: Create AppState
-        let state = AppState::new(db, config.clone(), repository_service);
-
-        // Assert: AppState should be created successfully regardless of Docker availability
-        // This verifies graceful degradation
-        assert_eq!(state.config.database.url, config.database.url);
-    }
 }

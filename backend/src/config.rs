@@ -195,6 +195,8 @@ impl Default for IssuePollingConfig {
 pub struct WorkspaceConfig {
     /// Base directory for all workspaces
     pub base_dir: String,
+    /// Path to devcontainer CLI executable
+    pub devcontainer_cli_path: String,
 }
 
 impl Default for WorkspaceConfig {
@@ -202,6 +204,8 @@ impl Default for WorkspaceConfig {
         Self {
             base_dir: std::env::var("WORKSPACE_BASE_DIR")
                 .unwrap_or_else(|_| "./data/vibe-repo/workspaces".to_string()),
+            devcontainer_cli_path: std::env::var("DEVCONTAINER_CLI_PATH")
+                .unwrap_or_else(|_| "devcontainer".to_string()),
         }
     }
 }

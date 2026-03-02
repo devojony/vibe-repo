@@ -10,7 +10,7 @@ use vibe_repo::{
     config::AppConfig,
     db::database::DatabasePool,
     logging,
-    services::{DockerService, RepositoryService, ServiceManager, TaskSchedulerService, TimeoutWatchdog},
+    services::{RepositoryService, ServiceManager, TaskSchedulerService},
     state::AppState,
 };
 
@@ -45,25 +45,9 @@ async fn main() -> Result<()> {
     // Create repository service (shared across handlers and background tasks)
     let config_arc = Arc::new(config.clone());
     
-    // Try to initialize Docker service
-    let docker = match DockerService::new() {
-        Ok(service) => {
-            tracing::info!("Docker service initialized successfully");
-            Some(service)
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Docker service unavailable: {}. Container features will be disabled.",
-                e
-            );
-            None
-        }
-    };
-    
     let repository_service = Arc::new(RepositoryService::new(
         db_pool.connection().clone(),
         config_arc.clone(),
-        docker.clone(),
     ));
     tracing::info!("Repository service created");
 
@@ -78,25 +62,17 @@ async fn main() -> Result<()> {
     // Initialize service manager and register services
     let mut service_manager = ServiceManager::new();
 
-    // Register TimeoutWatchdog service (check every 10 seconds)
-    let timeout_watchdog = Arc::new(TimeoutWatchdog::new(db_pool.connection().clone(), 10));
-    service_manager.register(timeout_watchdog.as_ref().clone());
-    tracing::info!("TimeoutWatchdog service registered");
-
     // Register RepositoryService for background periodic sync
     let background_service =
-        RepositoryService::new(db_pool.connection().clone(), config_arc.clone(), docker.clone());
+        RepositoryService::new(db_pool.connection().clone(), config_arc.clone());
     service_manager.register(background_service);
 
     // Register TaskSchedulerService for automatic task execution
-    let mut task_scheduler_service = TaskSchedulerService::new(
+    let task_scheduler_service = TaskSchedulerService::new(
         db_pool.connection().clone(),
         None,
         config.workspace.base_dir.clone(),
     );
-    
-    // Set the timeout watchdog in the task scheduler
-    task_scheduler_service.set_timeout_watchdog(timeout_watchdog.clone());
     
     service_manager.register(task_scheduler_service);
 

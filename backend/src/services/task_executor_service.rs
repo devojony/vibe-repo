@@ -11,13 +11,13 @@ use crate::entities::{
 use crate::error::{Result, VibeRepoError};
 use crate::services::{
     agent_manager::{AgentConfig, AgentManager, AgentType},
-    AgentService, GitService, PRCreationService, TaskService, TimeoutWatchdog,
+    AgentService, GitService, PRCreationService, TaskService,
 };
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore};
 use tracing::{debug, error, info, warn};
 
@@ -61,7 +61,6 @@ pub struct TaskExecutorService {
     concurrency_manager: ConcurrencyManager,
     workspace_base_dir: String,
     agent_manager: Arc<AgentManager>,
-    timeout_watchdog: Option<Arc<TimeoutWatchdog>>,
 }
 
 impl TaskExecutorService {
@@ -89,13 +88,7 @@ impl TaskExecutorService {
             concurrency_manager: ConcurrencyManager::new(),
             workspace_base_dir,
             agent_manager,
-            timeout_watchdog: None,
         }
-    }
-
-    /// Set the timeout watchdog (called after service initialization)
-    pub fn set_timeout_watchdog(&mut self, watchdog: Arc<TimeoutWatchdog>) {
-        self.timeout_watchdog = Some(watchdog);
     }
 
     /// Get available execution slots for a workspace
@@ -387,19 +380,6 @@ impl TaskExecutorService {
 
         info!(task_id = task_id, container_id = %container_id, "Agent spawned successfully in container");
 
-        // Register task with timeout watchdog
-        if let Some(watchdog) = &self.timeout_watchdog {
-            let execution = crate::services::TaskExecution {
-                task_id,
-                started_at: Instant::now(),
-                timeout_seconds: agent.timeout as u64,
-                container_id: container_id.clone(),
-                agent_pid: None, // We don't have the PID yet, will kill all opencode processes
-            };
-            watchdog.register_task(execution).await;
-            info!(task_id = task_id, timeout_seconds = agent.timeout, "Task registered with timeout watchdog");
-        }
-
         // Initialize agent and create session
         let session_id = agent_handle
             .initialize()
@@ -547,12 +527,6 @@ impl TaskExecutorService {
             warn!(task_id = task_id, error = %e, "Failed to shutdown agent gracefully");
         }
 
-        // Unregister task from timeout watchdog
-        if let Some(watchdog) = &self.timeout_watchdog {
-            watchdog.unregister_task(task_id).await;
-            info!(task_id = task_id, "Task unregistered from timeout watchdog");
-        }
-
         // Handle the prompt result and update task status accordingly
         match result {
             Ok(()) => {
@@ -592,12 +566,6 @@ impl TaskExecutorService {
                     let _ = self.agent_manager.force_kill_agent(&task_id_str).await;
                 }
             }
-        }
-
-        // Unregister task from timeout watchdog
-        if let Some(watchdog) = &self.timeout_watchdog {
-            watchdog.unregister_task(task_id).await;
-            info!(task_id = task_id, "Task unregistered from timeout watchdog (cancelled)");
         }
 
         // Update task status to cancelled

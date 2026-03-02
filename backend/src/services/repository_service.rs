@@ -26,7 +26,6 @@ use crate::state::AppState;
 pub struct RepositoryService {
     db: DatabaseConnection,
     config: Arc<crate::config::AppConfig>,
-    docker: Option<crate::services::DockerService>,
 }
 
 impl RepositoryService {
@@ -34,9 +33,8 @@ impl RepositoryService {
     pub fn new(
         db: DatabaseConnection,
         config: Arc<crate::config::AppConfig>,
-        docker: Option<crate::services::DockerService>,
     ) -> Self {
-        Self { db, config, docker }
+        Self { db, config }
     }
 
     /// Get a clone of the database connection
@@ -430,73 +428,10 @@ impl RepositoryService {
             }
         }
 
-        // 8. Create Docker container for workspace if Docker is available
-        // Find the workspace for this repository
-        let workspace = Workspace::find()
-            .filter(workspace::Column::RepositoryId.eq(repo_id))
-            .one(&self.db)
-            .await?;
-
-        if let Some(workspace) = workspace {
-            // Check if container already exists
-            if workspace.container_id.is_none() {
-                tracing::info!(
-                    repository_id = repo_id,
-                    workspace_id = workspace.id,
-                    "Creating Docker container for workspace"
-                );
-
-                // Create WorkspaceService and create container for existing workspace
-                let workspace_service = crate::services::WorkspaceService::new(
-                    self.db.clone(),
-                    self.docker.clone(),
-                );
-
-                match workspace_service
-                    .create_container_for_workspace(workspace.id)
-                    .await
-                {
-                    Ok((updated_workspace, container_opt)) => {
-                        if let Some(container) = container_opt {
-                            tracing::info!(
-                                repository_id = repo_id,
-                                workspace_id = updated_workspace.id,
-                                container_id = %container.container_id,
-                                "Docker container created successfully"
-                            );
-                        } else {
-                            tracing::warn!(
-                                repository_id = repo_id,
-                                workspace_id = updated_workspace.id,
-                                "Docker not available, workspace remains without container"
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            repository_id = repo_id,
-                            workspace_id = workspace.id,
-                            error = %e,
-                            "Failed to create Docker container for workspace"
-                        );
-                        // Don't return error - container creation failure shouldn't block initialization
-                    }
-                }
-            } else {
-                tracing::info!(
-                    repository_id = repo_id,
-                    workspace_id = workspace.id,
-                    container_id = ?workspace.container_id,
-                    "Container already exists for workspace"
-                );
-            }
-        } else {
-            tracing::warn!(
-                repository_id = repo_id,
-                "No workspace found for repository, skipping container creation"
-            );
-        }
-
+        // TODO: DevContainer integration - workspace container creation
+        // This section needs to be updated to use DevContainerService
+        // For now, containers will be created on-demand when tasks are executed
+        
         // 9. Re-fetch branches and update database
         let updated_branches = git_client
             .list_branches(owner, repo_name)
@@ -1239,7 +1174,7 @@ mod tests {
     // Helper function to create test service with default config
     fn create_test_service(db: DatabaseConnection) -> RepositoryService {
         let config = Arc::new(crate::config::AppConfig::default());
-        RepositoryService::new(db, config, None)
+        RepositoryService::new(db, config)
     }
 
     #[test]

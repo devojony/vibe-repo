@@ -16,7 +16,7 @@ use crate::entities::{
     workspace,
 };
 use crate::error::{Result, VibeRepoError};
-use crate::services::{BackgroundService, TaskExecutorService, TimeoutWatchdog};
+use crate::services::{BackgroundService, TaskExecutorService};
 use crate::state::AppState;
 
 /// Task scheduler configuration
@@ -43,7 +43,6 @@ pub struct TaskSchedulerService {
     config: SchedulerConfig,
     running: Arc<RwLock<bool>>,
     workspace_base_dir: String,
-    timeout_watchdog: Option<Arc<TimeoutWatchdog>>,
 }
 
 impl TaskSchedulerService {
@@ -58,13 +57,7 @@ impl TaskSchedulerService {
             config: config.unwrap_or_default(),
             running: Arc::new(RwLock::new(false)),
             workspace_base_dir,
-            timeout_watchdog: None,
         }
-    }
-
-    /// Set the timeout watchdog (called after service initialization)
-    pub fn set_timeout_watchdog(&mut self, watchdog: Arc<TimeoutWatchdog>) {
-        self.timeout_watchdog = Some(watchdog);
     }
 
     /// Poll for pending tasks and execute them
@@ -172,12 +165,7 @@ impl TaskSchedulerService {
         );
 
         // Execute tasks
-        let mut executor = TaskExecutorService::new(self.db.clone(), self.workspace_base_dir.clone());
-        
-        // Set timeout watchdog if available
-        if let Some(watchdog) = &self.timeout_watchdog {
-            executor.set_timeout_watchdog(watchdog.clone());
-        }
+        let executor = TaskExecutorService::new(self.db.clone(), self.workspace_base_dir.clone());
 
         for task in pending_tasks {
             info!(
@@ -271,7 +259,6 @@ impl BackgroundService for TaskSchedulerService {
         let config = self.config.clone();
         let running = self.running.clone();
         let workspace_base_dir = self.workspace_base_dir.clone();
-        let timeout_watchdog = self.timeout_watchdog.clone();
 
         tokio::task::spawn_blocking(move || {
             // Create a dedicated runtime for the scheduler
@@ -287,7 +274,6 @@ impl BackgroundService for TaskSchedulerService {
                     config: config.clone(),
                     running: running.clone(),
                     workspace_base_dir,
-                    timeout_watchdog,
                 };
 
                 let mut ticker = interval(Duration::from_secs(config.polling_interval_seconds));

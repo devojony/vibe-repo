@@ -26,7 +26,6 @@ async fn test_initialize_repository_fails_when_git_provider_unreachable() {
     let service = RepositoryService::new(
         db.clone(),
         Arc::new(vibe_repo::config::AppConfig::default()),
-        None,
     );
     let config = AppConfig::default();
 
@@ -94,7 +93,6 @@ async fn test_initialize_repository_without_webhook_config_fails_gracefully() {
     let service = RepositoryService::new(
         db.clone(),
         Arc::new(vibe_repo::config::AppConfig::default()),
-        None,
     );
 
     let repo = create_test_repository(
